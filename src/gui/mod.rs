@@ -9,6 +9,7 @@ use gpui_component::{
     Root, TitleBar,
     input::{InputEvent, InputState},
 };
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -16,6 +17,40 @@ use std::time::Duration;
 use crate::ch341::Ch341;
 use crate::ops::{self, Diagnosis, ProgressSink};
 use crate::prefs::Prefs;
+
+/// Interpret a search needle as either hex bytes (when condensed
+/// form is all-hex-digits + even length) or ASCII (otherwise).
+/// Mirrors the heuristic of an in-place hex editor's find-bar:
+///   `55 AA`         → `[0x55, 0xAA]`
+///   `NVIDIA`        → ASCII bytes for "NVIDIA"
+///   `ABCD`          → `[0xAB, 0xCD]` (even-length, all hex wins)
+///   `ABC`           → ASCII bytes for "ABC" (odd-length defaults to ASCII)
+pub fn parse_hex_needle(s: &str) -> Vec<u8> {
+    let condensed: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    if !condensed.is_empty()
+        && condensed.len() % 2 == 0
+        && condensed.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        (0..condensed.len())
+            .step_by(2)
+            .filter_map(|i| u8::from_str_radix(&condensed[i..i + 2], 16).ok())
+            .collect()
+    } else {
+        s.as_bytes().to_vec()
+    }
+}
+
+/// Case-insensitive byte match for ASCII letters; exact for everything
+/// else. Used so a search for `power` highlights `Power` runs without
+/// silently doing the wrong thing for binary patterns like `55 AA`
+/// where bytes aren't letters at all.
+fn byte_match_ci(a: u8, b: u8) -> bool {
+    if a.is_ascii_alphabetic() && b.is_ascii_alphabetic() {
+        a.eq_ignore_ascii_case(&b)
+    } else {
+        a == b
+    }
+}
 
 /// Walk the byte slice and emit runs of printable ASCII (0x20..=0x7E)
 /// at least `min_len` characters long. Lives here so both pick_hex_file
@@ -177,6 +212,12 @@ pub struct AppView {
     /// Recomputing per-render was a bottleneck on large files
     /// (multi-MB chip dumps). Cache invalidated on file change.
     pub hex_strings: Option<Arc<Vec<(usize, String)>>>,
+    /// Set of byte positions that are part of a hex-view-search match.
+    /// Recomputed on file change and on every search-term change.
+    pub hex_byte_matches: Arc<HashSet<usize>>,
+    /// First match position, for the press-Enter "go to first match"
+    /// behaviour. None when there are no matches or no needle.
+    pub hex_first_match: Option<usize>,
     /// Preserves the hex view's scroll position across re-renders
     /// (filter changes, toggling Strings, etc.).
     pub hex_scroll: UniformListScrollHandle,
@@ -191,12 +232,9 @@ pub struct AppView {
     /// Live-updated filter for the Strings list. Synced from the Input
     /// widget via the subscription stored in `_subscriptions`.
     pub hex_search_term: String,
-    /// Managed-state entity for the search Input widget. Lives on
-    /// AppView because gpui-component widgets read/write through an
-    /// Entity; sharing it across renders keeps cursor + IME state.
+    /// Managed-state entity for the unified Find input. Live typing
+    /// drives highlight + filter; Enter dispatches to jump-or-find.
     pub hex_search_state: Entity<InputState>,
-    /// Separate Input for the "jump to offset" field in the Hex pane.
-    pub jump_offset_state: Entity<InputState>,
     /// Keeps subscriptions alive for as long as AppView exists. Drop
     /// the subscription = dead callback = stale UI.
     _subscriptions: Vec<Subscription>,
@@ -209,10 +247,10 @@ pub struct AppView {
 
 impl AppView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let hex_search_state =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Filter strings…"));
-        let jump_offset_state = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Offset in hex, e.g. 0xFA00 or FA00")
+        let hex_search_state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(
+                "Find: text or hex bytes (e.g. NVIDIA, 55 AA) — or 0xOFFSET, Enter to jump",
+            )
         });
         // Bridge the Input's Change events into our own `hex_search_term`
         // String so panes::render can filter without needing the Entity.
@@ -223,21 +261,16 @@ impl AppView {
         let sub = cx.subscribe_in(
             &hex_search_state,
             window,
-            |this: &mut AppView, state, event: &InputEvent, _, cx| {
-                if matches!(event, InputEvent::Change) {
+            |this: &mut AppView, state, event: &InputEvent, _, cx| match event {
+                InputEvent::Change => {
                     this.hex_search_term = state.read(cx).value().to_string();
+                    this.recompute_hex_matches();
                     cx.notify();
                 }
-            },
-        );
-        let sub_jump = cx.subscribe_in(
-            &jump_offset_state,
-            window,
-            |this: &mut AppView, state, event: &InputEvent, _, cx| {
-                if matches!(event, InputEvent::PressEnter { .. }) {
-                    let raw = state.read(cx).value().to_string();
-                    this.jump_via_input(&raw, cx);
+                InputEvent::PressEnter { .. } => {
+                    this.find_enter(cx);
                 }
+                _ => {}
             },
         );
         Self {
@@ -255,14 +288,15 @@ impl AppView {
             hex_input_path: None,
             hex_bytes: None,
             hex_strings: None,
+            hex_byte_matches: Arc::new(HashSet::new()),
+            hex_first_match: None,
             hex_scroll: UniformListScrollHandle::new(),
             strings_scroll: UniformListScrollHandle::new(),
             hex_highlight_line: None,
             hex_show_strings: false,
             hex_search_term: String::new(),
             hex_search_state,
-            jump_offset_state,
-            _subscriptions: vec![sub, sub_jump],
+            _subscriptions: vec![sub],
             progress: Arc::new(SharedProgress::default()),
             prefs: Prefs::load(),
         }
@@ -319,6 +353,65 @@ impl AppView {
             self.write_armed = false;
         }
         cx.notify();
+    }
+
+    /// Refresh `hex_byte_matches` + `hex_first_match` from the current
+    /// `hex_bytes` and `hex_search_term`. Called from the search
+    /// subscription and after loading a new file.
+    fn recompute_hex_matches(&mut self) {
+        let Some(bytes) = self.hex_bytes.as_ref() else {
+            self.hex_byte_matches = Arc::new(HashSet::new());
+            self.hex_first_match = None;
+            return;
+        };
+        let pattern = parse_hex_needle(&self.hex_search_term);
+        if pattern.is_empty() || bytes.len() < pattern.len() {
+            self.hex_byte_matches = Arc::new(HashSet::new());
+            self.hex_first_match = None;
+            return;
+        }
+        let pat_len = pattern.len();
+        let mut set = HashSet::new();
+        let mut first: Option<usize> = None;
+        for i in 0..=bytes.len() - pat_len {
+            let hit = (0..pat_len).all(|j| byte_match_ci(bytes[i + j], pattern[j]));
+            if hit {
+                if first.is_none() {
+                    first = Some(i);
+                }
+                for j in 0..pat_len {
+                    set.insert(i + j);
+                }
+            }
+        }
+        self.hex_byte_matches = Arc::new(set);
+        self.hex_first_match = first;
+    }
+
+    /// PressEnter on the find input. If the value begins with `0x`,
+    /// treat as an explicit offset jump (existing `jump_via_input`).
+    /// Otherwise scroll to the first byte position that matches the
+    /// current needle.
+    pub fn find_enter(&mut self, cx: &mut Context<Self>) {
+        let raw = self.hex_search_state.read(cx).value().to_string();
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
+            self.jump_via_input(trimmed, cx);
+            return;
+        }
+        match self.hex_first_match {
+            Some(first) => {
+                self.push_log(format!("Find: first match at 0x{:X}", first));
+                self.jump_to_hex_offset(first, cx);
+            }
+            None => {
+                self.push_log(format!("Find: no match for \u{201C}{}\u{201D}", trimmed));
+                cx.notify();
+            }
+        }
     }
 
     /// Swap the Hex pane between raw-bytes view and extracted-strings view.
@@ -428,6 +521,7 @@ impl AppView {
                         this.hex_input_path = Some(path);
                         this.hex_bytes = Some(bytes_arc);
                         this.hex_strings = Some(Arc::new(strings));
+                        this.recompute_hex_matches();
                     }
                     Err(e) => this.push_log(format!("Hex view load failed: {e}")),
                 }
@@ -887,13 +981,13 @@ impl Render for AppView {
                                     hex_path: self.hex_input_path.as_deref(),
                                     hex_bytes: self.hex_bytes.clone(),
                                     hex_strings: self.hex_strings.clone(),
+                                    hex_byte_matches: self.hex_byte_matches.clone(),
                                     hex_scroll: self.hex_scroll.clone(),
                                     strings_scroll: self.strings_scroll.clone(),
                                     hex_highlight_line: self.hex_highlight_line,
                                     hex_show_strings: self.hex_show_strings,
                                     hex_search_term: self.hex_search_term.as_str(),
                                     hex_search_state: &self.hex_search_state,
-                                    jump_offset_state: &self.jump_offset_state,
                                     spi_speed_khz: self.prefs.spi_speed_khz,
                                     prefs_path: prefs_path_buf.as_deref(),
                                 },

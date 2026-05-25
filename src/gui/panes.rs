@@ -5,6 +5,7 @@ use gpui::{
     prelude::FluentBuilder, px, uniform_list,
 };
 use gpui_component::input::{Input, InputState};
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -18,13 +19,13 @@ pub struct PaneInputs<'a> {
     pub hex_path: Option<&'a Path>,
     pub hex_bytes: Option<Arc<Vec<u8>>>,
     pub hex_strings: Option<Arc<Vec<(usize, String)>>>,
+    pub hex_byte_matches: Arc<HashSet<usize>>,
     pub hex_scroll: UniformListScrollHandle,
     pub strings_scroll: UniformListScrollHandle,
     pub hex_highlight_line: Option<usize>,
     pub hex_show_strings: bool,
     pub hex_search_term: &'a str,
     pub hex_search_state: &'a Entity<InputState>,
-    pub jump_offset_state: &'a Entity<InputState>,
     pub spi_speed_khz: u32,
     pub prefs_path: Option<&'a Path>,
 }
@@ -45,13 +46,13 @@ pub fn render(
             inputs.hex_path,
             inputs.hex_bytes,
             inputs.hex_strings,
+            inputs.hex_byte_matches,
             inputs.hex_scroll,
             inputs.strings_scroll,
             inputs.hex_highlight_line,
             inputs.hex_show_strings,
             inputs.hex_search_term,
             inputs.hex_search_state,
-            inputs.jump_offset_state,
             cx,
         )
         .into_any_element(),
@@ -390,13 +391,13 @@ fn hex_pane(
     path: Option<&Path>,
     bytes: Option<Arc<Vec<u8>>>,
     strings: Option<Arc<Vec<(usize, String)>>>,
+    byte_matches: Arc<HashSet<usize>>,
     hex_scroll: UniformListScrollHandle,
     strings_scroll: UniformListScrollHandle,
     highlight_line: Option<usize>,
     show_strings: bool,
     search_term: &str,
     search_state: &Entity<InputState>,
-    jump_state: &Entity<InputState>,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let mut col = div()
@@ -408,10 +409,11 @@ fn hex_pane(
         .child(heading("Hex viewer"))
         .child(body(
             "Inspect any binary file in hex+ASCII, or extract its \
-             printable strings (`strings`-style, ≥4 chars). Browse to \
-             pick a file — typically a flash dump from the Read pane. \
-             Hex view is clamped to the first 16 KB; strings view scans \
-             the whole file.",
+             printable strings (≥4 chars). Browse to pick a file. The \
+             Find bar below works in both modes — typing live-highlights \
+             matching bytes in Hex and filters the Strings list. Press \
+             Enter on a `0xOFFSET` value to jump to that address; on a \
+             pattern, Enter jumps to the first match.",
         ))
         .child(file_picker_row(
             path,
@@ -420,54 +422,16 @@ fn hex_pane(
             cx,
             |this, cx| this.pick_hex_file(cx),
         ))
+        // Unified Find input — outside the tab so it applies to both
+        // Hex and Strings views. Force dark text because the Input's
+        // default white background otherwise renders the typed text
+        // invisible against the dark theme's inherited foreground.
         .child(
             div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_3()
-                .child(hex_mode_toggle(show_strings, cx))
-                // Search input only appears in Strings mode — it's a
-                // no-op in Hex view and the placeholder calling that
-                // out felt cluttered. Input has its own background +
-                // border styling; an extra wrapper makes the wrapper's
-                // edges peek out as an artifact.
-                .when(show_strings, |row| {
-                    // Input has a white background by default; without
-                    // overriding text_color it inherits the dark theme's
-                    // foreground (light) → invisible typing on white.
-                    // Force dark text on the input only.
-                    row.child(
-                        div()
-                            .flex_1()
-                            .text_color(theme::bench_black())
-                            .child(Input::new(search_state)),
-                    )
-                }),
+                .text_color(theme::bench_black())
+                .child(Input::new(search_state)),
         )
-        .child(
-            // Jump-to-offset row. Always present (lets you punch in an
-            // address in either Hex or Strings mode — jump always lands
-            // in Hex view).
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_3()
-                .child(
-                    div()
-                        .w(px(70.0))
-                        .text_size(px(11.0))
-                        .text_color(theme::text_tertiary())
-                        .child("JUMP TO"),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .text_color(theme::bench_black())
-                        .child(Input::new(jump_state)),
-                ),
-        );
+        .child(hex_mode_toggle(show_strings, cx));
 
     if let Some(data_arc) = bytes {
         let data: &[u8] = data_arc.as_slice();
@@ -525,7 +489,7 @@ fn hex_pane(
                         .text_color(theme::text_tertiary())
                         .child(footer),
                 )
-                .child(hex_view(data_arc, hex_scroll, highlight_line));
+                .child(hex_view(data_arc, hex_scroll, highlight_line, byte_matches));
         }
     } else {
         col = col.child(
@@ -710,6 +674,7 @@ fn hex_view(
     bytes: Arc<Vec<u8>>,
     scroll: UniformListScrollHandle,
     highlight_line: Option<usize>,
+    byte_matches: Arc<HashSet<usize>>,
 ) -> impl IntoElement {
     let line_count = bytes.len().div_ceil(16);
     div()
@@ -729,7 +694,7 @@ fn hex_view(
                     .map(|i| {
                         let start = i * 16;
                         let end = (start + 16).min(bytes.len());
-                        let row = hex_row(start, &bytes[start..end]);
+                        let row = hex_row(start, &bytes[start..end], &byte_matches);
                         if Some(i) == highlight_line {
                             // Highlight = bg tint only; per-byte text
                             // colors set inside the row stay intact
@@ -754,7 +719,7 @@ fn hex_view(
 ///   - mid   (control + high bytes): structured data, less prominent
 ///     than text but more than padding
 /// ASCII column on the right uses the same brightness mapping.
-fn hex_row(offset: usize, chunk: &[u8]) -> gpui::Div {
+fn hex_row(offset: usize, chunk: &[u8], matches: &HashSet<usize>) -> gpui::Div {
     let mut row = div()
         .h(px(16.0))
         .flex()
@@ -766,22 +731,33 @@ fn hex_row(offset: usize, chunk: &[u8]) -> gpui::Div {
                 .child(format!("{:08X}  ", offset)),
         );
 
-    // Hex columns: 16 byte slots, extra gap after the 8th.
+    // Hex columns: 16 byte slots, extra gap after the 8th. Matched
+    // bytes (search hits) get the accent-blue color + tint background.
     for i in 0..16 {
         if i == 8 {
             row = row.child(div().child(" "));
         }
         let cell = if let Some(&b) = chunk.get(i) {
-            div()
-                .text_color(hex_color_for(b))
-                .child(format!("{:02X} ", b))
+            let pos = offset + i;
+            let is_match = matches.contains(&pos);
+            let color = if is_match {
+                theme::accent_blue()
+            } else {
+                hex_color_for(b)
+            };
+            let mut d = div().text_color(color).child(format!("{:02X} ", b));
+            if is_match {
+                d = d.bg(theme::accent_blue_tint());
+            }
+            d
         } else {
             div().child("   ")
         };
         row = row.child(cell);
     }
 
-    // ASCII column: separator + 16 chars + separator.
+    // ASCII column: separator + 16 chars + separator. Same match
+    // highlighting as the hex column.
     row = row.child(
         div()
             .text_color(theme::text_tertiary())
@@ -789,15 +765,26 @@ fn hex_row(offset: usize, chunk: &[u8]) -> gpui::Div {
     );
     for i in 0..16 {
         let cell = if let Some(&b) = chunk.get(i) {
-            if (0x20..0x7F).contains(&b) {
-                div()
-                    .text_color(theme::text_primary())
-                    .child((b as char).to_string())
+            let pos = offset + i;
+            let is_match = matches.contains(&pos);
+            let is_printable = (0x20..0x7F).contains(&b);
+            let glyph = if is_printable {
+                (b as char).to_string()
             } else {
-                div()
-                    .text_color(theme::text_tertiary())
-                    .child(".".to_string())
+                ".".to_string()
+            };
+            let color = if is_match {
+                theme::accent_blue()
+            } else if is_printable {
+                theme::text_primary()
+            } else {
+                theme::text_tertiary()
+            };
+            let mut d = div().text_color(color).child(glyph);
+            if is_match {
+                d = d.bg(theme::accent_blue_tint());
             }
+            d
         } else {
             div().child(" ".to_string())
         };
