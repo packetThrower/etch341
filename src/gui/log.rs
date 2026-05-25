@@ -14,7 +14,7 @@ pub fn render(lines: &[LogLine], scroll: &ScrollHandle) -> impl IntoElement {
     // content rather than the viewport, which looks "backwards".
     div()
         .relative()
-        .h(px(240.0))
+        .h(px(180.0))
         .border_t_1()
         .border_color(theme::workshop_glass_strong())
         .bg(theme::bench_black())

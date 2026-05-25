@@ -407,6 +407,13 @@ fn hex_pane(
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let mut col = div()
+        // Absorb the pane wrapper's height via `flex_1` so the inner
+        // hex_view's own `flex_1` has something definite to claim.
+        // `min_h(0)` keeps flex from refusing to shrink when the
+        // window is small.
+        .flex_1()
+        .min_h(px(0.0))
+        .w_full()
         .flex()
         .flex_col()
         .gap_3()
@@ -415,11 +422,11 @@ fn hex_pane(
         .child(heading("Hex viewer"))
         .child(body(
             "Inspect any binary file in hex+ASCII, or extract its \
-             printable strings (≥4 chars). Browse to pick a file. The \
-             Find bar below works in both modes — typing live-highlights \
-             matching bytes in Hex and filters the Strings list. Press \
-             Enter on a `0xOFFSET` value to jump to that address; on a \
-             pattern, Enter jumps to the first match.",
+             printable strings (≥4 chars). The Find bar below works in \
+             both modes — typing highlights matching bytes in Hex and \
+             filters the Strings list. Press Enter on `0xOFFSET` to jump \
+             to that address; on a pattern, Enter jumps to the first \
+             match. Chevrons step between matches.",
         ))
         .child(file_picker_row(
             path,
@@ -654,32 +661,22 @@ fn strings_view(
 ) -> impl IntoElement {
     let matched_arc = Arc::new(matched);
     let count = matched_arc.len();
-    div()
-        .h(px(400.0))
-        .border_1()
-        .border_color(theme::workshop_glass_strong())
-        .rounded(px(6.0))
-        .bg(theme::bench_black())
-        .px_3()
-        .py_2()
-        .font_family("Menlo")
-        .text_size(px(11.0))
-        .text_color(theme::text_secondary())
-        .child(
-            uniform_list("strings-list", count, move |range, _, _| {
+    // Same shape as `hex_view`: style chained directly on the
+    // uniform_list so its flex_1 sees the hex_pane parent.
+    uniform_list("strings-list", count, move |range, _, _| {
                 range
                     .map(|virtual_i| {
                         let real_i = matched_arc[virtual_i];
                         let (offset, s) = &all[real_i];
                         let offset_val = *offset;
                         let weak = weak_view.clone();
-                        div()
+                        let mut row = div()
                             .id(("string-row", virtual_i))
                             .flex()
                             .flex_row()
                             .gap_3()
                             .cursor_pointer()
-                            .hover(|d| d.bg(theme::workshop_glass()))
+                            .hover(|d| d.bg(theme::workshop_glass_strong()))
                             .child(
                                 div()
                                     .text_color(theme::accent_blue())
@@ -691,13 +688,29 @@ fn strings_view(
                                     this.jump_to_hex_offset(offset_val, cx);
                                 })
                                 .ok();
-                            })
+                            });
+                        // Ledger-paper stripe — every other row gets a
+                        // subtle bg to track horizontally without losing
+                        // your spot.
+                        if virtual_i % 2 == 1 {
+                            row = row.bg(theme::workshop_glass());
+                        }
+                        row
                     })
                     .collect()
-            })
-            .h_full()
-            .track_scroll(&scroll),
-        )
+    })
+    .flex_1()
+    .min_h(px(0.0))
+    .border_1()
+    .border_color(theme::workshop_glass_strong())
+    .rounded(px(6.0))
+    .bg(theme::bench_black())
+    .px_3()
+    .py_2()
+    .font_family("Menlo")
+    .text_size(px(11.0))
+    .text_color(theme::text_secondary())
+    .track_scroll(&scroll)
 }
 
 /// Render one strings-view row with the matched substring (if any)
@@ -755,39 +768,41 @@ fn hex_view(
     byte_matches: Arc<HashSet<usize>>,
 ) -> impl IntoElement {
     let line_count = bytes.len().div_ceil(16);
-    div()
-        .h(px(400.0))
-        .border_1()
-        .border_color(theme::workshop_glass_strong())
-        .rounded(px(6.0))
-        .bg(theme::bench_black())
-        .px_3()
-        .py_2()
-        .font_family("Menlo")
-        .text_size(px(11.0))
-        .text_color(theme::text_secondary())
-        .child(
-            uniform_list("hex-lines", line_count, move |range, _, _| {
-                range
-                    .map(|i| {
-                        let start = i * 16;
-                        let end = (start + 16).min(bytes.len());
-                        let row = hex_row(start, &bytes[start..end], &byte_matches);
-                        if Some(i) == highlight_line {
-                            // Highlight = bg tint only; per-byte text
-                            // colors set inside the row stay intact
-                            // (gpui's per-element text_color wins over
-                            // a parent override).
-                            row.bg(theme::accent_blue_tint())
-                        } else {
-                            row
-                        }
-                    })
-                    .collect()
+    // Style applied directly to `uniform_list`. Earlier shape had the
+    // styling on a wrapper div and `flex_1` on the inner uniform_list
+    // — but uniform_list's internal layout doesn't honour `flex_1`
+    // through a non-flex wrapper, so it collapsed to the smallest
+    // row. Hoisting the style to the uniform_list itself, with
+    // `flex_1 + min_h(0)` so its hex_pane parent's flex_col allocates
+    // it the remaining vertical space, makes it actually fill.
+    uniform_list("hex-lines", line_count, move |range, _, _| {
+        range
+            .map(|i| {
+                let start = i * 16;
+                let end = (start + 16).min(bytes.len());
+                let row = hex_row(start, &bytes[start..end], &byte_matches);
+                if Some(i) == highlight_line {
+                    row.bg(theme::accent_blue_tint())
+                } else if (i / 8) % 2 == 1 {
+                    row.bg(theme::workshop_glass())
+                } else {
+                    row
+                }
             })
-            .h_full()
-            .track_scroll(&scroll),
-        )
+            .collect()
+    })
+    .flex_1()
+    .min_h(px(0.0))
+    .border_1()
+    .border_color(theme::workshop_glass_strong())
+    .rounded(px(6.0))
+    .bg(theme::bench_black())
+    .px_3()
+    .py_2()
+    .font_family("Menlo")
+    .text_size(px(11.0))
+    .text_color(theme::text_secondary())
+    .track_scroll(&scroll)
 }
 
 /// Render one hex line as a flex_row of small text spans, each with

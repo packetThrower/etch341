@@ -91,7 +91,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     app.run(|cx: &mut App| {
         gpui_component::init(cx);
 
-        let bounds = Bounds::centered(None, gpui::size(px(1000.0), px(700.0)), cx);
+        let bounds = Bounds::centered(None, gpui::size(px(1200.0), px(800.0)), cx);
         if let Err(err) = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -1012,6 +1012,13 @@ impl Render for AppView {
                             .min_h(px(0.0))
                             .min_w(px(0.0))
                             .overflow_hidden()
+                            // The pane wrapper has to be a flex
+                            // container itself so any pane that wants
+                            // `flex_1` on its inner content (notably
+                            // the Hex viewer's scrollable area) has
+                            // something to flex against.
+                            .flex()
+                            .flex_col()
                             .child(panes::render(
                                 self.selected,
                                 panes::PaneInputs {
