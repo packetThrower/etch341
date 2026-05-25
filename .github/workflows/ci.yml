@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "**/*.md"
+      - "LICENSE"
+      - ".gitignore"
+      - ".editorconfig"
+      - ".github/workflows/actionlint.yml"
+      - ".github/dependabot.yml"
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - "**/*.md"
+      - "LICENSE"
+      - ".gitignore"
+      - ".editorconfig"
+      - ".github/workflows/actionlint.yml"
+      - ".github/dependabot.yml"
+  # Lets release.yml run the same matrix without duplicating the
+  # matrix definition; release.yml gates on a green CI run before
+  # it builds the actual release artifacts.
+  workflow_call:
+
+# CI only reads the repo — no releases, no commits, no PR writes.
+# Pin the token to the minimum so a compromised action in the matrix
+# can't do anything with it. release.yml's `ci` job calls this
+# workflow and inherits this same read-only ceiling.
+permissions:
+  contents: read
+
+# Cancel superseded PR runs — a re-push to a PR shouldn't leave the
+# previous run burning all five matrix runners. Keyed on the PR
+# number for `pull_request`, the ref otherwise. Cancelling is gated
+# to PRs so pushes to `main` and the release-triggered `workflow_call`
+# run (which arrives as event_name: push) always finish.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  rust:
+    name: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS — Apple Silicon. macos-13/14 Intel runners are
+          # deprecated; release.yml cross-compiles the x86_64 macOS
+          # binary from this same arm64 runner instead of using a
+          # separate Intel image.
+          - runner: macos-latest
+            arch: arm64
+          # Windows — x64 + arm64. windows-11-arm gives us a native
+          # arm64 runner; no cross-compile dance.
+          - runner: windows-latest
+            arch: amd64
+          - runner: windows-11-arm
+            arch: arm64
+          # Linux — amd64 + arm64. ubuntu-24.04-arm uses Cobalt 100
+          # silicon. Both ship Ubuntu 24.04 which has libxkbcommon
+          # 1.6 and libwayland 1.22, current enough for gpui_linux
+          # to compile from a clean checkout.
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      # Third-party actions are pinned to a full commit SHA — a
+      # mutable tag like `@v6` can be repointed at malicious code by
+      # a repo or token compromise. The `# vX.Y.Z` comment is what
+      # Dependabot reads + bumps when a real release ships.
+      # `persist-credentials: false` — this job never `git push`es,
+      # so the token doesn't need to be written into `.git/config`
+      # where a later compromised step could read it.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # `dtolnay/rust-toolchain` selects the channel from the ref
+      # name (`@stable`), so a SHA pin loses that signal — the
+      # `toolchain:` input carries it explicitly instead.
+      - name: Setup Rust (stable + clippy + rustfmt)
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      # Formatting is platform-independent, so the check only runs on
+      # one matrix entry. ubuntu-latest is the fastest to boot and
+      # gates the rest of the matrix on fast-fail — placing this before
+      # the platform deps install means a fmt regression surfaces in
+      # seconds rather than after an apt-get pass.
+      - name: cargo fmt --check
+        if: matrix.runner == 'ubuntu-latest'
+        run: cargo fmt --check
+
+      # Linux gpui deps. libusb-1.0 is NOT here because rusb is
+      # configured with the `vendored` feature in Cargo.toml — libusb
+      # gets compiled into the binary statically, so no dynamic-link
+      # dep at runtime or build time. xkbcommon / wayland / x11 / xcb
+      # are gpui_linux's compile-time pkg-config deps; fontconfig +
+      # freetype are needed for font enumeration. Vulkan loads at
+      # runtime via ash's dlopen so no SDK install needed for `cargo
+      # build` / `cargo test`.
+      - name: Install Linux deps
+        if: startsWith(matrix.runner, 'ubuntu-')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev \
+            libx11-dev libxcb1-dev libxcb-randr0-dev \
+            libxcb-xkb-dev libxcb-cursor-dev libxcb-shape0-dev \
+            libxcb-xfixes0-dev libxcb-render0-dev \
+            libfontconfig1-dev libfreetype-dev \
+            pkg-config
+
+      # macOS: pkg-config for any build-script probing. libusb is
+      # vendored by rusb so no brew install libusb.
+      - name: Install macOS deps
+        if: startsWith(matrix.runner, 'macos-')
+        run: brew install pkg-config
+
+      # Windows: nothing extra. The gpui DirectX backend and rusb
+      # (via libusb1-sys's vendored build) link against libraries
+      # that ship with the Windows SDK image.
+
+      # CLI-only build first — fast, exercises the non-GUI code paths
+      # (cli.rs / ops.rs / i2c_ops.rs / inspect.rs) without dragging
+      # in the gpui graph. Catches feature-gate regressions where a
+      # `#[cfg(feature = "gui")]` is missing and the CLI build can't
+      # find a symbol that lives in gui/.
+      - name: cargo build --no-default-features (CLI)
+        run: cargo build --no-default-features
+
+      # Full GUI build via clippy. clippy is a strict superset of
+      # `cargo check`, so a separate check step is wasted work.
+      # `--all-targets` widens the lint pass to tests + examples.
+      - name: cargo clippy (full, with GUI)
+        run: cargo clippy --all-targets -- -D warnings
+
+      # Tests live in the bin crate's modules; `--lib` would error
+      # ("no library targets found"). The default invocation picks up
+      # every `#[cfg(test)] mod tests` under src/.
+      - name: cargo test
+        run: cargo test

@@ -1,0 +1,20 @@
+# Dependabot keeps the SHA-pinned GitHub Actions in
+# .github/workflows/*.yml current. It opens a PR for each action
+# that has a newer release, with the SHA bumped and the `# vX.Y.Z`
+# comment refreshed. Without this, the pinned SHAs go stale and
+# we miss action security fixes.
+#
+# Cargo deps stay out of dependabot's scope on purpose — the gpui /
+# gpui-component git pins need coordinated manual bumps (see the
+# Cargo.toml comments about why rev pins matter), and crates.io
+# bumps are cheap enough to do during normal development.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"

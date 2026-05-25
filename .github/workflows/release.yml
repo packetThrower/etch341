@@ -1,0 +1,394 @@
+name: Release
+
+on:
+  push:
+    tags:
+      # Stable SemVer: v0.1.0, v1.2.3.
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      # Pre-release SemVer: v0.2.0-beta.1, v1.0.0-rc.2, etc. The
+      # release job inspects the tag and flips prerelease=true on
+      # the GitHub Release when a hyphen is present, so these show
+      # up with the "Pre-release" label and don't displace the
+      # "Latest release" pointer.
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+  # On-demand build for any branch — produces the same per-platform
+  # artifact set as a tag-triggered run, but the `release` job is
+  # gated off (see `if: github.event_name == 'push'` there) so no
+  # GitHub Release lands. Artifacts live for 90 days on the
+  # workflow-run page; download via `gh run download <run-id>` or
+  # the Actions UI. Useful for verifying a binary on real hardware
+  # before tagging.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          Version string used for filenames + Cargo.toml patching,
+          with no leading "v" (e.g. "0.2.0-dev1"). A hyphen in the
+          value is treated as a pre-release marker the same way a
+          tag would be.
+        required: true
+        default: '0.0.0-dev'
+
+# No workflow-level `permissions:` — each job declares its own so
+# the `contents: write` needed to publish the release is scoped to
+# the one job that actually creates it. Build jobs and the ci call
+# only read the repo.
+
+# Workflow-level effective version. Resolves to the dispatch input
+# when present, otherwise the ref name (tag for push triggers).
+# Steps that need a version read `$EFFECTIVE_VERSION` /
+# `$env:EFFECTIVE_VERSION` / `env.EFFECTIVE_VERSION` so the dispatch
+# path falls through correctly without per-step plumbing.
+env:
+  EFFECTIVE_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+
+# Queue, don't cancel: a mid-flight release shouldn't be interrupted
+# by a retag of the same version — risk of half-uploaded artifacts.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    # Reusable workflow; ci.yml declares its own `contents: read`.
+    uses: ./.github/workflows/ci.yml
+
+  # Single macOS build job that cross-compiles BOTH arm64 and x86_64
+  # binaries on the Apple Silicon runner. gpui's native deps (ring,
+  # psm) and rusb's vendored libusb all cross-compile cleanly between
+  # the two Apple targets — cc-rs reads CARGO_BUILD_TARGET and picks
+  # the right cross-compiler from clang's universal macOS toolchain.
+  build-macos:
+    needs: [ci]
+    permissions:
+      contents: read
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust (stable + both Apple targets)
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      # `shared-key: release` makes successive release-tag runs share
+      # the release-mode `target/` cache across tags — v0.2.0 inherits
+      # v0.1.0's compiled object files for the same Cargo.lock hash,
+      # dropping the cold compile to minutes. Cross-compile puts each
+      # arch's output under its own `target/<triple>/release` subdir
+      # so the single cache covers both. CI uses the default (no
+      # shared-key) so its debug-mode cache stays separate.
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: release
+          cache-on-failure: true
+
+      - name: Install macOS build deps
+        run: brew install pkg-config
+
+      - name: Patch version
+        run: |
+          VERSION="${EFFECTIVE_VERSION#v}"
+          # Awk over sed: BSD sed's `1,/.../{s/.../}` block syntax
+          # bombs on macOS while GNU sed accepts it. Awk handles the
+          # in-[package]-section scoping portably across BSD/macOS
+          # and GNU/Linux.
+          awk -v v="$VERSION" '
+            /^\[/ { in_pkg = ($0 == "[package]") }
+            in_pkg && /^version = / && !done { print "version = \"" v "\""; done=1; next }
+            { print }
+          ' Cargo.toml > Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
+          echo "Building version: $VERSION"
+
+      - name: Build arm64
+        env:
+          CARGO_BUILD_TARGET: aarch64-apple-darwin
+        run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Build amd64 (cross-compile)
+        env:
+          CARGO_BUILD_TARGET: x86_64-apple-darwin
+        run: cargo build --release --target x86_64-apple-darwin
+
+      - name: Stage artifacts
+        run: |
+          VERSION="${EFFECTIVE_VERSION#v}"
+          mkdir -p release-artifacts
+          for pair in "aarch64-apple-darwin:arm64" "x86_64-apple-darwin:amd64"; do
+            triple="${pair%%:*}"
+            arch="${pair##*:}"
+            staging="staging-${arch}"
+            mkdir -p "${staging}"
+            cp "target/${triple}/release/etch341" "${staging}/etch341"
+            strip "${staging}/etch341" || true
+            cp LICENSE README.md "${staging}/"
+            tar -czvf "release-artifacts/etch341-${VERSION}-${arch}-macos.tar.gz" \
+              -C "${staging}" .
+          done
+          ls -la release-artifacts/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-package
+          path: release-artifacts/*
+
+  build-linux:
+    needs: [ci]
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+            triple: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            triple: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: release-${{ matrix.arch }}
+          cache-on-failure: true
+
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev \
+            libx11-dev libxcb1-dev libxcb-randr0-dev \
+            libxcb-xkb-dev libxcb-cursor-dev libxcb-shape0-dev \
+            libxcb-xfixes0-dev libxcb-render0-dev \
+            libfontconfig1-dev libfreetype-dev \
+            pkg-config
+
+      - name: Patch version
+        run: |
+          VERSION="${EFFECTIVE_VERSION#v}"
+          awk -v v="$VERSION" '
+            /^\[/ { in_pkg = ($0 == "[package]") }
+            in_pkg && /^version = / && !done { print "version = \"" v "\""; done=1; next }
+            { print }
+          ' Cargo.toml > Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
+          echo "Building version: $VERSION"
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.triple }}
+
+      - name: Stage artifact
+        run: |
+          VERSION="${EFFECTIVE_VERSION#v}"
+          mkdir -p release-artifacts staging
+          cp "target/${{ matrix.triple }}/release/etch341" staging/etch341
+          strip staging/etch341 || true
+          cp LICENSE README.md staging/
+          # Ship the udev rule alongside the binary so Linux users
+          # have it in the same archive. The README's install
+          # instructions already reference its install path.
+          mkdir -p staging/platform/udev
+          cp platform/udev/99-ch341a.rules staging/platform/udev/
+          tar -czvf "release-artifacts/etch341-${VERSION}-${{ matrix.arch }}-linux.tar.gz" \
+            -C staging .
+          ls -la release-artifacts/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-${{ matrix.arch }}-package
+          path: release-artifacts/*
+
+  build-windows:
+    needs: [ci]
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            arch: amd64
+            triple: x86_64-pc-windows-msvc
+          - runner: windows-11-arm
+            arch: arm64
+            triple: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: release-${{ matrix.arch }}
+          cache-on-failure: true
+
+      # PowerShell because the runner is Windows. The shared awk
+      # one-liner from the macOS/Linux jobs doesn't exist here, so
+      # rebuild the version-patching in PS.
+      - name: Patch version
+        shell: pwsh
+        run: |
+          $version = $env:EFFECTIVE_VERSION -replace '^v', ''
+          $content = Get-Content Cargo.toml
+          $inPkg = $false
+          $done = $false
+          $out = foreach ($line in $content) {
+            if ($line -match '^\[') { $inPkg = ($line -eq '[package]') }
+            if ($inPkg -and -not $done -and $line -match '^version = ') {
+              "version = `"$version`""
+              $done = $true
+            } else {
+              $line
+            }
+          }
+          $out | Set-Content Cargo.toml
+          Write-Host "Building version: $version"
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.triple }}
+
+      - name: Stage artifact
+        shell: pwsh
+        run: |
+          $version = $env:EFFECTIVE_VERSION -replace '^v', ''
+          New-Item -ItemType Directory -Force -Path release-artifacts | Out-Null
+          New-Item -ItemType Directory -Force -Path staging | Out-Null
+          Copy-Item "target/${{ matrix.triple }}/release/etch341.exe" "staging/etch341.exe"
+          Copy-Item LICENSE,README.md staging/
+          $zip = "release-artifacts/etch341-${version}-${{ matrix.arch }}-windows.zip"
+          Compress-Archive -Path staging/* -DestinationPath $zip
+          Get-ChildItem release-artifacts/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-${{ matrix.arch }}-package
+          path: release-artifacts/*
+
+  release:
+    needs: [build-macos, build-windows, build-linux]
+    # Skip the GitHub Release on workflow_dispatch — the build jobs
+    # above produce the same artifact set either way, but the dispatch
+    # flow is for ad-hoc testing on the workflow-run page, not for
+    # shipping. Only the tag-push path lands a Release.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    # The one job that needs write: it creates the GitHub Release and
+    # uploads the artifacts. Everything upstream is read-only.
+    permissions:
+      contents: write
+    steps:
+      # Full history + tags so the release-notes step below can
+      # resolve the previous tag and list commits between it and the
+      # current tag. `persist-credentials: false` — the release job
+      # only reads git locally; the GitHub Release is created through
+      # the API token, not `git push`.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+          pattern: "*-package"
+
+      # Hash with bare basenames (not their subdir paths) so SHA256SUMS
+      # lines match the filenames users see on the release page.
+      - name: Generate SHA256SUMS
+        run: |
+          for dir in artifacts/*/; do
+            (cd "$dir" && sha256sum ./*)
+          done | sort > SHA256SUMS
+          cat SHA256SUMS
+
+      # Build a "What's Changed" body from the commit log between the
+      # previous tag and this one. GitHub's generate_release_notes
+      # only lists PR-merged commits, which misses direct-to-main
+      # commits. Previous-tag logic branches on release type:
+      #   - Pre-release (v*.*.*-*): walk to the most recent tag of
+      #     any kind. Beta-to-beta deltas are easy to read.
+      #   - Stable (v*.*.*): --exclude='*-*' skips pre-release tags
+      #     so the final release's log spans the whole stable-to-
+      #     stable window, not just the delta since the last beta.
+      - name: Build release notes
+        run: |
+          CURRENT_TAG="${GITHUB_REF_NAME}"
+          REPO_URL="https://github.com/${GITHUB_REPOSITORY}"
+
+          if [[ "${CURRENT_TAG}" == *-* ]]; then
+            IS_PRERELEASE=1
+            PREV_TAG=$(git describe --tags --abbrev=0 "${CURRENT_TAG}^" 2>/dev/null || true)
+          else
+            IS_PRERELEASE=0
+            PREV_TAG=$(git describe --tags --abbrev=0 --exclude='*-*' "${CURRENT_TAG}^" 2>/dev/null || true)
+          fi
+
+          {
+            if [ "$IS_PRERELEASE" = "1" ]; then
+              echo "> ⚠️ **Pre-release.** Published for testing. Behaviour and artifacts are not final."
+              echo
+            fi
+
+            echo "> ℹ️ **Platform support.**"
+            echo ">"
+            echo "> macOS (arm64 + amd64) is the primary dev target and exercised against real CH341A hardware on every release."
+            echo "> Windows + Linux are built but tested against hardware less often. Issues on any platform are welcome at <https://github.com/${GITHUB_REPOSITORY}/issues>."
+            echo
+            echo "## What's Changed"
+            echo
+            if [ -n "$PREV_TAG" ]; then
+              git log --no-merges --format='* %s (%h)' "${PREV_TAG}..${CURRENT_TAG}"
+              echo
+              echo "**Full Changelog**: ${REPO_URL}/compare/${PREV_TAG}...${CURRENT_TAG}"
+            else
+              git log --no-merges --format='* %s (%h)' "${CURRENT_TAG}"
+              echo
+              echo "**Full Changelog**: ${REPO_URL}/commits/${CURRENT_TAG}"
+            fi
+          } > release-notes.md
+
+          echo "--- Generated release notes ---"
+          cat release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          files: |
+            artifacts/macos-package/*
+            artifacts/windows-amd64-package/*
+            artifacts/windows-arm64-package/*
+            artifacts/linux-amd64-package/*
+            artifacts/linux-arm64-package/*
+            SHA256SUMS
+          body_path: release-notes.md
+          draft: false
+          # Tags with a hyphen in the SemVer pre-release slot flag as
+          # pre-release so GitHub shows the "Pre-release" badge and
+          # leaves "Latest release" on the most recent stable.
+          prerelease: ${{ contains(env.EFFECTIVE_VERSION, '-') }}
