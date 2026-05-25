@@ -17,7 +17,9 @@ pub struct PaneInputs<'a> {
     pub verify_path: Option<&'a Path>,
     pub hex_path: Option<&'a Path>,
     pub hex_bytes: Option<Arc<Vec<u8>>>,
+    pub hex_strings: Option<Arc<Vec<(usize, String)>>>,
     pub hex_scroll: UniformListScrollHandle,
+    pub strings_scroll: UniformListScrollHandle,
     pub hex_show_strings: bool,
     pub hex_search_term: &'a str,
     pub hex_search_state: &'a Entity<InputState>,
@@ -40,7 +42,9 @@ pub fn render(
         Pane::Hex => hex_pane(
             inputs.hex_path,
             inputs.hex_bytes,
+            inputs.hex_strings,
             inputs.hex_scroll,
+            inputs.strings_scroll,
             inputs.hex_show_strings,
             inputs.hex_search_term,
             inputs.hex_search_state,
@@ -381,7 +385,9 @@ fn speed_row(
 fn hex_pane(
     path: Option<&Path>,
     bytes: Option<Arc<Vec<u8>>>,
+    strings: Option<Arc<Vec<(usize, String)>>>,
     hex_scroll: UniformListScrollHandle,
+    strings_scroll: UniformListScrollHandle,
     show_strings: bool,
     search_term: &str,
     search_state: &Entity<InputState>,
@@ -437,14 +443,19 @@ fn hex_pane(
     if let Some(data_arc) = bytes {
         let data: &[u8] = data_arc.as_slice();
         if show_strings {
-            let all = extract_strings(data, 4);
+            let all = strings.unwrap_or_else(|| Arc::new(Vec::new()));
             let needle = search_term.to_ascii_lowercase();
-            let filtered: Vec<_> = if needle.is_empty() {
-                all.clone()
+            // Filter by index, not by clone — passes the indices into
+            // uniform_list's closure which dereferences into `all`. No
+            // per-row String clones; per-keystroke cost stays O(N)
+            // search + O(matches) usize push.
+            let matched: Vec<usize> = if needle.is_empty() {
+                (0..all.len()).collect()
             } else {
                 all.iter()
-                    .filter(|(_, s)| s.to_ascii_lowercase().contains(&needle))
-                    .cloned()
+                    .enumerate()
+                    .filter(|(_, (_, s))| s.to_ascii_lowercase().contains(&needle))
+                    .map(|(i, _)| i)
                     .collect()
             };
             let footer = if needle.is_empty() {
@@ -456,7 +467,7 @@ fn hex_pane(
             } else {
                 format!(
                     "{} of {} run(s) match \u{201C}{}\u{201D}",
-                    filtered.len(),
+                    matched.len(),
                     all.len(),
                     search_term
                 )
@@ -468,7 +479,12 @@ fn hex_pane(
                         .text_color(theme::text_tertiary())
                         .child(footer),
                 )
-                .child(strings_view(&filtered, search_term));
+                .child(strings_view(
+                    all,
+                    matched,
+                    search_term.to_string(),
+                    strings_scroll,
+                ));
         } else {
             let total = data.len();
             let footer = format!("Showing all {} bytes (0x{:X})", total, total);
@@ -553,12 +569,21 @@ where
     btn
 }
 
-fn strings_view(strings: &[(usize, String)], needle: &str) -> impl IntoElement {
-    let needle_owned = needle.to_string();
+/// Render the filtered strings list via `uniform_list` — only the
+/// visible rows are formatted, so even 100k+ string lists scroll
+/// smoothly. Filtering is index-based (caller passes `matched`
+/// indices into `all`); per-row work is one lookup + the
+/// highlight-row construction.
+fn strings_view(
+    all: Arc<Vec<(usize, String)>>,
+    matched: Vec<usize>,
+    needle: String,
+    scroll: UniformListScrollHandle,
+) -> impl IntoElement {
+    let matched_arc = Arc::new(matched);
+    let count = matched_arc.len();
     div()
-        .id("strings-view")
         .h(px(400.0))
-        .overflow_y_scroll()
         .border_1()
         .border_color(theme::workshop_glass_strong())
         .rounded(px(6.0))
@@ -569,33 +594,35 @@ fn strings_view(strings: &[(usize, String)], needle: &str) -> impl IntoElement {
         .text_size(px(11.0))
         .text_color(theme::text_secondary())
         .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap_0p5()
-                .children(strings.iter().map(move |(offset, s)| {
-                    div()
-                        .flex()
-                        .flex_row()
-                        .gap_3()
-                        // Offset in accent blue — reads like a clickable
-                        // address (we'll wire actual click-to-jump in
-                        // a later iteration).
-                        .child(
-                            div()
-                                .text_color(theme::accent_blue())
-                                .child(format!("{:08X}", offset)),
-                        )
-                        .child(highlight_string_row(s, &needle_owned))
-                })),
+            uniform_list("strings-list", count, move |range, _, _| {
+                range
+                    .map(|virtual_i| {
+                        let real_i = matched_arc[virtual_i];
+                        let (offset, s) = &all[real_i];
+                        div()
+                            .flex()
+                            .flex_row()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .text_color(theme::accent_blue())
+                                    .child(format!("{:08X}", offset)),
+                            )
+                            .child(highlight_string_row(s, &needle))
+                    })
+                    .collect()
+            })
+            .h_full()
+            .track_scroll(&scroll),
         )
 }
 
 /// Render one strings-view row with the matched substring (if any)
-/// painted in the accent colour. Falls back to a single primary-color
-/// child when the needle is empty or doesn't appear in the haystack.
+/// painted in the accent colour. Single-line (whitespace_nowrap) so
+/// `uniform_list` can rely on a fixed row height; long strings clip
+/// at the viewport edge.
 fn highlight_string_row(haystack: &str, needle: &str) -> impl IntoElement {
-    let row = div().flex().flex_row().flex_1().whitespace_normal();
+    let row = div().flex().flex_row().flex_1().whitespace_nowrap();
     if needle.is_empty() {
         return row.child(
             div()
@@ -630,33 +657,9 @@ fn highlight_string_row(haystack: &str, needle: &str) -> impl IntoElement {
     }))
 }
 
-/// Walk the byte slice and emit runs of printable ASCII (0x20..=0x7E)
-/// at least `min_len` characters long. Mirrors the unix `strings`
-/// command behaviour with the default `-n` of 4.
-fn extract_strings(bytes: &[u8], min_len: usize) -> Vec<(usize, String)> {
-    let mut out = Vec::new();
-    let mut start: Option<usize> = None;
-    let mut buf = String::new();
-    for (i, &b) in bytes.iter().enumerate() {
-        if (0x20..=0x7E).contains(&b) {
-            if start.is_none() {
-                start = Some(i);
-            }
-            buf.push(b as char);
-        } else if !buf.is_empty() {
-            if buf.len() >= min_len {
-                out.push((start.unwrap(), std::mem::take(&mut buf)));
-            } else {
-                buf.clear();
-            }
-            start = None;
-        }
-    }
-    if buf.len() >= min_len {
-        out.push((start.unwrap(), buf));
-    }
-    out
-}
+// `extract_strings` lives in `super` (gui::mod) so AppView's
+// file-load path can cache the result; the panes module no longer
+// computes it per render.
 
 /// Render bytes as 16-byte-per-line hex + ASCII via `uniform_list`,
 /// so only the visible rows are formatted. Renders the full file

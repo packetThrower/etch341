@@ -17,6 +17,34 @@ use crate::ch341::Ch341;
 use crate::ops::{self, Diagnosis, ProgressSink};
 use crate::prefs::Prefs;
 
+/// Walk the byte slice and emit runs of printable ASCII (0x20..=0x7E)
+/// at least `min_len` characters long. Lives here so both pick_hex_file
+/// and the panes module can share it.
+pub fn extract_strings(bytes: &[u8], min_len: usize) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    let mut start: Option<usize> = None;
+    let mut buf = String::new();
+    for (i, &b) in bytes.iter().enumerate() {
+        if (0x20..=0x7E).contains(&b) {
+            if start.is_none() {
+                start = Some(i);
+            }
+            buf.push(b as char);
+        } else if !buf.is_empty() {
+            if buf.len() >= min_len {
+                out.push((start.unwrap(), std::mem::take(&mut buf)));
+            } else {
+                buf.clear();
+            }
+            start = None;
+        }
+    }
+    if buf.len() >= min_len {
+        out.push((start.unwrap(), buf));
+    }
+    out
+}
+
 mod header;
 mod log;
 mod panes;
@@ -145,9 +173,16 @@ pub struct AppView {
     /// Arc so the uniform_list closure (which must be `'static`) can
     /// own a cheap clone without copying the whole buffer.
     pub hex_bytes: Option<Arc<Vec<u8>>>,
+    /// Strings extracted from `hex_bytes` and cached at load time.
+    /// Recomputing per-render was a bottleneck on large files
+    /// (multi-MB chip dumps). Cache invalidated on file change.
+    pub hex_strings: Option<Arc<Vec<(usize, String)>>>,
     /// Preserves the hex view's scroll position across re-renders
     /// (filter changes, toggling Strings, etc.).
     pub hex_scroll: UniformListScrollHandle,
+    /// Same idea but for the strings list. Separate handle so the
+    /// two views can scroll independently.
+    pub strings_scroll: UniformListScrollHandle,
     /// Toggle between raw hex dump (false) and extracted-strings view (true).
     pub hex_show_strings: bool,
     /// Live-updated filter for the Strings list. Synced from the Input
@@ -201,7 +236,9 @@ impl AppView {
             verify_input_path: None,
             hex_input_path: None,
             hex_bytes: None,
+            hex_strings: None,
             hex_scroll: UniformListScrollHandle::new(),
+            strings_scroll: UniformListScrollHandle::new(),
             hex_show_strings: false,
             hex_search_term: String::new(),
             hex_search_state,
@@ -296,13 +333,17 @@ impl AppView {
             weak.update(cx, |this, cx| {
                 match read_result {
                     Ok(bytes) => {
+                        let bytes_arc = Arc::new(bytes);
+                        let strings = extract_strings(&bytes_arc, 4);
                         this.push_log(format!(
-                            "Loaded hex view: {} ({} bytes)",
+                            "Loaded hex view: {} ({} bytes, {} strings)",
                             path.display(),
-                            bytes.len()
+                            bytes_arc.len(),
+                            strings.len()
                         ));
                         this.hex_input_path = Some(path);
-                        this.hex_bytes = Some(Arc::new(bytes));
+                        this.hex_bytes = Some(bytes_arc);
+                        this.hex_strings = Some(Arc::new(strings));
                     }
                     Err(e) => this.push_log(format!("Hex view load failed: {e}")),
                 }
@@ -761,7 +802,9 @@ impl Render for AppView {
                                     verify_path: self.verify_input_path.as_deref(),
                                     hex_path: self.hex_input_path.as_deref(),
                                     hex_bytes: self.hex_bytes.clone(),
+                                    hex_strings: self.hex_strings.clone(),
                                     hex_scroll: self.hex_scroll.clone(),
+                                    strings_scroll: self.strings_scroll.clone(),
                                     hex_show_strings: self.hex_show_strings,
                                     hex_search_term: self.hex_search_term.as_str(),
                                     hex_search_state: &self.hex_search_state,
