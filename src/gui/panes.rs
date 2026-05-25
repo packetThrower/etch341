@@ -20,6 +20,8 @@ pub struct PaneInputs<'a> {
     pub hex_bytes: Option<Arc<Vec<u8>>>,
     pub hex_strings: Option<Arc<Vec<(usize, String)>>>,
     pub hex_byte_matches: Arc<HashSet<usize>>,
+    pub hex_match_total: usize,
+    pub hex_current_match: Option<usize>,
     pub hex_scroll: UniformListScrollHandle,
     pub strings_scroll: UniformListScrollHandle,
     pub hex_highlight_line: Option<usize>,
@@ -47,6 +49,8 @@ pub fn render(
             inputs.hex_bytes,
             inputs.hex_strings,
             inputs.hex_byte_matches,
+            inputs.hex_match_total,
+            inputs.hex_current_match,
             inputs.hex_scroll,
             inputs.strings_scroll,
             inputs.hex_highlight_line,
@@ -392,6 +396,8 @@ fn hex_pane(
     bytes: Option<Arc<Vec<u8>>>,
     strings: Option<Arc<Vec<(usize, String)>>>,
     byte_matches: Arc<HashSet<usize>>,
+    match_total: usize,
+    current_match: Option<usize>,
     hex_scroll: UniformListScrollHandle,
     strings_scroll: UniformListScrollHandle,
     highlight_line: Option<usize>,
@@ -426,10 +432,23 @@ fn hex_pane(
         // Hex and Strings views. Force dark text because the Input's
         // default white background otherwise renders the typed text
         // invisible against the dark theme's inherited foreground.
+        // Counter + prev/next buttons appear to the right when there
+        // are matches.
         .child(
             div()
-                .text_color(theme::bench_black())
-                .child(Input::new(search_state)),
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_3()
+                .child(
+                    div()
+                        .flex_1()
+                        .text_color(theme::bench_black())
+                        .child(Input::new(search_state)),
+                )
+                .when(match_total > 0, |row| {
+                    row.child(find_nav(current_match, match_total, cx))
+                }),
         )
         .child(hex_mode_toggle(show_strings, cx));
 
@@ -500,6 +519,65 @@ fn hex_pane(
         );
     }
     col
+}
+
+/// Counter + prev/next chevrons for the find navigator. Shows `i+1/N`
+/// when a cursor is set, just `N` when matches exist but the user
+/// hasn't navigated yet. Chevrons wrap around at the ends.
+fn find_nav(
+    current: Option<usize>,
+    total: usize,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
+    let counter_text = match current {
+        Some(i) => format!("{}/{}", i + 1, total),
+        None => format!("{} match{}", total, if total == 1 { "" } else { "es" }),
+    };
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(find_arrow("\u{2039}", "find-prev", cx, |this, cx| {
+            this.find_prev(cx)
+        }))
+        .child(
+            div()
+                .text_size(px(12.0))
+                .text_color(theme::text_secondary())
+                .min_w(px(70.0))
+                .child(counter_text),
+        )
+        .child(find_arrow("\u{203A}", "find-next", cx, |this, cx| {
+            this.find_next(cx)
+        }))
+}
+
+fn find_arrow<F>(
+    label: &'static str,
+    id: &'static str,
+    cx: &mut Context<AppView>,
+    on_click: F,
+) -> impl IntoElement
+where
+    F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
+{
+    div()
+        .id(id)
+        .w(px(24.0))
+        .h(px(24.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(4.0))
+        .cursor_pointer()
+        .text_color(theme::text_secondary())
+        .text_size(px(14.0))
+        .hover(|d| d.bg(theme::workshop_glass_strong()))
+        .child(label)
+        .on_click(cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+            on_click(this, cx);
+        }))
 }
 
 /// Two-button segmented toggle: Hex on the left, Strings on the right.

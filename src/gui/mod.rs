@@ -215,9 +215,12 @@ pub struct AppView {
     /// Set of byte positions that are part of a hex-view-search match.
     /// Recomputed on file change and on every search-term change.
     pub hex_byte_matches: Arc<HashSet<usize>>,
-    /// First match position, for the press-Enter "go to first match"
-    /// behaviour. None when there are no matches or no needle.
-    pub hex_first_match: Option<usize>,
+    /// Sorted start positions of each match, in file order. Used to
+    /// step between matches with Find next / prev.
+    pub hex_match_starts: Vec<usize>,
+    /// Index into `hex_match_starts` for the currently-focused match.
+    /// `None` until the user presses Enter / clicks next/prev.
+    pub hex_current_match: Option<usize>,
     /// Preserves the hex view's scroll position across re-renders
     /// (filter changes, toggling Strings, etc.).
     pub hex_scroll: UniformListScrollHandle,
@@ -289,7 +292,8 @@ impl AppView {
             hex_bytes: None,
             hex_strings: None,
             hex_byte_matches: Arc::new(HashSet::new()),
-            hex_first_match: None,
+            hex_match_starts: Vec::new(),
+            hex_current_match: None,
             hex_scroll: UniformListScrollHandle::new(),
             strings_scroll: UniformListScrollHandle::new(),
             hex_highlight_line: None,
@@ -359,39 +363,37 @@ impl AppView {
     /// `hex_bytes` and `hex_search_term`. Called from the search
     /// subscription and after loading a new file.
     fn recompute_hex_matches(&mut self) {
+        self.hex_current_match = None;
         let Some(bytes) = self.hex_bytes.as_ref() else {
             self.hex_byte_matches = Arc::new(HashSet::new());
-            self.hex_first_match = None;
+            self.hex_match_starts = Vec::new();
             return;
         };
         let pattern = parse_hex_needle(&self.hex_search_term);
         if pattern.is_empty() || bytes.len() < pattern.len() {
             self.hex_byte_matches = Arc::new(HashSet::new());
-            self.hex_first_match = None;
+            self.hex_match_starts = Vec::new();
             return;
         }
         let pat_len = pattern.len();
         let mut set = HashSet::new();
-        let mut first: Option<usize> = None;
+        let mut starts = Vec::new();
         for i in 0..=bytes.len() - pat_len {
             let hit = (0..pat_len).all(|j| byte_match_ci(bytes[i + j], pattern[j]));
             if hit {
-                if first.is_none() {
-                    first = Some(i);
-                }
+                starts.push(i);
                 for j in 0..pat_len {
                     set.insert(i + j);
                 }
             }
         }
         self.hex_byte_matches = Arc::new(set);
-        self.hex_first_match = first;
+        self.hex_match_starts = starts;
     }
 
-    /// PressEnter on the find input. If the value begins with `0x`,
-    /// treat as an explicit offset jump (existing `jump_via_input`).
-    /// Otherwise scroll to the first byte position that matches the
-    /// current needle.
+    /// PressEnter on the find input. `0x...` → explicit offset jump;
+    /// anything else steps to the next match (wraps from `None` cursor
+    /// to first match).
     pub fn find_enter(&mut self, cx: &mut Context<Self>) {
         let raw = self.hex_search_state.read(cx).value().to_string();
         let trimmed = raw.trim();
@@ -402,16 +404,55 @@ impl AppView {
             self.jump_via_input(trimmed, cx);
             return;
         }
-        match self.hex_first_match {
-            Some(first) => {
-                self.push_log(format!("Find: first match at 0x{:X}", first));
-                self.jump_to_hex_offset(first, cx);
-            }
-            None => {
-                self.push_log(format!("Find: no match for \u{201C}{}\u{201D}", trimmed));
-                cx.notify();
-            }
+        self.find_next(cx);
+    }
+
+    /// Advance the find cursor to the next match (wrap at the end).
+    /// Fresh search → lands on match 0.
+    pub fn find_next(&mut self, cx: &mut Context<Self>) {
+        let total = self.hex_match_starts.len();
+        if total == 0 {
+            self.push_log("Find: no matches".into());
+            cx.notify();
+            return;
         }
+        let next_idx = match self.hex_current_match {
+            Some(i) => (i + 1) % total,
+            None => 0,
+        };
+        self.hex_current_match = Some(next_idx);
+        let offset = self.hex_match_starts[next_idx];
+        self.push_log(format!(
+            "Find: match {}/{} at 0x{:X}",
+            next_idx + 1,
+            total,
+            offset
+        ));
+        self.jump_to_hex_offset(offset, cx);
+    }
+
+    /// Step the find cursor back by one match (wrap at the start).
+    /// Fresh search → lands on the last match.
+    pub fn find_prev(&mut self, cx: &mut Context<Self>) {
+        let total = self.hex_match_starts.len();
+        if total == 0 {
+            self.push_log("Find: no matches".into());
+            cx.notify();
+            return;
+        }
+        let prev_idx = match self.hex_current_match {
+            Some(i) => (i + total - 1) % total,
+            None => total - 1,
+        };
+        self.hex_current_match = Some(prev_idx);
+        let offset = self.hex_match_starts[prev_idx];
+        self.push_log(format!(
+            "Find: match {}/{} at 0x{:X}",
+            prev_idx + 1,
+            total,
+            offset
+        ));
+        self.jump_to_hex_offset(offset, cx);
     }
 
     /// Swap the Hex pane between raw-bytes view and extracted-strings view.
@@ -982,6 +1023,8 @@ impl Render for AppView {
                                     hex_bytes: self.hex_bytes.clone(),
                                     hex_strings: self.hex_strings.clone(),
                                     hex_byte_matches: self.hex_byte_matches.clone(),
+                                    hex_match_total: self.hex_match_starts.len(),
+                                    hex_current_match: self.hex_current_match,
                                     hex_scroll: self.hex_scroll.clone(),
                                     strings_scroll: self.strings_scroll.clone(),
                                     hex_highlight_line: self.hex_highlight_line,
