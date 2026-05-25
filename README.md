@@ -1,7 +1,9 @@
 # etch341
 
 Cross-platform CLI + GUI flash programmer for the **CH341A** USB SPI/I²C
-interface. No kernel drivers required.
+interface. Userspace USB on Linux + macOS (no driver to install).
+Windows uses the built-in **WinUSB** kernel driver, but it needs a
+one-time Zadig bind to the CH341A — see [Install → Windows](#windows).
 
 ## Status
 

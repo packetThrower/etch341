@@ -2,7 +2,7 @@
 
 ## Project Goal
 
-Build a cross-platform CLI tool for programming SPI/I²C flash chips using the CH341A USB programmer. The tool should work on Linux, macOS (including Apple Silicon), and Windows without requiring kernel drivers.
+Build a cross-platform CLI tool for programming SPI/I²C flash chips using the CH341A USB programmer. The tool should work on Linux, macOS (including Apple Silicon), and Windows. Linux + macOS get userspace USB (libusb, no driver install); Windows piggybacks on the OS's built-in WinUSB kernel driver, with the one-time Zadig bind step documented in the README.
 
 ---
 
