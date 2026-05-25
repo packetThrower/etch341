@@ -26,6 +26,10 @@ pub const PID: u16 = 0x5512;
 
 /// SPI clock rates the `set_clock` command can select. Higher CH341
 /// rates exist but require vendor commands etch341 doesn't implement.
+/// Held here as the canonical list so a future `--help` enhancement
+/// or settings-pane dropdown can use it; not yet consumed at
+/// runtime — `set_clock` validates from the same set inline.
+#[allow(dead_code)]
 pub const SUPPORTED_SPEEDS_KHZ: &[u32] = &[20, 100, 400, 750];
 
 const INTERFACE: u8 = 0;

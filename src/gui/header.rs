@@ -18,8 +18,7 @@ pub fn render(conn: &Connection, progress: &SharedProgress) -> impl IntoElement 
         let current = progress.current.load(Ordering::Relaxed);
         let total = progress.total.load(Ordering::Relaxed);
         let label = progress.label.lock().unwrap().clone();
-        if total > 0 {
-            let pct = (current * 100) / total;
+        if let Some(pct) = (current * 100).checked_div(total) {
             format!(
                 "{label} {pct}% ({} / {})",
                 fmt_bytes(current),

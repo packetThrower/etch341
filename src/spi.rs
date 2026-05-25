@@ -77,6 +77,11 @@ impl Addressing {
 
 pub mod sr1 {
     pub const WIP: u8 = 0b0000_0001;
+    /// Write-Enable Latch. Set by 0x06 (WREN), cleared after every
+    /// program/erase op. Not currently checked by etch341 — kept as
+    /// documented API for future "verify the chip accepted WREN"
+    /// helpers and for the integration tests.
+    #[allow(dead_code)]
     pub const WEL: u8 = 0b0000_0010;
 }
 

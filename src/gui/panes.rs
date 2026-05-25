@@ -395,6 +395,14 @@ fn speed_row(
     row
 }
 
+// The hex pane sits at the join point of the file picker, the
+// search/filter input, the matches/selection overlays, the strings
+// list, and the hex view — each one needing its own slice of state
+// to render. Bundling into a single struct is the natural refactor
+// (PaneInputs already does this for the dispatch layer above) but
+// the rendering callsite is exactly one place, so a per-field
+// allow is cheaper than another wrapper layer for now.
+#[allow(clippy::too_many_arguments)]
 fn hex_pane(
     path: Option<&Path>,
     bytes: Option<Arc<Vec<u8>>>,
@@ -852,6 +860,7 @@ fn hex_view(
 ///   - dim   (null + 0xFF): padding / erased regions fade into the bg
 ///   - mid   (control + high bytes): structured data, less prominent
 ///     than text but more than padding
+///
 /// ASCII column on the right uses the same brightness mapping.
 fn hex_row(
     offset: usize,

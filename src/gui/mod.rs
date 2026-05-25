@@ -321,7 +321,6 @@ impl AppView {
     /// completes (so the final 100% state lands before going away).
     fn spawn_progress_poller(&self, cx: &mut Context<Self>) {
         let progress = self.progress.clone();
-        let speed = self.prefs.spi_speed_khz;
         cx.spawn(async move |weak, cx| {
             loop {
                 cx.background_executor()
@@ -836,7 +835,7 @@ impl AppView {
     /// stay single-threaded. Long ops (read/erase/write) will move to a
     /// background task once they're wired.
     pub fn refresh_detect(&mut self, cx: &mut Context<Self>) {
-        self.push_log(format!("→ detect"));
+        self.push_log("→ detect".to_string());
         let outcome = Ch341::open(false).and_then(|mut ch| ops::run_detect(&mut ch));
         match outcome {
             Ok(result) => {

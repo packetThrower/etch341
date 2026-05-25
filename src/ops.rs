@@ -34,6 +34,7 @@ pub trait ProgressSink: Send {
 
 /// Default sink that swallows all events. Useful for tests and for
 /// callers that don't care about progress.
+#[allow(dead_code)] // kept available for callers that don't care about progress
 #[derive(Default)]
 pub struct NullSink;
 impl ProgressSink for NullSink {}
@@ -224,7 +225,7 @@ pub fn erase_range(
             chip_size,
         });
     }
-    if start % chip.sector_size != 0 {
+    if !start.is_multiple_of(chip.sector_size) {
         return Err(Error::UnalignedErase {
             addr: start,
             sector_size: chip.sector_size,
@@ -240,7 +241,7 @@ pub fn erase_range(
     let mut addr = start;
     while addr < end {
         // Prefer 64K block when both endpoints land on a 64K boundary.
-        if addr % 0x10000 == 0 && (end - addr) >= 0x10000 {
+        if addr.is_multiple_of(0x10000) && (end - addr) >= 0x10000 {
             spi::block_erase_64k(spi, addressing, addr)?;
             spi::wait_until_ready(spi, BLOCK_ERASE_TIMEOUT)?;
             addr += 0x10000;

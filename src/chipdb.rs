@@ -4,6 +4,12 @@ use crate::error::{Error, Result};
 use serde::Deserialize;
 use std::path::Path;
 
+// `erase_time_ms` is parsed from the TOML for completeness (it's
+// documented in CLAUDE.md as part of the chip-DB schema) but the
+// runtime doesn't read it — chip-erase uses a fixed multi-minute
+// timeout instead. Suppress the field-unused lint without dropping
+// the schema field.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct Chip {
     pub name: String,
@@ -27,6 +33,12 @@ pub struct ChipDb {
     chips: Vec<Chip>,
 }
 
+// `load`, `len`, `is_empty` are part of the chipdb's public surface;
+// `load_embedded` is what the running binary uses, but the
+// file-path-driven variant + size accessors stay available for
+// future tooling (a `chips reload` CLI command, a settings-pane
+// reload button, integration tests against a fixture TOML).
+#[allow(dead_code)]
 impl ChipDb {
     pub fn load(path: &Path) -> Result<Self> {
         let raw = std::fs::read_to_string(path)?;

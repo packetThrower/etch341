@@ -2,6 +2,13 @@
 
 use thiserror::Error;
 
+// A few variants below (WriteProtected, ChipDb, I2cNack) aren't
+// constructed yet — they're modeled now for the SR1.SRP / .toml
+// parse-failure / I²C-NACK paths that callers want a typed handle
+// for as soon as the underlying detection lands. Until then, the
+// dead-code lint would gate every CI run on a manual-wiring task
+// each variant doesn't need.
+#[allow(dead_code)]
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("CH341A device not found (looking for USB 1a86:5512). Is it plugged in?")]

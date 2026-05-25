@@ -13,7 +13,7 @@
 pub fn parse_hex_needle(s: &str) -> Vec<u8> {
     let condensed: String = s.chars().filter(|c| !c.is_whitespace()).collect();
     if !condensed.is_empty()
-        && condensed.len() % 2 == 0
+        && condensed.len().is_multiple_of(2)
         && condensed.chars().all(|c| c.is_ascii_hexdigit())
     {
         (0..condensed.len())
