@@ -1,9 +1,10 @@
 //! GPUI frontend. Compiled only with the `gui` feature.
 
 use gpui::{
-    App, AppContext, Bounds, Context, Entity, IntoElement, ParentElement, Render, ScrollHandle,
-    ScrollStrategy, Styled, Subscription, TitlebarOptions, UniformListScrollHandle, Window,
-    WindowBounds, WindowOptions, div, px,
+    App, AppContext, Bounds, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
+    KeyBinding, ParentElement, Render, ScrollHandle, ScrollStrategy, Styled, Subscription,
+    TitlebarOptions, UniformListScrollHandle, Window, WindowBounds, WindowOptions, actions, div,
+    px,
 };
 use gpui_component::{
     Root, TitleBar,
@@ -18,6 +19,12 @@ use std::time::Duration;
 use crate::ch341::Ch341;
 use crate::ops::{self, Diagnosis, ProgressSink};
 use crate::prefs::Prefs;
+
+// Global window-level keyboard actions. `actions!` generates
+// zero-sized types implementing `Action`; key bindings dispatch by
+// type. `None` context means the binding fires anywhere in the
+// window's dispatch chain.
+actions!(etch341, [FocusFind, FindNextAction, FindPrevAction]);
 
 /// Interpret a search needle as either hex bytes (when condensed
 /// form is all-hex-digits + even length) or ASCII (otherwise).
@@ -92,6 +99,19 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     app.run(|cx: &mut App| {
         gpui_component::init(cx);
 
+        // Standard hex-editor shortcuts: Cmd+F focuses Find, Cmd+G
+        // steps to the next match, Cmd+Shift+G steps back.
+        //
+        // The second `cmd-f` binding (scoped to "Input") overrides
+        // gpui-component's in-Input Search action so Cmd+F still
+        // jumps to our Find field even when another Input has focus.
+        cx.bind_keys([
+            KeyBinding::new("cmd-f", FocusFind, None),
+            KeyBinding::new("cmd-f", FocusFind, Some("Input")),
+            KeyBinding::new("cmd-g", FindNextAction, None),
+            KeyBinding::new("cmd-shift-g", FindPrevAction, None),
+        ]);
+
         let bounds = Bounds::centered(None, gpui::size(px(1200.0), px(800.0)), cx);
         if let Err(err) = cx.open_window(
             WindowOptions {
@@ -106,6 +126,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             },
             |window, cx| {
                 let view = cx.new(|cx| AppView::new(window, cx));
+                // Give the root view focus so window-scoped key
+                // bindings (None context) have a dispatch path. Without
+                // this, Cmd+F etc. would only fire after the user
+                // clicked into some focusable widget first.
+                view.read(cx).focus_handle.clone().focus(window, cx);
                 cx.new(|cx| Root::new(view, window, cx))
             },
         ) {
@@ -247,6 +272,13 @@ pub struct AppView {
     pub progress: Arc<SharedProgress>,
     /// Persistent user prefs (SPI speed, future settings).
     pub prefs: Prefs,
+    /// Focus handle for the root view. Without this, key bindings
+    /// with `None` context never fire — gpui's dispatcher walks the
+    /// focus chain, and a window with nothing focused has an empty
+    /// chain. Tracking focus on the root div + focusing this handle
+    /// on startup gives global shortcuts (Cmd+F, Cmd+G) somewhere to
+    /// land.
+    pub focus_handle: FocusHandle,
 }
 
 impl AppView {
@@ -304,6 +336,7 @@ impl AppView {
             _subscriptions: vec![sub],
             progress: Arc::new(SharedProgress::default()),
             prefs: Prefs::load(),
+            focus_handle: cx.focus_handle(),
         }
     }
 
@@ -344,20 +377,35 @@ impl AppView {
     }
 
     /// Open the OS file picker to choose a binary to write to the chip.
-    /// Synchronous: NSOpenPanel runs its own event loop, the GUI is
-    /// frozen for the dialog's duration. Acceptable for modal pickers.
+    /// Deferred via cx.spawn — see `pick_hex_file` for the panic-avoidance
+    /// rationale. Remembers the parent dir as `last_write_dir` so the
+    /// next pick lands in the same place.
     pub fn pick_write_file(&mut self, cx: &mut Context<Self>) {
-        if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Flash dumps", &["bin", "rom"])
-            .add_filter("All files", &["*"])
-            .pick_file()
-        {
-            self.push_log(format!("Picked for write: {}", path.display()));
-            self.write_input_path = Some(path);
-            // Re-arm protection on file change.
-            self.write_armed = false;
-        }
-        cx.notify();
+        let start_dir = self.prefs.last_write_dir.clone();
+        cx.spawn(async move |weak, cx| {
+            let mut dialog = rfd::AsyncFileDialog::new()
+                .add_filter("Flash dumps", &["bin", "rom"])
+                .add_filter("All files", &["*"]);
+            if let Some(dir) = start_dir {
+                dialog = dialog.set_directory(dir);
+            }
+            let Some(handle) = dialog.pick_file().await else {
+                return;
+            };
+            let path = handle.path().to_path_buf();
+            weak.update(cx, |this, cx| {
+                this.push_log(format!("Picked for write: {}", path.display()));
+                if let Some(parent) = path.parent() {
+                    this.prefs.last_write_dir = Some(parent.to_path_buf());
+                    let _ = this.prefs.save();
+                }
+                this.write_input_path = Some(path);
+                this.write_armed = false;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Refresh `hex_byte_matches` + `hex_first_match` from the current
@@ -538,13 +586,15 @@ impl AppView {
     /// and gpui panics with "RefCell already borrowed". Running on a
     /// foreground async task lets the click-handler borrow drop first.
     pub fn pick_hex_file(&mut self, cx: &mut Context<Self>) {
+        let start_dir = self.prefs.last_hex_dir.clone();
         cx.spawn(async move |weak, cx| {
-            let Some(handle) = rfd::AsyncFileDialog::new()
+            let mut dialog = rfd::AsyncFileDialog::new()
                 .add_filter("Flash dumps", &["bin", "rom"])
-                .add_filter("All files", &["*"])
-                .pick_file()
-                .await
-            else {
+                .add_filter("All files", &["*"]);
+            if let Some(dir) = start_dir {
+                dialog = dialog.set_directory(dir);
+            }
+            let Some(handle) = dialog.pick_file().await else {
                 return;
             };
             let path = handle.path().to_path_buf();
@@ -560,6 +610,10 @@ impl AppView {
                             bytes_arc.len(),
                             strings.len()
                         ));
+                        if let Some(parent) = path.parent() {
+                            this.prefs.last_hex_dir = Some(parent.to_path_buf());
+                            let _ = this.prefs.save();
+                        }
                         this.hex_input_path = Some(path);
                         this.hex_bytes = Some(bytes_arc);
                         this.hex_strings = Some(Arc::new(strings));
@@ -575,15 +629,30 @@ impl AppView {
     }
 
     pub fn pick_verify_file(&mut self, cx: &mut Context<Self>) {
-        if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Flash dumps", &["bin", "rom"])
-            .add_filter("All files", &["*"])
-            .pick_file()
-        {
-            self.push_log(format!("Picked for verify: {}", path.display()));
-            self.verify_input_path = Some(path);
-        }
-        cx.notify();
+        let start_dir = self.prefs.last_verify_dir.clone();
+        cx.spawn(async move |weak, cx| {
+            let mut dialog = rfd::AsyncFileDialog::new()
+                .add_filter("Flash dumps", &["bin", "rom"])
+                .add_filter("All files", &["*"]);
+            if let Some(dir) = start_dir {
+                dialog = dialog.set_directory(dir);
+            }
+            let Some(handle) = dialog.pick_file().await else {
+                return;
+            };
+            let path = handle.path().to_path_buf();
+            weak.update(cx, |this, cx| {
+                this.push_log(format!("Picked for verify: {}", path.display()));
+                if let Some(parent) = path.parent() {
+                    this.prefs.last_verify_dir = Some(parent.to_path_buf());
+                    let _ = this.prefs.save();
+                }
+                this.verify_input_path = Some(path);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Two-stage trigger for write (same shape as `arm_or_fire_erase`).
@@ -986,11 +1055,33 @@ impl Render for AppView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let prefs_path_buf = Prefs::path();
         div()
+            .track_focus(&self.focus_handle)
             .flex()
             .flex_row()
             .size_full()
             .bg(theme::bench_black())
             .text_color(theme::text_primary())
+            // Window-level action handlers — these fire via the
+            // gpui-registered key bindings above.
+            .on_action(
+                cx.listener(|this: &mut AppView, _: &FocusFind, window, cx| {
+                    this.selected = Pane::Hex;
+                    this.hex_search_state.update(cx, |state, cx| {
+                        state.focus(window, cx);
+                    });
+                    cx.notify();
+                }),
+            )
+            .on_action(
+                cx.listener(|this: &mut AppView, _: &FindNextAction, _, cx| {
+                    this.find_next(cx);
+                }),
+            )
+            .on_action(
+                cx.listener(|this: &mut AppView, _: &FindPrevAction, _, cx| {
+                    this.find_prev(cx);
+                }),
+            )
             .child(sidebar::render(self.selected, cx))
             .child(
                 div()
@@ -1035,8 +1126,23 @@ impl Render for AppView {
                             spi_speed_khz: self.prefs.spi_speed_khz,
                             prefs_path: prefs_path_buf.as_deref(),
                         };
+                        let log_h = self.prefs.log_panel_height.unwrap_or(180.0);
+                        let weak = cx.entity().downgrade();
                         div().flex_1().min_h(px(0.0)).min_w(px(0.0)).child(
                             v_resizable("pane-log-split")
+                                .on_resize(move |state, _, cx| {
+                                    let sizes = state.read(cx).sizes().clone();
+                                    let Some(log_size) = sizes.get(1).copied() else {
+                                        return;
+                                    };
+                                    let new_h = f32::from(log_size);
+                                    let _ = weak.update(cx, |this, _| {
+                                        if this.prefs.log_panel_height != Some(new_h) {
+                                            this.prefs.log_panel_height = Some(new_h);
+                                            let _ = this.prefs.save();
+                                        }
+                                    });
+                                })
                                 .child(
                                     resizable_panel().child(
                                         div()
@@ -1048,7 +1154,7 @@ impl Render for AppView {
                                 )
                                 .child(
                                     resizable_panel()
-                                        .size(px(180.0))
+                                        .size(px(log_h))
                                         .size_range(px(80.0)..px(500.0))
                                         .child(log::render(&self.log_lines, &self.log_scroll)),
                                 ),

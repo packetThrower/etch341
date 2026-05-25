@@ -7,16 +7,29 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
-    /// SPI clock speed in kHz. The CH341A's I²C-stream set-speed
-    /// command supports 20, 100, 400, 750; higher rates exist but
-    /// require vendor commands etch341 doesn't yet implement.
-    /// Default 750 = the highest of the supported set.
+    /// SPI clock speed in kHz.
     pub spi_speed_khz: u32,
+    /// Directory of the last file picked via the Hex pane's Browse
+    /// button. Used to start the next pick in the same place.
+    pub last_hex_dir: Option<PathBuf>,
+    /// Same idea for the Write pane.
+    pub last_write_dir: Option<PathBuf>,
+    /// Same idea for the Verify pane.
+    pub last_verify_dir: Option<PathBuf>,
+    /// Pixel height of the activity-log resizable panel. Saved on
+    /// drag, restored on launch.
+    pub log_panel_height: Option<f32>,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { spi_speed_khz: 750 }
+        Self {
+            spi_speed_khz: 750,
+            last_hex_dir: None,
+            last_write_dir: None,
+            last_verify_dir: None,
+            log_panel_height: None,
+        }
     }
 }
 
