@@ -140,10 +140,7 @@ impl crate::ops::ProgressSink for IndicatifSink {
     }
 }
 
-pub fn dispatch(
-    global: GlobalOpts,
-    cmd: Command,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ch341::Ch341;
     use crate::ops;
 

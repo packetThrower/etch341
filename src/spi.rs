@@ -174,10 +174,7 @@ mod tests {
 
     #[test]
     fn jedec_read_sends_9f_and_returns_3_bytes() {
-        let mut mock = MockSpi::new([(
-            vec![0x9F, 0x00, 0x00, 0x00],
-            vec![0xFF, 0xEF, 0x40, 0x18],
-        )]);
+        let mut mock = MockSpi::new([(vec![0x9F, 0x00, 0x00, 0x00], vec![0xFF, 0xEF, 0x40, 0x18])]);
         assert_eq!(jedec_read(&mut mock).unwrap(), [0xEF, 0x40, 0x18]);
         mock.assert_drained();
     }
@@ -188,7 +185,10 @@ mod tests {
             vec![0x03, 0x01, 0x23, 0x45, 0x00, 0x00, 0x00],
             vec![0x00, 0x00, 0x00, 0x00, 0xDE, 0xAD, 0xBE],
         )]);
-        assert_eq!(read_data(&mut mock, 0x012345, 3).unwrap(), vec![0xDE, 0xAD, 0xBE]);
+        assert_eq!(
+            read_data(&mut mock, 0x012345, 3).unwrap(),
+            vec![0xDE, 0xAD, 0xBE]
+        );
         mock.assert_drained();
     }
 
@@ -214,10 +214,7 @@ mod tests {
 
     #[test]
     fn chip_erase_sends_wren_then_c7() {
-        let mut mock = MockSpi::new([
-            (vec![0x06], vec![0x00]),
-            (vec![0xC7], vec![0x00]),
-        ]);
+        let mut mock = MockSpi::new([(vec![0x06], vec![0x00]), (vec![0xC7], vec![0x00])]);
         chip_erase(&mut mock).unwrap();
         mock.assert_drained();
     }
@@ -226,10 +223,7 @@ mod tests {
     fn page_program_within_page() {
         let mut mock = MockSpi::new([
             (vec![0x06], vec![0x00]),
-            (
-                vec![0x02, 0x00, 0x00, 0x80, 0xAA, 0xBB, 0xCC],
-                vec![0; 7],
-            ),
+            (vec![0x02, 0x00, 0x00, 0x80, 0xAA, 0xBB, 0xCC], vec![0; 7]),
         ]);
         page_program(&mut mock, 0x80, &[0xAA, 0xBB, 0xCC], 256).unwrap();
         mock.assert_drained();

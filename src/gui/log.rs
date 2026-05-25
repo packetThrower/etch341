@@ -1,7 +1,7 @@
-use super::{theme, LogLine};
+use super::{LogLine, theme};
 use gpui::{
-    div, px, InteractiveElement, IntoElement, ParentElement, ScrollHandle,
-    StatefulInteractiveElement, Styled,
+    InteractiveElement, IntoElement, ParentElement, ScrollHandle, StatefulInteractiveElement,
+    Styled, div, px,
 };
 use gpui_component::scroll::ScrollableElement;
 
@@ -45,11 +45,11 @@ pub fn render(lines: &[LogLine], scroll: &ScrollHandle) -> impl IntoElement {
                                         .child(line.timestamp.clone()),
                                 )
                                 .child(
-                            // Wrap long log lines (file paths,
-                            // error messages) instead of letting
-                            // them run off the right edge.
-                            div().flex_1().whitespace_normal().child(line.text.clone()),
-                        )
+                                    // Wrap long log lines (file paths,
+                                    // error messages) instead of letting
+                                    // them run off the right edge.
+                                    div().flex_1().whitespace_normal().child(line.text.clone()),
+                                )
                         })),
                 ),
         )

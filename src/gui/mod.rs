@@ -1,8 +1,8 @@
 //! GPUI frontend. Compiled only with the `gui` feature.
 
 use gpui::{
-    div, px, App, AppContext, Bounds, Context, IntoElement, ParentElement, Render, ScrollHandle,
-    Styled, TitlebarOptions, Window, WindowBounds, WindowOptions,
+    App, AppContext, Bounds, Context, IntoElement, ParentElement, Render, ScrollHandle, Styled,
+    TitlebarOptions, Window, WindowBounds, WindowOptions, div, px,
 };
 use gpui_component::{Root, TitleBar};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use crate::ch341::Ch341;
 use crate::ops::{self, Diagnosis, ProgressSink};
+use crate::prefs::Prefs;
 
 mod header;
 mod log;
@@ -135,6 +136,8 @@ pub struct AppView {
     /// Shared with the background ops task; rendered in the session
     /// header by `header::render`.
     pub progress: Arc<SharedProgress>,
+    /// Persistent user prefs (SPI speed, future settings).
+    pub prefs: Prefs,
 }
 
 impl AppView {
@@ -152,7 +155,20 @@ impl AppView {
             write_input_path: None,
             verify_input_path: None,
             progress: Arc::new(SharedProgress::default()),
+            prefs: Prefs::load(),
         }
+    }
+
+    /// Persist a new SPI clock setting. Saves to ~/.config/etch341/prefs.toml
+    /// immediately; the next op picks up the new value when it opens the
+    /// CH341A.
+    pub fn set_spi_speed(&mut self, khz: u32, cx: &mut Context<Self>) {
+        self.prefs.spi_speed_khz = khz;
+        match self.prefs.save() {
+            Ok(()) => self.push_log(format!("SPI clock set to {khz} kHz (saved)")),
+            Err(e) => self.push_log(format!("SPI clock set to {khz} kHz (save failed: {e})")),
+        }
+        cx.notify();
     }
 
     /// Spawn a foreground task that calls `cx.notify()` every 100ms
@@ -161,6 +177,7 @@ impl AppView {
     /// completes (so the final 100% state lands before going away).
     fn spawn_progress_poller(&self, cx: &mut Context<Self>) {
         let progress = self.progress.clone();
+        let speed = self.prefs.spi_speed_khz;
         cx.spawn(async move |weak, cx| {
             loop {
                 cx.background_executor()
@@ -232,11 +249,15 @@ impl AppView {
             cx.notify();
             return;
         };
-        self.push_log(format!("→ write {} (erase + program + verify)", path.display()));
+        self.push_log(format!(
+            "→ write {} (erase + program + verify)",
+            path.display()
+        ));
         cx.notify();
         self.spawn_progress_poller(cx);
 
         let progress = self.progress.clone();
+        let speed = self.prefs.spi_speed_khz;
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -244,6 +265,7 @@ impl AppView {
                     let mut sink = GuiSink::new(progress, "write");
                     let data = std::fs::read(&path).map_err(|e| format!("read input: {e}"))?;
                     let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
                     let chip = match detect.diagnosis {
                         Diagnosis::Known(c) => c,
@@ -292,6 +314,7 @@ impl AppView {
         self.spawn_progress_poller(cx);
 
         let progress = self.progress.clone();
+        let speed = self.prefs.spi_speed_khz;
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -299,6 +322,7 @@ impl AppView {
                     let mut sink = GuiSink::new(progress, "verify");
                     let data = std::fs::read(&path).map_err(|e| format!("read input: {e}"))?;
                     let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
                     let chip = match detect.diagnosis {
                         Diagnosis::Known(c) => c,
@@ -323,9 +347,7 @@ impl AppView {
                         this.push_log(format!("Verify OK: all {n} bytes match {name}"));
                     }
                     Ok((name, n, mis)) => {
-                        this.push_log(format!(
-                            "Verify FAIL: {mis} of {n} bytes differ ({name})"
-                        ));
+                        this.push_log(format!("Verify FAIL: {mis} of {n} bytes differ ({name})"));
                     }
                     Err(err) => this.push_log(format!("Verify FAIL: {err}")),
                 }
@@ -409,12 +431,14 @@ impl AppView {
 
         let path_for_task = path.clone();
         let progress = self.progress.clone();
+        let speed = self.prefs.spi_speed_khz;
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
                     let mut sink = GuiSink::new(progress, "read");
                     let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
                     let chip = match detect.diagnosis {
                         Diagnosis::Known(c) => c,
@@ -481,12 +505,14 @@ impl AppView {
         self.spawn_progress_poller(cx);
 
         let progress = self.progress.clone();
+        let speed = self.prefs.spi_speed_khz;
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
                     let mut sink = GuiSink::new(progress, "erase");
                     let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
                     let chip = match detect.diagnosis {
                         Diagnosis::Known(c) => c,
@@ -535,12 +561,14 @@ impl AppView {
         self.spawn_progress_poller(cx);
 
         let progress = self.progress.clone();
+        let speed = self.prefs.spi_speed_khz;
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
                     let mut sink = GuiSink::new(progress, "blank");
                     let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
                     let chip = match detect.diagnosis {
                         Diagnosis::Known(c) => c,
@@ -594,6 +622,7 @@ fn read_output_path() -> std::path::PathBuf {
 
 impl Render for AppView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let prefs_path_buf = Prefs::path();
         div()
             .flex()
             .flex_row()
@@ -629,6 +658,8 @@ impl Render for AppView {
                                     write_armed: self.write_armed,
                                     write_path: self.write_input_path.as_deref(),
                                     verify_path: self.verify_input_path.as_deref(),
+                                    spi_speed_khz: self.prefs.spi_speed_khz,
+                                    prefs_path: prefs_path_buf.as_deref(),
                                 },
                                 cx,
                             )),
@@ -644,5 +675,10 @@ fn now_hms() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    format!("{:02}:{:02}:{:02}", (secs / 3600) % 24, (secs / 60) % 60, secs % 60)
+    format!(
+        "{:02}:{:02}:{:02}",
+        (secs / 3600) % 24,
+        (secs / 60) % 60,
+        secs % 60
+    )
 }

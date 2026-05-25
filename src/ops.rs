@@ -85,7 +85,10 @@ pub fn run_detect(spi: &mut dyn SpiTransport) -> Result<DetectResult> {
             }
         }
     };
-    Ok(DetectResult { jedec_id: id, diagnosis })
+    Ok(DetectResult {
+        jedec_id: id,
+        diagnosis,
+    })
 }
 
 pub fn detect(global: &GlobalOpts) -> Result<()> {
@@ -152,7 +155,11 @@ pub fn read(
 ) -> Result<()> {
     let chip_size = chip.size_kb.saturating_mul(1024);
     if start.saturating_add(len) > chip_size {
-        return Err(Error::AddressOutOfRange { addr: start, len, chip_size });
+        return Err(Error::AddressOutOfRange {
+            addr: start,
+            len,
+            chip_size,
+        });
     }
     let mut out = File::create(output)?;
     let mut hasher = Sha256::new();
@@ -199,10 +206,17 @@ pub fn erase_range(
 ) -> Result<()> {
     let chip_size = chip.size_kb.saturating_mul(1024);
     if start.saturating_add(len) > chip_size {
-        return Err(Error::AddressOutOfRange { addr: start, len, chip_size });
+        return Err(Error::AddressOutOfRange {
+            addr: start,
+            len,
+            chip_size,
+        });
     }
     if start % chip.sector_size != 0 {
-        return Err(Error::UnalignedErase { addr: start, sector_size: chip.sector_size });
+        return Err(Error::UnalignedErase {
+            addr: start,
+            sector_size: chip.sector_size,
+        });
     }
 
     // Round end up to sector boundary so we always cover the requested range.
@@ -269,7 +283,11 @@ pub fn write(
     if verify_after {
         let bad = verify(spi, chip, data, start, progress)?;
         if bad > 0 {
-            return Err(Error::VerifyFailed { addr: 0, expected: 0, actual: 0 });
+            return Err(Error::VerifyFailed {
+                addr: 0,
+                expected: 0,
+                actual: 0,
+            });
         }
     }
     Ok(())
@@ -338,7 +356,10 @@ pub fn blank_check(
         for (i, &b) in data.iter().enumerate() {
             if b != 0xFF {
                 progress.finish();
-                return Err(Error::NotBlank { addr: addr + i as u32, value: b });
+                return Err(Error::NotBlank {
+                    addr: addr + i as u32,
+                    value: b,
+                });
             }
         }
         addr += n;
@@ -395,7 +416,14 @@ mod tests {
     fn read_rejects_out_of_range() {
         let chip = fake_chip(1);
         let mut mock = MockSpi::new([]);
-        let r = read(&mut mock, &chip, 0, 2048, Path::new("/tmp/x.bin"), &mut NullSink);
+        let r = read(
+            &mut mock,
+            &chip,
+            0,
+            2048,
+            Path::new("/tmp/x.bin"),
+            &mut NullSink,
+        );
         assert!(matches!(r, Err(Error::AddressOutOfRange { .. })));
     }
 
@@ -470,7 +498,16 @@ mod tests {
         steps.push(wip_clear_step());
 
         let mut mock = MockSpi::new(steps);
-        write(&mut mock, &fake_chip(128), &data, 0x80, false, false, &mut NullSink).unwrap();
+        write(
+            &mut mock,
+            &fake_chip(128),
+            &data,
+            0x80,
+            false,
+            false,
+            &mut NullSink,
+        )
+        .unwrap();
         mock.assert_drained();
     }
 
@@ -497,6 +534,12 @@ mod tests {
         body[10] = 0x42;
         let mut mock = MockSpi::new([read_step(0, 1024, body)]);
         let r = blank_check(&mut mock, &fake_chip(1), &mut NullSink);
-        assert!(matches!(r, Err(Error::NotBlank { addr: 10, value: 0x42 })));
+        assert!(matches!(
+            r,
+            Err(Error::NotBlank {
+                addr: 10,
+                value: 0x42
+            })
+        ));
     }
 }

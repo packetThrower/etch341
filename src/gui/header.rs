@@ -1,5 +1,5 @@
-use super::{theme, Connection, SharedProgress};
-use gpui::{div, px, IntoElement, ParentElement, Styled};
+use super::{Connection, SharedProgress, theme};
+use gpui::{IntoElement, ParentElement, Styled, div, px};
 use std::sync::atomic::Ordering;
 
 pub fn render(conn: &Connection, progress: &SharedProgress) -> impl IntoElement {

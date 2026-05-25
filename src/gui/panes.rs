@@ -1,7 +1,7 @@
-use super::{theme, AppView, Pane};
+use super::{AppView, Pane, theme};
 use gpui::{
-    div, prelude::FluentBuilder, px, ClickEvent, Context, InteractiveElement, IntoElement,
-    ParentElement, StatefulInteractiveElement, Styled,
+    ClickEvent, Context, InteractiveElement, IntoElement, ParentElement,
+    StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
 };
 use std::path::Path;
 
@@ -25,9 +25,7 @@ pub fn render(
         Pane::Detect => detect_pane(cx).into_any_element(),
         Pane::Read => read_pane(cx).into_any_element(),
         Pane::Erase => erase_pane(inputs.erase_armed, cx).into_any_element(),
-        Pane::Write => {
-            write_pane(inputs.write_path, inputs.write_armed, cx).into_any_element()
-        }
+        Pane::Write => write_pane(inputs.write_path, inputs.write_armed, cx).into_any_element(),
         Pane::Verify => verify_pane(inputs.verify_path, cx).into_any_element(),
         Pane::Blank => blank_pane(cx).into_any_element(),
         Pane::Settings => {
@@ -116,11 +114,7 @@ fn erase_button(armed: bool, cx: &mut Context<AppView>) -> impl IntoElement {
         }))
 }
 
-fn write_pane(
-    path: Option<&Path>,
-    armed: bool,
-    cx: &mut Context<AppView>,
-) -> impl IntoElement {
+fn write_pane(path: Option<&Path>, armed: bool, cx: &mut Context<AppView>) -> impl IntoElement {
     let (label, bg) = if armed {
         ("Click again to confirm", theme::caution_red())
     } else {
@@ -354,9 +348,11 @@ fn speed_row(
                 })
                 .child(label.to_string()),
         )
-        .on_click(cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
-            this.set_spi_speed(khz, cx);
-        }));
+        .on_click(
+            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+                this.set_spi_speed(khz, cx);
+            }),
+        );
     if active {
         row = row.bg(theme::accent_blue_tint());
     }
@@ -455,7 +451,9 @@ where
         .cursor_pointer()
         .hover(|d| d.bg(theme::accent_blue_hover()))
         .child(label)
-        .on_click(cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
-            on_click(this, cx);
-        }))
+        .on_click(
+            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+                on_click(this, cx);
+            }),
+        )
 }

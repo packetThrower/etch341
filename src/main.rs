@@ -8,6 +8,7 @@ mod cli;
 mod error;
 mod i2c;
 mod ops;
+mod prefs;
 mod spi;
 
 #[cfg(feature = "gui")]

@@ -42,14 +42,20 @@ pub enum Error {
     #[error("Timed out waiting for chip to become ready (WIP stayed set)")]
     Timeout,
 
-    #[error("Address out of range for chip (chip 0x{chip_size:X} B): start=0x{addr:08X} len=0x{len:X}")]
+    #[error(
+        "Address out of range for chip (chip 0x{chip_size:X} B): start=0x{addr:08X} len=0x{len:X}"
+    )]
     AddressOutOfRange { addr: u32, len: u32, chip_size: u32 },
 
     #[error("Erase start 0x{addr:08X} is not aligned to sector size {sector_size}")]
     UnalignedErase { addr: u32, sector_size: u32 },
 
     #[error("Page program crosses a {page_size}-byte page boundary: addr=0x{addr:08X} len={len}")]
-    PageBoundaryCrossing { addr: u32, len: usize, page_size: u32 },
+    PageBoundaryCrossing {
+        addr: u32,
+        len: usize,
+        page_size: u32,
+    },
 
     #[error("Chip is not blank at 0x{addr:08X} (read 0x{value:02X})")]
     NotBlank { addr: u32, value: u8 },

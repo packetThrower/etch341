@@ -54,7 +54,9 @@ impl ChipDb {
     }
 
     pub fn find_by_name(&self, name: &str) -> Option<&Chip> {
-        self.chips.iter().find(|c| c.name.eq_ignore_ascii_case(name))
+        self.chips
+            .iter()
+            .find(|c| c.name.eq_ignore_ascii_case(name))
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Chip> {
@@ -88,10 +90,7 @@ mod tests {
     #[test]
     fn jedec_ids_are_unique() {
         let db = ChipDb::load(&db_path()).unwrap();
-        let mut ids: Vec<String> = db
-            .iter()
-            .map(|c| c.jedec_id.to_ascii_uppercase())
-            .collect();
+        let mut ids: Vec<String> = db.iter().map(|c| c.jedec_id.to_ascii_uppercase()).collect();
         ids.sort();
         let dup = ids.windows(2).find(|w| w[0] == w[1]);
         assert!(dup.is_none(), "duplicate JEDEC ID: {:?}", dup);
@@ -121,7 +120,13 @@ mod tests {
     fn lookup_by_jedec_is_case_insensitive() {
         let db = ChipDb::load(&db_path()).unwrap();
         let first = db.iter().next().unwrap();
-        assert!(db.find_by_jedec(&first.jedec_id.to_ascii_lowercase()).is_some());
-        assert!(db.find_by_jedec(&first.jedec_id.to_ascii_uppercase()).is_some());
+        assert!(
+            db.find_by_jedec(&first.jedec_id.to_ascii_lowercase())
+                .is_some()
+        );
+        assert!(
+            db.find_by_jedec(&first.jedec_id.to_ascii_uppercase())
+                .is_some()
+        );
     }
 }

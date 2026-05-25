@@ -16,9 +16,7 @@ pub struct Prefs {
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self {
-            spi_speed_khz: 750,
-        }
+        Self { spi_speed_khz: 750 }
     }
 }
 
@@ -46,8 +44,8 @@ impl Prefs {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let body = toml::to_string_pretty(self)
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        let body =
+            toml::to_string_pretty(self).map_err(|e| std::io::Error::other(e.to_string()))?;
         std::fs::write(path, body)
     }
 }

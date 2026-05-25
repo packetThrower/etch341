@@ -1,7 +1,7 @@
-use super::{theme, AppView, Pane};
+use super::{AppView, Pane, theme};
 use gpui::{
-    div, px, ClickEvent, Context, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled,
+    ClickEvent, Context, InteractiveElement, IntoElement, ParentElement,
+    StatefulInteractiveElement, Styled, div, px,
 };
 
 pub fn render(selected: Pane, cx: &mut Context<AppView>) -> impl IntoElement {
@@ -58,18 +58,20 @@ fn item(
         })
         .child(label.to_string())
         .hover(|d| d.bg(theme::workshop_glass_strong()))
-        .on_click(cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
-            // Navigating away from any destructive pane re-disarms
-            // its trigger. Without this, an armed action could fire
-            // on a stale click if the user returns to the pane and
-            // accidentally clicks once more.
-            if this.selected != pane {
-                this.erase_armed = false;
-                this.write_armed = false;
-            }
-            this.selected = pane;
-            cx.notify();
-        }));
+        .on_click(
+            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+                // Navigating away from any destructive pane re-disarms
+                // its trigger. Without this, an armed action could fire
+                // on a stale click if the user returns to the pane and
+                // accidentally clicks once more.
+                if this.selected != pane {
+                    this.erase_armed = false;
+                    this.write_armed = false;
+                }
+                this.selected = pane;
+                cx.notify();
+            }),
+        );
     if active {
         row = row.bg(theme::accent_blue_tint());
     }
