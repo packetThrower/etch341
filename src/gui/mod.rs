@@ -139,6 +139,8 @@ pub struct AppView {
     /// on every paint.
     pub hex_input_path: Option<std::path::PathBuf>,
     pub hex_bytes: Option<Vec<u8>>,
+    /// Toggle between raw hex dump (false) and extracted-strings view (true).
+    pub hex_show_strings: bool,
     /// Shared with the background ops task; rendered in the session
     /// header by `header::render`.
     pub progress: Arc<SharedProgress>,
@@ -162,6 +164,7 @@ impl AppView {
             verify_input_path: None,
             hex_input_path: None,
             hex_bytes: None,
+            hex_show_strings: false,
             progress: Arc::new(SharedProgress::default()),
             prefs: Prefs::load(),
         }
@@ -217,6 +220,12 @@ impl AppView {
             // Re-arm protection on file change.
             self.write_armed = false;
         }
+        cx.notify();
+    }
+
+    /// Swap the Hex pane between raw-bytes view and extracted-strings view.
+    pub fn set_hex_strings_mode(&mut self, show_strings: bool, cx: &mut Context<Self>) {
+        self.hex_show_strings = show_strings;
         cx.notify();
     }
 
@@ -695,6 +704,7 @@ impl Render for AppView {
                                     verify_path: self.verify_input_path.as_deref(),
                                     hex_path: self.hex_input_path.as_deref(),
                                     hex_bytes: self.hex_bytes.as_deref(),
+                                    hex_show_strings: self.hex_show_strings,
                                     spi_speed_khz: self.prefs.spi_speed_khz,
                                     prefs_path: prefs_path_buf.as_deref(),
                                 },

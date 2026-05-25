@@ -14,6 +14,7 @@ pub struct PaneInputs<'a> {
     pub verify_path: Option<&'a Path>,
     pub hex_path: Option<&'a Path>,
     pub hex_bytes: Option<&'a [u8]>,
+    pub hex_show_strings: bool,
     pub spi_speed_khz: u32,
     pub prefs_path: Option<&'a Path>,
 }
@@ -30,7 +31,13 @@ pub fn render(
         Pane::Write => write_pane(inputs.write_path, inputs.write_armed, cx).into_any_element(),
         Pane::Verify => verify_pane(inputs.verify_path, cx).into_any_element(),
         Pane::Blank => blank_pane(cx).into_any_element(),
-        Pane::Hex => hex_pane(inputs.hex_path, inputs.hex_bytes, cx).into_any_element(),
+        Pane::Hex => hex_pane(
+            inputs.hex_path,
+            inputs.hex_bytes,
+            inputs.hex_show_strings,
+            cx,
+        )
+        .into_any_element(),
         Pane::Settings => {
             settings_pane(inputs.spi_speed_khz, inputs.prefs_path, cx).into_any_element()
         }
@@ -371,6 +378,7 @@ const HEX_RENDER_CAP: usize = 16 * 1024;
 fn hex_pane(
     path: Option<&Path>,
     bytes: Option<&[u8]>,
+    show_strings: bool,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let mut col = div()
@@ -381,9 +389,11 @@ fn hex_pane(
         .py_5()
         .child(heading("Hex viewer"))
         .child(body(
-            "Inspect any binary file in classic hex+ASCII format. Browse \
-             to pick a file — typically a flash dump from the Read pane. \
-             Large files are clamped to the first 16 KB.",
+            "Inspect any binary file in hex+ASCII, or extract its \
+             printable strings (`strings`-style, ≥4 chars). Browse to \
+             pick a file — typically a flash dump from the Read pane. \
+             Hex view is clamped to the first 16 KB; strings view scans \
+             the whole file.",
         ))
         .child(file_picker_row(
             path,
@@ -391,27 +401,45 @@ fn hex_pane(
             "pick-hex",
             cx,
             |this, cx| this.pick_hex_file(cx),
-        ));
+        ))
+        .child(hex_mode_toggle(show_strings, cx));
 
     if let Some(data) = bytes {
-        let total = data.len();
-        let shown = total.min(HEX_RENDER_CAP);
-        let footer = if total > HEX_RENDER_CAP {
-            format!(
-                "Showing 0x000000–0x{:06X} of 0x{:X} bytes ({} total)",
-                shown, total, total
-            )
+        if show_strings {
+            let strings = extract_strings(data, 4);
+            let footer = format!(
+                "Found {} printable run(s) of \u{2265} 4 chars in 0x{:X} bytes",
+                strings.len(),
+                data.len()
+            );
+            col = col
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(theme::text_tertiary())
+                        .child(footer),
+                )
+                .child(strings_view(&strings));
         } else {
-            format!("Showing all 0x{:X} bytes", total)
-        };
-        col = col
-            .child(
-                div()
-                    .text_size(px(11.0))
-                    .text_color(theme::text_tertiary())
-                    .child(footer),
-            )
-            .child(hex_view(&data[..shown]));
+            let total = data.len();
+            let shown = total.min(HEX_RENDER_CAP);
+            let footer = if total > HEX_RENDER_CAP {
+                format!(
+                    "Showing 0x000000–0x{:06X} of 0x{:X} bytes ({} total)",
+                    shown, total, total
+                )
+            } else {
+                format!("Showing all 0x{:X} bytes", total)
+            };
+            col = col
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(theme::text_tertiary())
+                        .child(footer),
+                )
+                .child(hex_view(&data[..shown]));
+        }
     } else {
         col = col.child(
             div()
@@ -421,6 +449,134 @@ fn hex_pane(
         );
     }
     col
+}
+
+/// Two-button segmented toggle: Hex on the left, Strings on the right.
+/// The active option carries the accent tint; the other is muted.
+fn hex_mode_toggle(show_strings: bool, cx: &mut Context<AppView>) -> impl IntoElement {
+    let hex_active = !show_strings;
+    div()
+        .self_start()
+        .flex()
+        .flex_row()
+        .gap_1()
+        .child(toggle_button(
+            "Hex",
+            "hex-mode-hex",
+            hex_active,
+            cx,
+            |t, c| t.set_hex_strings_mode(false, c),
+        ))
+        .child(toggle_button(
+            "Strings",
+            "hex-mode-strings",
+            show_strings,
+            cx,
+            |t, c| t.set_hex_strings_mode(true, c),
+        ))
+}
+
+fn toggle_button<F>(
+    label: &'static str,
+    id: &'static str,
+    active: bool,
+    cx: &mut Context<AppView>,
+    on_click: F,
+) -> impl IntoElement
+where
+    F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
+{
+    let mut btn = div()
+        .id(id)
+        .px_3()
+        .py_1()
+        .rounded(px(6.0))
+        .cursor_pointer()
+        .text_size(px(12.0))
+        .text_color(if active {
+            theme::text_primary()
+        } else {
+            theme::text_secondary()
+        })
+        .child(label)
+        .on_click(
+            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+                on_click(this, cx);
+            }),
+        );
+    if active {
+        btn = btn.bg(theme::accent_blue_tint());
+    } else {
+        btn = btn.hover(|d| d.bg(theme::workshop_glass_strong()));
+    }
+    btn
+}
+
+fn strings_view(strings: &[(usize, String)]) -> impl IntoElement {
+    div()
+        .id("strings-view")
+        .h(px(400.0))
+        .overflow_y_scroll()
+        .border_1()
+        .border_color(theme::workshop_glass_strong())
+        .rounded(px(6.0))
+        .bg(theme::bench_black())
+        .px_3()
+        .py_2()
+        .font_family("Menlo")
+        .text_size(px(11.0))
+        .text_color(theme::text_secondary())
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_0p5()
+                .children(strings.iter().map(|(offset, s)| {
+                    div()
+                        .flex()
+                        .flex_row()
+                        .gap_3()
+                        .child(
+                            div()
+                                .text_color(theme::text_tertiary())
+                                .child(format!("{:08X}", offset)),
+                        )
+                        .child(
+                            div()
+                                .text_color(theme::text_primary())
+                                .whitespace_normal()
+                                .child(s.clone()),
+                        )
+                })),
+        )
+}
+
+/// Walk the byte slice and emit runs of printable ASCII (0x20..=0x7E)
+/// at least `min_len` characters long. Mirrors the unix `strings`
+/// command behaviour with the default `-n` of 4.
+fn extract_strings(bytes: &[u8], min_len: usize) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    let mut start: Option<usize> = None;
+    let mut buf = String::new();
+    for (i, &b) in bytes.iter().enumerate() {
+        if (0x20..=0x7E).contains(&b) {
+            if start.is_none() {
+                start = Some(i);
+            }
+            buf.push(b as char);
+        } else if !buf.is_empty() {
+            if buf.len() >= min_len {
+                out.push((start.unwrap(), std::mem::take(&mut buf)));
+            } else {
+                buf.clear();
+            }
+            start = None;
+        }
+    }
+    if buf.len() >= min_len {
+        out.push((start.unwrap(), buf));
+    }
+    out
 }
 
 /// Render a slice of bytes as 16-byte-per-line hex + ASCII inside a
