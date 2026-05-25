@@ -132,6 +132,27 @@ Supported families: 24C01 / 02 / 04 / 08 / 16 / 32 / 64 / 128 / 256 /
 512. Other 24Cxx chips work if you add an entry to `chips/i2c_chips.toml`.
 ```
 
+The CLI also has three offline inspection commands that work on flash
+dump files (no hardware required):
+
+```sh
+etch341 chips                            # list every supported chip
+etch341 chips --find mx25                # substring filter on name or JEDEC
+etch341 chips --bus i2c                  # filter to one bus family
+
+etch341 strings -i dump.bin              # printable ASCII strings ≥4 chars
+etch341 strings -i dump.bin --min-len 8  # noisier-but-richer threshold
+
+etch341 search "55 AA" -i dump.bin       # find hex pattern (spaces optional)
+etch341 search "Award" -i dump.bin       # ASCII (case-insensitive)
+etch341 search "DEADBEEF" -i dump.bin --context 32   # widen the gutter
+```
+
+`search` parses the pattern as hex when the condensed form is even-length
+and all hex digits (`55AA`, `DE AD BE EF`); anything else is taken as
+ASCII. Matched bytes print in upper-case hex; surrounding context stays
+lower-case for an at-a-glance visual contrast.
+
 Global flags:
 
 - `-v, --verbose` — log raw SPI transactions to stderr (invaluable for

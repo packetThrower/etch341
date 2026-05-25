@@ -51,6 +51,46 @@ pub enum Command {
         #[command(subcommand)]
         action: I2cAction,
     },
+    /// List supported chips (SPI + I²C) from the embedded chip DB.
+    Chips(ChipsArgs),
+    /// Extract printable ASCII strings from a binary file.
+    Strings(StringsArgs),
+    /// Find every offset where a byte pattern (hex or ASCII) occurs in a file.
+    Search(SearchArgs),
+}
+
+#[derive(Args)]
+pub struct ChipsArgs {
+    /// Filter to only this bus family. Default: list both.
+    #[arg(long, value_parser = ["spi", "i2c"])]
+    pub bus: Option<String>,
+    /// Case-insensitive substring filter on chip name (or JEDEC ID for SPI).
+    #[arg(long)]
+    pub find: Option<String>,
+}
+
+#[derive(Args)]
+pub struct StringsArgs {
+    /// Input binary file.
+    #[arg(short = 'i', long)]
+    pub input: PathBuf,
+    /// Minimum run length to report. Common defaults: 4 (lots of noise) or 8 (just labels).
+    #[arg(long, default_value_t = 4)]
+    pub min_len: usize,
+}
+
+#[derive(Args)]
+pub struct SearchArgs {
+    /// Pattern to find. All-hex-digits-and-even-length → hex bytes
+    /// (e.g. "55AA" or "55 AA"); anything else → ASCII (case-insensitive
+    /// for letters, exact for everything else).
+    pub pattern: String,
+    /// Input binary file.
+    #[arg(short = 'i', long)]
+    pub input: PathBuf,
+    /// Bytes of surrounding context to print with each hit. 0 disables.
+    #[arg(long, default_value_t = 16)]
+    pub context: usize,
 }
 
 #[derive(Subcommand)]
@@ -287,7 +327,171 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
         }
 
         Command::I2c { action } => dispatch_i2c(global, action),
+
+        Command::Chips(args) => {
+            print_chips(&args);
+            Ok(())
+        }
+
+        Command::Strings(args) => {
+            let bytes = std::fs::read(&args.input)?;
+            for (offset, s) in crate::inspect::extract_strings(&bytes, args.min_len) {
+                println!("{:08X}  {}", offset, s);
+            }
+            Ok(())
+        }
+
+        Command::Search(args) => {
+            let bytes = std::fs::read(&args.input)?;
+            let needle = crate::inspect::parse_hex_needle(&args.pattern);
+            if needle.is_empty() {
+                return Err("empty search pattern".into());
+            }
+            let hits = crate::inspect::find_pattern(&bytes, &needle);
+            if hits.is_empty() {
+                eprintln!(
+                    "No matches for {:?} in {}.",
+                    args.pattern,
+                    args.input.display()
+                );
+                return Ok(());
+            }
+            println!(
+                "{} match{} for {:?} ({} byte{}):",
+                hits.len(),
+                if hits.len() == 1 { "" } else { "es" },
+                args.pattern,
+                needle.len(),
+                if needle.len() == 1 { "" } else { "s" }
+            );
+            for offset in hits {
+                print_search_hit(&bytes, offset, needle.len(), args.context);
+            }
+            Ok(())
+        }
     }
+}
+
+/// Print a chip-DB listing, optionally filtered by bus / substring.
+fn print_chips(args: &ChipsArgs) {
+    use crate::chipdb::{ChipDb, I2cChipDb};
+
+    let needle = args.find.as_deref().map(|s| s.to_ascii_lowercase());
+    let want_spi = args.bus.as_deref().is_none_or(|b| b == "spi");
+    let want_i2c = args.bus.as_deref().is_none_or(|b| b == "i2c");
+
+    if want_spi {
+        let db = ChipDb::load_embedded();
+        let rows: Vec<_> = db
+            .iter()
+            .filter(|c| match needle.as_ref() {
+                None => true,
+                Some(n) => {
+                    c.name.to_ascii_lowercase().contains(n)
+                        || c.jedec_id.to_ascii_lowercase().contains(n)
+                }
+            })
+            .collect();
+        println!("SPI flash ({} chip{}):", rows.len(), plural(rows.len()));
+        if !rows.is_empty() {
+            println!(
+                "  {:<14} {:<8} {:<10} {:<7} {:<7}  NOTES",
+                "NAME", "JEDEC", "SIZE", "PAGE", "SECTOR"
+            );
+            for c in rows {
+                println!(
+                    "  {:<14} {:<8} {:<10} {:<7} {:<7}  {}",
+                    c.name,
+                    c.jedec_id,
+                    fmt_bytes(c.size_kb as u64 * 1024),
+                    fmt_bytes(c.page_size as u64),
+                    fmt_bytes(c.sector_size as u64),
+                    c.notes,
+                );
+            }
+        }
+    }
+
+    if want_spi && want_i2c {
+        println!();
+    }
+
+    if want_i2c {
+        let db = I2cChipDb::load_embedded();
+        let rows: Vec<_> = db
+            .iter()
+            .filter(|c| match needle.as_ref() {
+                None => true,
+                Some(n) => c.name.to_ascii_lowercase().contains(n),
+            })
+            .collect();
+        println!("I²C EEPROMs ({} chip{}):", rows.len(), plural(rows.len()));
+        if !rows.is_empty() {
+            println!(
+                "  {:<10} {:<10} {:<6} {:<6}",
+                "NAME", "SIZE", "PAGE", "ADDR"
+            );
+            for c in rows {
+                println!(
+                    "  {:<10} {:<10} {:<6} {:<6}",
+                    c.name,
+                    fmt_bytes(c.size_bytes as u64),
+                    fmt_bytes(c.page_size as u64),
+                    format!("{} B", c.addr_width),
+                );
+            }
+        }
+    }
+}
+
+fn plural(n: usize) -> &'static str {
+    if n == 1 { "" } else { "s" }
+}
+
+/// Compact human-readable byte count: B / KB / MB / GB.
+fn fmt_bytes(n: u64) -> String {
+    if n >= 1 << 30 {
+        format!("{} GB", n >> 30)
+    } else if n >= 1 << 20 {
+        format!("{} MB", n >> 20)
+    } else if n >= 1 << 10 {
+        format!("{} KB", n >> 10)
+    } else {
+        format!("{} B", n)
+    }
+}
+
+/// Print one search hit in `xxd`-style: offset, hex bytes, ASCII gutter.
+/// `context` bytes of surrounding data are included on either side so the
+/// hit reads in context. Bytes inside the match are uppercased; the rest
+/// stay lowercase so a quick visual scan separates needle from haystack.
+fn print_search_hit(bytes: &[u8], offset: usize, len: usize, context: usize) {
+    let start = offset.saturating_sub(context);
+    let end = (offset + len + context).min(bytes.len());
+    let slice = &bytes[start..end];
+
+    let mut hex_part = String::with_capacity(slice.len() * 3);
+    let mut asc_part = String::with_capacity(slice.len());
+    for (i, &b) in slice.iter().enumerate() {
+        let abs = start + i;
+        let in_match = abs >= offset && abs < offset + len;
+        if in_match {
+            hex_part.push_str(&format!("{:02X} ", b));
+        } else {
+            hex_part.push_str(&format!("{:02x} ", b));
+        }
+        asc_part.push(if (0x20..=0x7E).contains(&b) {
+            b as char
+        } else {
+            '.'
+        });
+    }
+    println!(
+        "  0x{:08X}  {}  |{}|",
+        offset,
+        hex_part.trim_end(),
+        asc_part
+    );
 }
 
 fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std::error::Error>> {

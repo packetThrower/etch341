@@ -29,67 +29,11 @@ actions!(
     [FocusFind, FindNextAction, FindPrevAction, CopyHexSelection]
 );
 
-/// Interpret a search needle as either hex bytes (when condensed
-/// form is all-hex-digits + even length) or ASCII (otherwise).
-/// Mirrors the heuristic of an in-place hex editor's find-bar:
-///   `55 AA`         → `[0x55, 0xAA]`
-///   `NVIDIA`        → ASCII bytes for "NVIDIA"
-///   `ABCD`          → `[0xAB, 0xCD]` (even-length, all hex wins)
-///   `ABC`           → ASCII bytes for "ABC" (odd-length defaults to ASCII)
-pub fn parse_hex_needle(s: &str) -> Vec<u8> {
-    let condensed: String = s.chars().filter(|c| !c.is_whitespace()).collect();
-    if !condensed.is_empty()
-        && condensed.len() % 2 == 0
-        && condensed.chars().all(|c| c.is_ascii_hexdigit())
-    {
-        (0..condensed.len())
-            .step_by(2)
-            .filter_map(|i| u8::from_str_radix(&condensed[i..i + 2], 16).ok())
-            .collect()
-    } else {
-        s.as_bytes().to_vec()
-    }
-}
-
-/// Case-insensitive byte match for ASCII letters; exact for everything
-/// else. Used so a search for `power` highlights `Power` runs without
-/// silently doing the wrong thing for binary patterns like `55 AA`
-/// where bytes aren't letters at all.
-fn byte_match_ci(a: u8, b: u8) -> bool {
-    if a.is_ascii_alphabetic() && b.is_ascii_alphabetic() {
-        a.eq_ignore_ascii_case(&b)
-    } else {
-        a == b
-    }
-}
-
-/// Walk the byte slice and emit runs of printable ASCII (0x20..=0x7E)
-/// at least `min_len` characters long. Lives here so both pick_hex_file
-/// and the panes module can share it.
-pub fn extract_strings(bytes: &[u8], min_len: usize) -> Vec<(usize, String)> {
-    let mut out = Vec::new();
-    let mut start: Option<usize> = None;
-    let mut buf = String::new();
-    for (i, &b) in bytes.iter().enumerate() {
-        if (0x20..=0x7E).contains(&b) {
-            if start.is_none() {
-                start = Some(i);
-            }
-            buf.push(b as char);
-        } else if !buf.is_empty() {
-            if buf.len() >= min_len {
-                out.push((start.unwrap(), std::mem::take(&mut buf)));
-            } else {
-                buf.clear();
-            }
-            start = None;
-        }
-    }
-    if buf.len() >= min_len {
-        out.push((start.unwrap(), buf));
-    }
-    out
-}
+// The search-pattern parsing, string extraction, and byte-level
+// match logic live in the shared `crate::inspect` module so the CLI
+// can use the same code. Re-exported here for the convenience of
+// the rest of the GUI module.
+pub use crate::inspect::{byte_match_ci, extract_strings, parse_hex_needle};
 
 mod header;
 mod log;
