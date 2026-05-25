@@ -75,6 +75,10 @@ pub struct AppView {
     /// `track_scroll(...)` to keep the log from jumping back to the
     /// top whenever a new line is appended.
     pub log_scroll: ScrollHandle,
+    /// First click on the Erase button arms it (label/color swap);
+    /// the second click within the same pane visit fires the actual
+    /// erase. Reset to false when the user navigates away.
+    pub erase_armed: bool,
 }
 
 impl AppView {
@@ -87,6 +91,7 @@ impl AppView {
                 text: "etch341 ready — plug in a CH341A and click Refresh".into(),
             }],
             log_scroll: ScrollHandle::new(),
+            erase_armed: false,
         }
     }
 
@@ -206,6 +211,72 @@ impl AppView {
         .detach();
     }
 
+    /// Two-stage destructive trigger for full-chip erase. First click
+    /// flips `erase_armed`; the button visually re-renders (red text,
+    /// new label). Second click within the same pane visit fires the
+    /// real erase. Navigating away resets the arm state via the
+    /// sidebar's pane-change handler.
+    pub fn arm_or_fire_erase(&mut self, cx: &mut Context<Self>) {
+        if self.erase_armed {
+            self.erase_armed = false;
+            self.start_erase(cx);
+        } else {
+            self.erase_armed = true;
+            self.push_log("⚠ Erase armed — click again to confirm".into());
+            cx.notify();
+        }
+    }
+
+    /// Background-spawn the actual full-chip erase. Same shape as
+    /// `start_read` / `start_blank_check`; ops::erase_chip handles
+    /// the WREN → 0xC7 → poll WIP loop. Typical durations: ~30s for
+    /// a 4 MB chip, several minutes for 16 MB+.
+    fn start_erase(&mut self, cx: &mut Context<Self>) {
+        self.push_log("→ erase chip starting (may take 30s–minutes)".into());
+        cx.notify();
+
+        cx.spawn(async move |weak, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
+                    let chip = match detect.diagnosis {
+                        Diagnosis::Known(c) => c,
+                        Diagnosis::UnknownChip => {
+                            return Err(format!(
+                                "unknown JEDEC 0x{} — add to chips.toml",
+                                detect.jedec_string()
+                            ));
+                        }
+                        Diagnosis::MisoStuckLow => {
+                            return Err("MISO stuck low (target board contention)".into());
+                        }
+                        Diagnosis::MisoFloatsHigh => {
+                            return Err("MISO floats high (no chip / HOLD# grounded)".into());
+                        }
+                    };
+                    ops::erase_chip(&mut ch, &chip).map_err(|e| format!("erase: {e}"))?;
+                    Ok::<_, String>(chip.name)
+                })
+                .await;
+
+            weak.update(cx, |this, cx| {
+                match outcome {
+                    Ok(name) => {
+                        this.push_log(format!("Erase OK : {name} (chip is now blank)"));
+                    }
+                    Err(err) => {
+                        this.push_log(format!("Erase FAIL: {err}"));
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Background-spawn a full-chip blank check. Useful for verifying
     /// that an erase succeeded (`ops::blank_check` returns
     /// `Error::NotBlank { addr, value }` on the first non-FF byte;
@@ -300,7 +371,7 @@ impl Render for AppView {
                             .min_h(px(0.0))
                             .min_w(px(0.0))
                             .overflow_hidden()
-                            .child(panes::render(self.selected, cx)),
+                            .child(panes::render(self.selected, self.erase_armed, cx)),
                     )
                     .child(log::render(&self.log_lines, &self.log_scroll)),
             )

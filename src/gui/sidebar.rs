@@ -59,6 +59,13 @@ fn item(
         .child(label.to_string())
         .hover(|d| d.bg(theme::workshop_glass_strong()))
         .on_click(cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+            // Navigating away from the Erase pane re-disarms the
+            // destructive trigger. Without this, an armed erase
+            // could fire on a stale click if the user returns to
+            // the pane and accidentally clicks once more.
+            if this.selected != pane {
+                this.erase_armed = false;
+            }
             this.selected = pane;
             cx.notify();
         }));

@@ -1,15 +1,18 @@
 use super::{theme, AppView, Pane};
 use gpui::{
-    div, px, ClickEvent, Context, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled,
+    div, prelude::FluentBuilder, px, ClickEvent, Context, InteractiveElement, IntoElement,
+    ParentElement, StatefulInteractiveElement, Styled,
 };
 
-pub fn render(selected: Pane, cx: &mut Context<AppView>) -> impl IntoElement {
+pub fn render(
+    selected: Pane,
+    erase_armed: bool,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
     match selected {
         Pane::Detect => detect_pane(cx).into_any_element(),
         Pane::Read => read_pane(cx).into_any_element(),
-        Pane::Erase => stub("Erase", "Erase the entire chip or a specific range. Destructive.")
-            .into_any_element(),
+        Pane::Erase => erase_pane(erase_armed, cx).into_any_element(),
         Pane::Write => stub("Write", "Program the chip from a file.").into_any_element(),
         Pane::Verify => {
             stub("Verify", "Compare a file against the chip without writing.").into_any_element()
@@ -42,6 +45,65 @@ fn read_pane(cx: &mut Context<AppView>) -> impl IntoElement {
             cx,
             |this, cx| this.start_read(cx),
         ))
+}
+
+fn erase_pane(armed: bool, cx: &mut Context<AppView>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_4()
+        .px_5()
+        .py_5()
+        .child(heading("Erase"))
+        .child(body(
+            "Erases the entire chip back to 0xFF. DESTRUCTIVE and not \
+             undoable — make sure you have a Read backup first. Click \
+             the button to arm, then click again to actually erase. \
+             Switching panes resets the arm state.",
+        ))
+        .when(armed, |this| {
+            this.child(
+                div()
+                    .self_start()
+                    .px_3()
+                    .py_2()
+                    .rounded(px(6.0))
+                    .bg(theme::warning_amber())
+                    .text_color(theme::bench_black())
+                    .whitespace_normal()
+                    .child("Armed — next click will erase the entire chip."),
+            )
+        })
+        .child(erase_button(armed, cx))
+}
+
+fn erase_button(armed: bool, cx: &mut Context<AppView>) -> impl IntoElement {
+    // Mirrors `action_button_for` but with a conditional label/bg
+    // for the armed state. Stays a sibling helper rather than a new
+    // generic so the callsite reads like "erase button at <state>"
+    // instead of a long param list.
+    let (label, bg) = if armed {
+        ("Click again to confirm", theme::caution_red())
+    } else {
+        ("Erase chip", theme::accent_blue())
+    };
+    div()
+        .id("start-erase")
+        .self_start()
+        .flex()
+        .items_center()
+        .justify_center()
+        .min_w(px(110.0))
+        .px_4()
+        .py_2()
+        .rounded(px(6.0))
+        .bg(bg)
+        .text_color(theme::text_primary())
+        .cursor_pointer()
+        .child(label)
+        .on_click(cx.listener(|this: &mut AppView, _: &ClickEvent, _, cx| {
+            this.arm_or_fire_erase(cx);
+        }))
 }
 
 fn blank_pane(cx: &mut Context<AppView>) -> impl IntoElement {
