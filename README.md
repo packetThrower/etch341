@@ -5,24 +5,42 @@ interface. No kernel drivers required.
 
 ## Status
 
-Early. The CLI is feature-complete for SPI NOR work up to 16 MB; the GUI is
-a working scaffold (window, navigation, Detect action) but the per-op forms
-(Read/Erase/Write/Verify/Blank) are not yet wired.
+Working programmer for SPI NOR up to 16 MB, on both 3.3V and 1.8V chips
+(with a CH341A V1.7+ module for the 1.8V parts). Round-trip validated
+against a real Macronix MX25U4033E on an NVIDIA GTX 1060 — full
+erase → blank-check → write → verify cycle landed byte-identical (SHA-256
+match) to the original VBIOS.
 
 | Feature | CLI | GUI |
 | --- | --- | --- |
 | Detect (JEDEC ID → chip lookup) | ✅ | ✅ |
-| Read | ✅ | placeholder |
-| Erase (full + range) | ✅ | placeholder |
-| Write (with erase + verify) | ✅ | placeholder |
-| Verify | ✅ | placeholder |
-| Blank check | ✅ | placeholder |
+| Read | ✅ | ✅ |
+| Erase (full + range) | ✅ | ✅ (arm/confirm) |
+| Write (with erase + verify) | ✅ | ✅ (arm/confirm + file picker) |
+| Verify | ✅ | ✅ (file picker) |
+| Blank check | ✅ | ✅ |
 | Settings (clock speed, etc.) | ⚠ flag only, no-op | placeholder |
 | 4-byte addressing (>16 MB chips) | ❌ | ❌ |
 
 22 unit tests covering the SPI protocol and high-level ops, all running
 against a mock `SpiTransport`. Hardware-touching tests are gated behind
 `--features hardware`.
+
+### Hardware-validated
+
+- **Macronix MX25U4033E** (1.8V, 4 Mbit) on a GTX 1060 VBIOS chip
+  (GP106 PG410). Full erase → write → verify cycle returns the chip
+  to a byte-identical state (matching SHA-256 across pre- and
+  post-cycle reads).
+- **CH341A V1.7** mini programmer with on-board ZIF socket + SOIC-8
+  clip. The V1.7 has a 1.8V mode that older V1.3 boards lack — required
+  for the U-series Macronix chips and most modern GPU VBIOS.
+
+Other chips in `chips/chips.toml` are entered from datasheets but
+haven't been individually exercised against silicon. If you run a
+JEDEC `detect` on a chip and the response decodes correctly to a
+named entry, the rest of the operations are very likely to work
+(they're chip-agnostic at the protocol level).
 
 ## Install
 
