@@ -59,6 +59,9 @@ pub enum Error {
 
     #[error("Chip is not blank at 0x{addr:08X} (read 0x{value:02X})")]
     NotBlank { addr: u32, value: u8 },
+
+    #[error("I²C device at 0x{slave_7bit:02X} did not ACK")]
+    I2cNack { slave_7bit: u8 },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

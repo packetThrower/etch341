@@ -46,6 +46,79 @@ pub enum Command {
     Verify(VerifyArgs),
     /// Confirm chip is fully erased.
     BlankCheck,
+    /// I²C EEPROM operations (24Cxx family).
+    I2c {
+        #[command(subcommand)]
+        action: I2cAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum I2cAction {
+    /// Probe each 7-bit address and list which ones ACK.
+    Scan,
+    /// Dump the EEPROM contents to a file. Requires `--chip <NAME>`.
+    Read(I2cReadArgs),
+    /// Write a binary file to the EEPROM. Requires `--chip <NAME>`.
+    Write(I2cWriteArgs),
+    /// Compare a file against the EEPROM. Requires `--chip <NAME>`.
+    Verify(I2cVerifyArgs),
+    /// Confirm every byte reads back as 0xFF.
+    BlankCheck(I2cBlankArgs),
+    /// Write 0xFF to every byte (EEPROMs have no true erase op).
+    Erase(I2cBlankArgs),
+}
+
+#[derive(Args)]
+pub struct I2cReadArgs {
+    /// Output file.
+    #[arg(short = 'o', long, default_value = "eeprom_dump.bin")]
+    pub output: PathBuf,
+    /// Start address (decimal or 0x-prefixed hex).
+    #[arg(long, value_parser = parse_addr, default_value = "0")]
+    pub start: u32,
+    /// Number of bytes to read. Defaults to the whole chip.
+    #[arg(long, value_parser = parse_addr)]
+    pub length: Option<u32>,
+    /// A0/A1/A2 pin straps (3-bit value, default 0).
+    #[arg(long, value_parser = parse_addr, default_value = "0")]
+    pub straps: u32,
+}
+
+#[derive(Args)]
+pub struct I2cWriteArgs {
+    /// Input binary file.
+    #[arg(short = 'i', long)]
+    pub input: PathBuf,
+    /// Skip readback verify after write.
+    #[arg(long)]
+    pub no_verify: bool,
+    /// Start address.
+    #[arg(long, value_parser = parse_addr, default_value = "0")]
+    pub start: u32,
+    /// A0/A1/A2 pin straps (3-bit value, default 0).
+    #[arg(long, value_parser = parse_addr, default_value = "0")]
+    pub straps: u32,
+}
+
+#[derive(Args)]
+pub struct I2cVerifyArgs {
+    /// Reference file to compare against the EEPROM.
+    #[arg(short = 'i', long)]
+    pub input: PathBuf,
+    /// Start address.
+    #[arg(long, value_parser = parse_addr, default_value = "0")]
+    pub start: u32,
+    /// A0/A1/A2 pin straps (3-bit value, default 0).
+    #[arg(long, value_parser = parse_addr, default_value = "0")]
+    pub straps: u32,
+}
+
+#[derive(Args)]
+pub struct I2cBlankArgs {
+    /// A0/A1/A2 pin straps (3-bit value, default 0).
+    #[arg(long, value_parser = parse_addr, default_value = "0")]
+    pub straps: u32,
 }
 
 #[derive(Args)]
@@ -210,6 +283,131 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let mut sink = IndicatifSink::new("blank  ");
             ops::blank_check(&mut ch, &chip, &mut sink)?;
+            Ok(())
+        }
+
+        Command::I2c { action } => dispatch_i2c(global, action),
+    }
+}
+
+fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ch341::Ch341;
+    use crate::i2c_ops;
+
+    // I²C ops need a chip selected up front (no JEDEC ID to query),
+    // except for `scan` which is bus-only.
+    let resolve_chip = |chip: &Option<String>| {
+        chip.as_deref()
+            .ok_or_else(|| "I²C ops require --chip <NAME> (no JEDEC autodetect)".to_string())
+            .and_then(|name| i2c_ops::resolve_chip(name).map_err(|e| e.to_string()))
+    };
+
+    match action {
+        I2cAction::Scan => {
+            let mut ch = Ch341::open_i2c(global.verbose)?;
+            ch.set_clock(global.speed)?;
+            let hits = i2c_ops::scan(&mut ch)?;
+            if hits.is_empty() {
+                println!("No I²C devices responded on 0x08..0x77.");
+            } else {
+                println!("I²C devices ACKing:");
+                for a in hits {
+                    println!("  0x{:02X}", a);
+                }
+            }
+            Ok(())
+        }
+
+        I2cAction::Read(args) => {
+            let chip = resolve_chip(&global.chip)?;
+            let mut ch = Ch341::open_i2c(global.verbose)?;
+            ch.set_clock(global.speed)?;
+            let len = args
+                .length
+                .unwrap_or(chip.size_bytes.saturating_sub(args.start));
+            let mut sink = IndicatifSink::new("i2c-rd ");
+            i2c_ops::read(
+                &mut ch,
+                &chip,
+                args.start,
+                len,
+                args.straps as u8,
+                &args.output,
+                &mut sink,
+            )?;
+            Ok(())
+        }
+
+        I2cAction::Write(args) => {
+            let chip = resolve_chip(&global.chip)?;
+            let data = std::fs::read(&args.input)?;
+            let mut ch = Ch341::open_i2c(global.verbose)?;
+            ch.set_clock(global.speed)?;
+            let mut sink = IndicatifSink::new("i2c-wr ");
+            i2c_ops::write(
+                &mut ch,
+                &chip,
+                args.start,
+                &data,
+                args.straps as u8,
+                &mut sink,
+            )?;
+            if !args.no_verify {
+                let mut vs = IndicatifSink::new("i2c-vfy");
+                let mismatches = i2c_ops::verify(
+                    &mut ch,
+                    &chip,
+                    &data,
+                    args.start,
+                    args.straps as u8,
+                    &mut vs,
+                )?;
+                if mismatches > 0 {
+                    return Err(format!("verify failed: {} byte(s) differ", mismatches).into());
+                }
+                println!("Verify OK");
+            }
+            Ok(())
+        }
+
+        I2cAction::Verify(args) => {
+            let chip = resolve_chip(&global.chip)?;
+            let data = std::fs::read(&args.input)?;
+            let mut ch = Ch341::open_i2c(global.verbose)?;
+            ch.set_clock(global.speed)?;
+            let mut sink = IndicatifSink::new("i2c-vfy");
+            let mismatches = i2c_ops::verify(
+                &mut ch,
+                &chip,
+                &data,
+                args.start,
+                args.straps as u8,
+                &mut sink,
+            )?;
+            if mismatches > 0 {
+                return Err(format!("verify failed: {} byte(s) differ", mismatches).into());
+            }
+            println!("Verify OK");
+            Ok(())
+        }
+
+        I2cAction::BlankCheck(args) => {
+            let chip = resolve_chip(&global.chip)?;
+            let mut ch = Ch341::open_i2c(global.verbose)?;
+            ch.set_clock(global.speed)?;
+            let mut sink = IndicatifSink::new("i2c-blk");
+            i2c_ops::blank_check(&mut ch, &chip, args.straps as u8, &mut sink)?;
+            println!("Blank check OK ({} bytes all 0xFF)", chip.size_bytes);
+            Ok(())
+        }
+
+        I2cAction::Erase(args) => {
+            let chip = resolve_chip(&global.chip)?;
+            let mut ch = Ch341::open_i2c(global.verbose)?;
+            ch.set_clock(global.speed)?;
+            let mut sink = IndicatifSink::new("i2c-er ");
+            i2c_ops::erase(&mut ch, &chip, args.straps as u8, &mut sink)?;
+            println!("Erase OK ({} bytes set to 0xFF)", chip.size_bytes);
             Ok(())
         }
     }

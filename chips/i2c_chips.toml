@@ -1,0 +1,97 @@
+# I²C serial EEPROMs (24Cxx family).
+#
+# Unlike SPI NOR there is no JEDEC ID register — the user picks a
+# chip with `--chip <NAME>`, or `i2c detect` probes by size. Common
+# 7-bit base addresses are 0x50..0x57.
+#
+# Fields:
+#   name        — case-insensitive lookup key
+#   size_bytes  — total EEPROM capacity
+#   page_size   — max bytes per page-write transaction
+#   addr_width  — 1 (≤ 256 B chips, address fits in one byte) or
+#                 2 (≥ 4 KB chips, address spans two bytes)
+#   slave_addr_bits — number of memory-address bits that get OR'd into
+#                 the slave address byte instead of going on the bus
+#                 as data (24C04 = 1, 24C08 = 2, 24C16 = 3, others = 0)
+#   write_cycle_ms — max time the chip stays busy after a page write;
+#                 used as the upper bound for ACK-polling
+
+[[chip]]
+name = "24C01"
+size_bytes = 128
+page_size = 8
+addr_width = 1
+slave_addr_bits = 0
+write_cycle_ms = 5
+
+[[chip]]
+name = "24C02"
+size_bytes = 256
+page_size = 8
+addr_width = 1
+slave_addr_bits = 0
+write_cycle_ms = 5
+
+[[chip]]
+name = "24C04"
+size_bytes = 512
+page_size = 16
+addr_width = 1
+slave_addr_bits = 1
+write_cycle_ms = 5
+
+[[chip]]
+name = "24C08"
+size_bytes = 1024
+page_size = 16
+addr_width = 1
+slave_addr_bits = 2
+write_cycle_ms = 5
+
+[[chip]]
+name = "24C16"
+size_bytes = 2048
+page_size = 16
+addr_width = 1
+slave_addr_bits = 3
+write_cycle_ms = 5
+
+[[chip]]
+name = "24C32"
+size_bytes = 4096
+page_size = 32
+addr_width = 2
+slave_addr_bits = 0
+write_cycle_ms = 10
+
+[[chip]]
+name = "24C64"
+size_bytes = 8192
+page_size = 32
+addr_width = 2
+slave_addr_bits = 0
+write_cycle_ms = 10
+
+[[chip]]
+name = "24C128"
+size_bytes = 16384
+page_size = 64
+addr_width = 2
+slave_addr_bits = 0
+write_cycle_ms = 10
+
+[[chip]]
+name = "24C256"
+size_bytes = 32768
+page_size = 64
+addr_width = 2
+slave_addr_bits = 0
+write_cycle_ms = 10
+
+[[chip]]
+name = "24C512"
+size_bytes = 65536
+page_size = 128
+addr_width = 2
+slave_addr_bits = 0
+write_cycle_ms = 10

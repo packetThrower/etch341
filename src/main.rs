@@ -7,6 +7,7 @@ mod chipdb;
 mod cli;
 mod error;
 mod i2c;
+mod i2c_ops;
 mod ops;
 mod prefs;
 mod spi;

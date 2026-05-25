@@ -23,10 +23,11 @@ match) to the original VBIOS.
 | Blank check | ✅ | ✅ |
 | Settings (clock speed, etc.) | ✅ (`--speed`) | ✅ |
 | 4-byte addressing (>16 MB chips) | ✅ | ✅ |
+| I²C scan / read / write / verify / blank-check / erase | ✅ | — |
 
-22 unit tests covering the SPI protocol and high-level ops, all running
-against a mock `SpiTransport`. Hardware-touching tests are gated behind
-`--features hardware`.
+42 unit tests covering both the SPI and I²C protocols and their
+high-level ops, all running against mock transports. Hardware-touching
+tests are gated behind `--features hardware`.
 
 ### Hardware-validated
 
@@ -110,6 +111,27 @@ etch341 verify -i bios.bin           # compare without writing
 etch341 blank-check                  # confirm all 0xFF
 ```
 
+I²C EEPROMs (24Cxx family) use the nested `i2c` subcommand. Unlike
+SPI NOR there's no JEDEC ID register, so the chip must be selected
+explicitly with `-c`:
+
+```sh
+etch341 i2c scan                            # list 7-bit addrs that ACK
+etch341 -c 24C256 i2c read -o eeprom.bin    # dump entire chip
+etch341 -c 24C256 i2c write -i eeprom.bin   # program + verify
+etch341 -c 24C256 i2c verify -i eeprom.bin  # compare without writing
+etch341 -c 24C02 i2c blank-check            # confirm all 0xFF
+etch341 -c 24C02 i2c erase                  # write 0xFF to every byte
+```
+
+`--straps <0..7>` selects the A0/A1/A2 pin value if the chip is wired
+non-default. The 24C04/08/16 use bit-stuffing in the slave address
+for their high memory bits; this is handled automatically.
+
+Supported families: 24C01 / 02 / 04 / 08 / 16 / 32 / 64 / 128 / 256 /
+512. Other 24Cxx chips work if you add an entry to `chips/i2c_chips.toml`.
+```
+
 Global flags:
 
 - `-v, --verbose` — log raw SPI transactions to stderr (invaluable for
@@ -177,13 +199,16 @@ src/
 ├── main.rs       entry point; no-args → GUI, subcommand → CLI
 ├── cli.rs        clap derive definitions + dispatch
 ├── error.rs      thiserror enum
-├── ch341.rs      USB layer (CS control, bit reversal, bulk transfers)
+├── ch341.rs      USB layer; impls both SpiTransport and I2cTransport
 ├── spi.rs        SPI NOR opcodes + SpiTransport trait + helpers
-├── ops.rs        high-level read / erase / write / verify / blank / detect
-├── chipdb.rs     TOML chip DB loader (embedded into the binary at build)
+├── ops.rs        high-level SPI read / erase / write / verify / blank / detect
+├── i2c.rs        24Cxx protocol + I2cTransport trait + helpers
+├── i2c_ops.rs    high-level I²C scan / read / write / verify / blank / erase
+├── chipdb.rs     TOML chip DB loader (SPI + I²C, embedded at build)
 └── gui/          GPUI frontend; behind the `gui` cargo feature (default-on)
 
-chips/chips.toml  23 entries across W25Q, MX25L, GD25Q, SST25VF, AT25SF
+chips/chips.toml      24 SPI NOR entries (W25Q, MX25L, GD25Q, SST25VF, AT25SF)
+chips/i2c_chips.toml  10 I²C EEPROM entries (24C01 .. 24C512)
 ```
 
 The `SpiTransport` trait abstracts the USB layer so the high-level ops can
