@@ -12,6 +12,8 @@ pub struct PaneInputs<'a> {
     pub write_armed: bool,
     pub write_path: Option<&'a Path>,
     pub verify_path: Option<&'a Path>,
+    pub hex_path: Option<&'a Path>,
+    pub hex_bytes: Option<&'a [u8]>,
     pub spi_speed_khz: u32,
     pub prefs_path: Option<&'a Path>,
 }
@@ -28,6 +30,7 @@ pub fn render(
         Pane::Write => write_pane(inputs.write_path, inputs.write_armed, cx).into_any_element(),
         Pane::Verify => verify_pane(inputs.verify_path, cx).into_any_element(),
         Pane::Blank => blank_pane(cx).into_any_element(),
+        Pane::Hex => hex_pane(inputs.hex_path, inputs.hex_bytes, cx).into_any_element(),
         Pane::Settings => {
             settings_pane(inputs.spi_speed_khz, inputs.prefs_path, cx).into_any_element()
         }
@@ -357,6 +360,128 @@ fn speed_row(
         row = row.bg(theme::accent_blue_tint());
     }
     row
+}
+
+/// Maximum number of bytes the hex viewer renders at once. 16 KB =
+/// 1024 lines × 16 bytes; comfortable to scroll without
+/// virtualization. Larger files render only their first slice with
+/// a note explaining the cap.
+const HEX_RENDER_CAP: usize = 16 * 1024;
+
+fn hex_pane(
+    path: Option<&Path>,
+    bytes: Option<&[u8]>,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
+    let mut col = div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .px_5()
+        .py_5()
+        .child(heading("Hex viewer"))
+        .child(body(
+            "Inspect any binary file in classic hex+ASCII format. Browse \
+             to pick a file — typically a flash dump from the Read pane. \
+             Large files are clamped to the first 16 KB.",
+        ))
+        .child(file_picker_row(
+            path,
+            "Browse…",
+            "pick-hex",
+            cx,
+            |this, cx| this.pick_hex_file(cx),
+        ));
+
+    if let Some(data) = bytes {
+        let total = data.len();
+        let shown = total.min(HEX_RENDER_CAP);
+        let footer = if total > HEX_RENDER_CAP {
+            format!(
+                "Showing 0x000000–0x{:06X} of 0x{:X} bytes ({} total)",
+                shown, total, total
+            )
+        } else {
+            format!("Showing all 0x{:X} bytes", total)
+        };
+        col = col
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(theme::text_tertiary())
+                    .child(footer),
+            )
+            .child(hex_view(&data[..shown]));
+    } else {
+        col = col.child(
+            div()
+                .text_color(theme::text_tertiary())
+                .text_size(px(12.0))
+                .child("(no file loaded — click Browse to pick one)"),
+        );
+    }
+    col
+}
+
+/// Render a slice of bytes as 16-byte-per-line hex + ASCII inside a
+/// scrollable column. Stays in a fixed-height container so the
+/// rest of the pane keeps its layout.
+fn hex_view(bytes: &[u8]) -> impl IntoElement {
+    let lines: Vec<String> = bytes
+        .chunks(16)
+        .enumerate()
+        .map(|(i, chunk)| hex_line(i * 16, chunk))
+        .collect();
+
+    div()
+        .id("hex-view")
+        .h(px(400.0))
+        .overflow_y_scroll()
+        .border_1()
+        .border_color(theme::workshop_glass_strong())
+        .rounded(px(6.0))
+        .bg(theme::bench_black())
+        .px_3()
+        .py_2()
+        .font_family("Menlo")
+        .text_size(px(11.0))
+        .text_color(theme::text_secondary())
+        .child(
+            div().flex().flex_col().gap_0p5().children(
+                lines
+                    .into_iter()
+                    .map(|s| div().whitespace_nowrap().child(s)),
+            ),
+        )
+}
+
+fn hex_line(offset: usize, chunk: &[u8]) -> String {
+    // Hex bytes — pad short final chunks so the ASCII column lines up.
+    let mut hex = String::with_capacity(16 * 3 + 2);
+    for (i, b) in chunk.iter().enumerate() {
+        if i == 8 {
+            hex.push(' '); // extra gap between byte 7 and byte 8
+        }
+        hex.push_str(&format!("{:02X} ", b));
+    }
+    for i in chunk.len()..16 {
+        if i == 8 {
+            hex.push(' ');
+        }
+        hex.push_str("   ");
+    }
+    // ASCII representation: printable ASCII byte → glyph, else '.'.
+    let ascii: String = chunk
+        .iter()
+        .map(|&b| {
+            if (0x20..0x7F).contains(&b) {
+                b as char
+            } else {
+                '.'
+            }
+        })
+        .collect();
+    format!("{:08X}  {}  |{}|", offset, hex.trim_end(), ascii)
 }
 
 fn blank_pane(cx: &mut Context<AppView>) -> impl IntoElement {

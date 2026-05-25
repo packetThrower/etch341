@@ -55,6 +55,7 @@ pub enum Pane {
     Write,
     Verify,
     Blank,
+    Hex,
     Settings,
 }
 
@@ -133,6 +134,11 @@ pub struct AppView {
     pub write_input_path: Option<std::path::PathBuf>,
     /// File selected via the Verify pane's Browse button.
     pub verify_input_path: Option<std::path::PathBuf>,
+    /// File selected via the Hex pane's Browse button, plus its loaded
+    /// contents. Held together so the renderer doesn't re-read the file
+    /// on every paint.
+    pub hex_input_path: Option<std::path::PathBuf>,
+    pub hex_bytes: Option<Vec<u8>>,
     /// Shared with the background ops task; rendered in the session
     /// header by `header::render`.
     pub progress: Arc<SharedProgress>,
@@ -154,6 +160,8 @@ impl AppView {
             write_armed: false,
             write_input_path: None,
             verify_input_path: None,
+            hex_input_path: None,
+            hex_bytes: None,
             progress: Arc::new(SharedProgress::default()),
             prefs: Prefs::load(),
         }
@@ -208,6 +216,33 @@ impl AppView {
             self.write_input_path = Some(path);
             // Re-arm protection on file change.
             self.write_armed = false;
+        }
+        cx.notify();
+    }
+
+    /// Open the file picker, load the chosen file into memory, and
+    /// stash for the Hex pane to render. Files up to a few MB are fine
+    /// to hold in memory; the renderer caps the visible window separately.
+    pub fn pick_hex_file(&mut self, cx: &mut Context<Self>) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Flash dumps", &["bin", "rom"])
+            .add_filter("All files", &["*"])
+            .pick_file()
+        {
+            match std::fs::read(&path) {
+                Ok(bytes) => {
+                    self.push_log(format!(
+                        "Loaded hex view: {} ({} bytes)",
+                        path.display(),
+                        bytes.len()
+                    ));
+                    self.hex_input_path = Some(path);
+                    self.hex_bytes = Some(bytes);
+                }
+                Err(e) => {
+                    self.push_log(format!("Hex view load failed: {e}"));
+                }
+            }
         }
         cx.notify();
     }
@@ -658,6 +693,8 @@ impl Render for AppView {
                                     write_armed: self.write_armed,
                                     write_path: self.write_input_path.as_deref(),
                                     verify_path: self.verify_input_path.as_deref(),
+                                    hex_path: self.hex_input_path.as_deref(),
+                                    hex_bytes: self.hex_bytes.as_deref(),
                                     spi_speed_khz: self.prefs.spi_speed_khz,
                                     prefs_path: prefs_path_buf.as_deref(),
                                 },

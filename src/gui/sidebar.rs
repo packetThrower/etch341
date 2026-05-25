@@ -5,13 +5,14 @@ use gpui::{
 };
 
 pub fn render(selected: Pane, cx: &mut Context<AppView>) -> impl IntoElement {
-    let items: [(Pane, &str); 6] = [
+    let items: [(Pane, &str); 7] = [
         (Pane::Detect, "Detect"),
         (Pane::Read, "Read"),
         (Pane::Erase, "Erase"),
         (Pane::Write, "Write"),
         (Pane::Verify, "Verify"),
         (Pane::Blank, "Blank check"),
+        (Pane::Hex, "Hex viewer"),
     ];
 
     // Build the column with a sequential for-loop rather than
