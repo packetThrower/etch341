@@ -2,8 +2,8 @@
 
 use gpui::{
     App, AppContext, Bounds, Context, Entity, IntoElement, ParentElement, Render, ScrollHandle,
-    Styled, Subscription, TitlebarOptions, UniformListScrollHandle, Window, WindowBounds,
-    WindowOptions, div, px,
+    ScrollStrategy, Styled, Subscription, TitlebarOptions, UniformListScrollHandle, Window,
+    WindowBounds, WindowOptions, div, px,
 };
 use gpui_component::{
     Root, TitleBar,
@@ -180,6 +180,9 @@ pub struct AppView {
     /// Preserves the hex view's scroll position across re-renders
     /// (filter changes, toggling Strings, etc.).
     pub hex_scroll: UniformListScrollHandle,
+    /// Line index to highlight in the hex view (set by
+    /// `jump_to_hex_offset`). Sticky — stays until the next jump.
+    pub hex_highlight_line: Option<usize>,
     /// Same idea but for the strings list. Separate handle so the
     /// two views can scroll independently.
     pub strings_scroll: UniformListScrollHandle,
@@ -239,6 +242,7 @@ impl AppView {
             hex_strings: None,
             hex_scroll: UniformListScrollHandle::new(),
             strings_scroll: UniformListScrollHandle::new(),
+            hex_highlight_line: None,
             hex_show_strings: false,
             hex_search_term: String::new(),
             hex_search_state,
@@ -304,6 +308,24 @@ impl AppView {
     /// Swap the Hex pane between raw-bytes view and extracted-strings view.
     pub fn set_hex_strings_mode(&mut self, show_strings: bool, cx: &mut Context<Self>) {
         self.hex_show_strings = show_strings;
+        cx.notify();
+    }
+
+    /// Wired to clicks on string-list rows: switch to Hex view and
+    /// scroll the hex `uniform_list` so the byte at `offset` is
+    /// centered in the viewport. Scroll position takes effect on the
+    /// next render (after `cx.notify()` triggers it).
+    pub fn jump_to_hex_offset(&mut self, offset: usize, cx: &mut Context<Self>) {
+        self.hex_show_strings = false;
+        let line = offset / 16;
+        // Land the highlighted line a few rows below the top of the
+        // viewport so the user sees a bit of context above it. Using
+        // `Top` with an offset is more predictable than `Center`,
+        // which depends on measured item height and was drifting by
+        // a few lines.
+        self.hex_scroll
+            .scroll_to_item_with_offset(line, ScrollStrategy::Top, 3);
+        self.hex_highlight_line = Some(line);
         cx.notify();
     }
 
@@ -805,6 +827,7 @@ impl Render for AppView {
                                     hex_strings: self.hex_strings.clone(),
                                     hex_scroll: self.hex_scroll.clone(),
                                     strings_scroll: self.strings_scroll.clone(),
+                                    hex_highlight_line: self.hex_highlight_line,
                                     hex_show_strings: self.hex_show_strings,
                                     hex_search_term: self.hex_search_term.as_str(),
                                     hex_search_state: &self.hex_search_state,

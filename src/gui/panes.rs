@@ -1,8 +1,8 @@
 use super::{AppView, Pane, theme};
 use gpui::{
     ClickEvent, Context, Entity, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, UniformListScrollHandle, div, prelude::FluentBuilder, px,
-    uniform_list,
+    StatefulInteractiveElement, Styled, UniformListScrollHandle, WeakEntity, div,
+    prelude::FluentBuilder, px, uniform_list,
 };
 use gpui_component::input::{Input, InputState};
 use std::path::Path;
@@ -20,6 +20,7 @@ pub struct PaneInputs<'a> {
     pub hex_strings: Option<Arc<Vec<(usize, String)>>>,
     pub hex_scroll: UniformListScrollHandle,
     pub strings_scroll: UniformListScrollHandle,
+    pub hex_highlight_line: Option<usize>,
     pub hex_show_strings: bool,
     pub hex_search_term: &'a str,
     pub hex_search_state: &'a Entity<InputState>,
@@ -45,6 +46,7 @@ pub fn render(
             inputs.hex_strings,
             inputs.hex_scroll,
             inputs.strings_scroll,
+            inputs.hex_highlight_line,
             inputs.hex_show_strings,
             inputs.hex_search_term,
             inputs.hex_search_state,
@@ -388,6 +390,7 @@ fn hex_pane(
     strings: Option<Arc<Vec<(usize, String)>>>,
     hex_scroll: UniformListScrollHandle,
     strings_scroll: UniformListScrollHandle,
+    highlight_line: Option<usize>,
     show_strings: bool,
     search_term: &str,
     search_state: &Entity<InputState>,
@@ -484,6 +487,7 @@ fn hex_pane(
                     matched,
                     search_term.to_string(),
                     strings_scroll,
+                    cx.entity().downgrade(),
                 ));
         } else {
             let total = data.len();
@@ -495,7 +499,7 @@ fn hex_pane(
                         .text_color(theme::text_tertiary())
                         .child(footer),
                 )
-                .child(hex_view(data_arc, hex_scroll));
+                .child(hex_view(data_arc, hex_scroll, highlight_line));
         }
     } else {
         col = col.child(
@@ -571,14 +575,14 @@ where
 
 /// Render the filtered strings list via `uniform_list` — only the
 /// visible rows are formatted, so even 100k+ string lists scroll
-/// smoothly. Filtering is index-based (caller passes `matched`
-/// indices into `all`); per-row work is one lookup + the
-/// highlight-row construction.
+/// smoothly. Each row is clickable: click → switch to Hex view and
+/// scroll to that byte (handled via `AppView::jump_to_hex_offset`).
 fn strings_view(
     all: Arc<Vec<(usize, String)>>,
     matched: Vec<usize>,
     needle: String,
     scroll: UniformListScrollHandle,
+    weak_view: WeakEntity<AppView>,
 ) -> impl IntoElement {
     let matched_arc = Arc::new(matched);
     let count = matched_arc.len();
@@ -599,16 +603,27 @@ fn strings_view(
                     .map(|virtual_i| {
                         let real_i = matched_arc[virtual_i];
                         let (offset, s) = &all[real_i];
+                        let offset_val = *offset;
+                        let weak = weak_view.clone();
                         div()
+                            .id(("string-row", virtual_i))
                             .flex()
                             .flex_row()
                             .gap_3()
+                            .cursor_pointer()
+                            .hover(|d| d.bg(theme::workshop_glass()))
                             .child(
                                 div()
                                     .text_color(theme::accent_blue())
-                                    .child(format!("{:08X}", offset)),
+                                    .child(format!("{:08X}", offset_val)),
                             )
                             .child(highlight_string_row(s, &needle))
+                            .on_click(move |_: &ClickEvent, _, app| {
+                                weak.update(app, |this, cx| {
+                                    this.jump_to_hex_offset(offset_val, cx);
+                                })
+                                .ok();
+                            })
                     })
                     .collect()
             })
@@ -665,7 +680,11 @@ fn highlight_string_row(haystack: &str, needle: &str) -> impl IntoElement {
 /// so only the visible rows are formatted. Renders the full file
 /// regardless of size (32 MB chip → 2 M lines, scrolls fine because
 /// only ~30 rows are alive at a time).
-fn hex_view(bytes: Arc<Vec<u8>>, scroll: UniformListScrollHandle) -> impl IntoElement {
+fn hex_view(
+    bytes: Arc<Vec<u8>>,
+    scroll: UniformListScrollHandle,
+    highlight_line: Option<usize>,
+) -> impl IntoElement {
     let line_count = bytes.len().div_ceil(16);
     div()
         .h(px(400.0))
@@ -684,9 +703,20 @@ fn hex_view(bytes: Arc<Vec<u8>>, scroll: UniformListScrollHandle) -> impl IntoEl
                     .map(|i| {
                         let start = i * 16;
                         let end = (start + 16).min(bytes.len());
-                        div()
+                        // Explicit row height so uniform_list's
+                        // measurement of item 0 matches the rendered
+                        // height of every subsequent row exactly.
+                        // 16px is comfortable at our 11px font.
+                        let row = div()
+                            .h(px(16.0))
                             .whitespace_nowrap()
-                            .child(hex_line(start, &bytes[start..end]))
+                            .child(hex_line(start, &bytes[start..end]));
+                        if Some(i) == highlight_line {
+                            row.bg(theme::accent_blue_tint())
+                                .text_color(theme::text_primary())
+                        } else {
+                            row
+                        }
                     })
                     .collect()
             })
