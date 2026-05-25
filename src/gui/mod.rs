@@ -1,10 +1,13 @@
 //! GPUI frontend. Compiled only with the `gui` feature.
 
 use gpui::{
-    App, AppContext, Bounds, Context, IntoElement, ParentElement, Render, ScrollHandle, Styled,
-    TitlebarOptions, Window, WindowBounds, WindowOptions, div, px,
+    App, AppContext, Bounds, Context, Entity, IntoElement, ParentElement, Render, ScrollHandle,
+    Styled, Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, div, px,
 };
-use gpui_component::{Root, TitleBar};
+use gpui_component::{
+    Root, TitleBar,
+    input::{InputEvent, InputState},
+};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -37,7 +40,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 ..Default::default()
             },
             |window, cx| {
-                let view = cx.new(|_| AppView::new());
+                let view = cx.new(|cx| AppView::new(window, cx));
                 cx.new(|cx| Root::new(view, window, cx))
             },
         ) {
@@ -141,6 +144,16 @@ pub struct AppView {
     pub hex_bytes: Option<Vec<u8>>,
     /// Toggle between raw hex dump (false) and extracted-strings view (true).
     pub hex_show_strings: bool,
+    /// Live-updated filter for the Strings list. Synced from the Input
+    /// widget via the subscription stored in `_subscriptions`.
+    pub hex_search_term: String,
+    /// Managed-state entity for the search Input widget. Lives on
+    /// AppView because gpui-component widgets read/write through an
+    /// Entity; sharing it across renders keeps cursor + IME state.
+    pub hex_search_state: Entity<InputState>,
+    /// Keeps subscriptions alive for as long as AppView exists. Drop
+    /// the subscription = dead callback = stale UI.
+    _subscriptions: Vec<Subscription>,
     /// Shared with the background ops task; rendered in the session
     /// header by `header::render`.
     pub progress: Arc<SharedProgress>,
@@ -149,7 +162,25 @@ pub struct AppView {
 }
 
 impl AppView {
-    pub fn new() -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let hex_search_state =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Filter strings…"));
+        // Bridge the Input's Change events into our own `hex_search_term`
+        // String so panes::render can filter without needing the Entity.
+        // `subscribe_in` (not plain `subscribe`) is the canonical way to
+        // handle widget events — plain `subscribe` routes the callback
+        // through gpui's async-context path, which panics with
+        // "RefCell already borrowed" the first time an Input event fires.
+        let sub = cx.subscribe_in(
+            &hex_search_state,
+            window,
+            |this: &mut AppView, state, event: &InputEvent, _, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.hex_search_term = state.read(cx).value().to_string();
+                    cx.notify();
+                }
+            },
+        );
         Self {
             selected: Pane::Detect,
             connection: Connection::Disconnected,
@@ -165,6 +196,9 @@ impl AppView {
             hex_input_path: None,
             hex_bytes: None,
             hex_show_strings: false,
+            hex_search_term: String::new(),
+            hex_search_state,
+            _subscriptions: vec![sub],
             progress: Arc::new(SharedProgress::default()),
             prefs: Prefs::load(),
         }
@@ -232,28 +266,44 @@ impl AppView {
     /// Open the file picker, load the chosen file into memory, and
     /// stash for the Hex pane to render. Files up to a few MB are fine
     /// to hold in memory; the renderer caps the visible window separately.
+    ///
+    /// **Deferred via cx.spawn:** NSOpenPanel (and its Linux/Windows
+    /// equivalents) pump their own modal event loop. If we open the
+    /// dialog synchronously from inside a click handler, AppKit
+    /// dispatches pending events from the focused Input back into a
+    /// gpui context that's still holding our `&mut AppView` borrow,
+    /// and gpui panics with "RefCell already borrowed". Running on a
+    /// foreground async task lets the click-handler borrow drop first.
     pub fn pick_hex_file(&mut self, cx: &mut Context<Self>) {
-        if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Flash dumps", &["bin", "rom"])
-            .add_filter("All files", &["*"])
-            .pick_file()
-        {
-            match std::fs::read(&path) {
-                Ok(bytes) => {
-                    self.push_log(format!(
-                        "Loaded hex view: {} ({} bytes)",
-                        path.display(),
-                        bytes.len()
-                    ));
-                    self.hex_input_path = Some(path);
-                    self.hex_bytes = Some(bytes);
+        cx.spawn(async move |weak, cx| {
+            let Some(handle) = rfd::AsyncFileDialog::new()
+                .add_filter("Flash dumps", &["bin", "rom"])
+                .add_filter("All files", &["*"])
+                .pick_file()
+                .await
+            else {
+                return;
+            };
+            let path = handle.path().to_path_buf();
+            let read_result = std::fs::read(&path);
+            weak.update(cx, |this, cx| {
+                match read_result {
+                    Ok(bytes) => {
+                        this.push_log(format!(
+                            "Loaded hex view: {} ({} bytes)",
+                            path.display(),
+                            bytes.len()
+                        ));
+                        this.hex_input_path = Some(path);
+                        this.hex_bytes = Some(bytes);
+                    }
+                    Err(e) => this.push_log(format!("Hex view load failed: {e}")),
                 }
-                Err(e) => {
-                    self.push_log(format!("Hex view load failed: {e}"));
-                }
-            }
-        }
-        cx.notify();
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub fn pick_verify_file(&mut self, cx: &mut Context<Self>) {
@@ -705,6 +755,8 @@ impl Render for AppView {
                                     hex_path: self.hex_input_path.as_deref(),
                                     hex_bytes: self.hex_bytes.as_deref(),
                                     hex_show_strings: self.hex_show_strings,
+                                    hex_search_term: self.hex_search_term.as_str(),
+                                    hex_search_state: &self.hex_search_state,
                                     spi_speed_khz: self.prefs.spi_speed_khz,
                                     prefs_path: prefs_path_buf.as_deref(),
                                 },

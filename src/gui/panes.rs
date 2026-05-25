@@ -1,8 +1,9 @@
 use super::{AppView, Pane, theme};
 use gpui::{
-    ClickEvent, Context, InteractiveElement, IntoElement, ParentElement,
+    ClickEvent, Context, Entity, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
 };
+use gpui_component::input::{Input, InputState};
 use std::path::Path;
 
 /// Bundle of per-pane state passed from `AppView::render` to keep
@@ -15,6 +16,8 @@ pub struct PaneInputs<'a> {
     pub hex_path: Option<&'a Path>,
     pub hex_bytes: Option<&'a [u8]>,
     pub hex_show_strings: bool,
+    pub hex_search_term: &'a str,
+    pub hex_search_state: &'a Entity<InputState>,
     pub spi_speed_khz: u32,
     pub prefs_path: Option<&'a Path>,
 }
@@ -35,6 +38,8 @@ pub fn render(
             inputs.hex_path,
             inputs.hex_bytes,
             inputs.hex_show_strings,
+            inputs.hex_search_term,
+            inputs.hex_search_state,
             cx,
         )
         .into_any_element(),
@@ -379,6 +384,8 @@ fn hex_pane(
     path: Option<&Path>,
     bytes: Option<&[u8]>,
     show_strings: bool,
+    search_term: &str,
+    search_state: &Entity<InputState>,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let mut col = div()
@@ -402,16 +409,58 @@ fn hex_pane(
             cx,
             |this, cx| this.pick_hex_file(cx),
         ))
-        .child(hex_mode_toggle(show_strings, cx));
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_3()
+                .child(hex_mode_toggle(show_strings, cx))
+                // Search input only appears in Strings mode — it's a
+                // no-op in Hex view and the placeholder calling that
+                // out felt cluttered. Input has its own background +
+                // border styling; an extra wrapper makes the wrapper's
+                // edges peek out as an artifact.
+                .when(show_strings, |row| {
+                    // Input has a white background by default; without
+                    // overriding text_color it inherits the dark theme's
+                    // foreground (light) → invisible typing on white.
+                    // Force dark text on the input only.
+                    row.child(
+                        div()
+                            .flex_1()
+                            .text_color(theme::bench_black())
+                            .child(Input::new(search_state)),
+                    )
+                }),
+        );
 
     if let Some(data) = bytes {
         if show_strings {
-            let strings = extract_strings(data, 4);
-            let footer = format!(
-                "Found {} printable run(s) of \u{2265} 4 chars in 0x{:X} bytes",
-                strings.len(),
-                data.len()
-            );
+            let all = extract_strings(data, 4);
+            let needle = search_term.to_ascii_lowercase();
+            let filtered: Vec<_> = if needle.is_empty() {
+                all.clone()
+            } else {
+                all.iter()
+                    .filter(|(_, s)| s.to_ascii_lowercase().contains(&needle))
+                    .cloned()
+                    .collect()
+            };
+            let footer = if needle.is_empty() {
+                format!(
+                    "Found {} printable run(s) of \u{2265} 4 chars in 0x{:X} bytes",
+                    all.len(),
+                    data.len()
+                )
+            } else {
+                format!(
+                    "{} of {} run(s) match \u{201C}{}\u{201D}",
+                    filtered.len(),
+                    all.len(),
+                    search_term
+                )
+            };
             col = col
                 .child(
                     div()
@@ -419,7 +468,7 @@ fn hex_pane(
                         .text_color(theme::text_tertiary())
                         .child(footer),
                 )
-                .child(strings_view(&strings));
+                .child(strings_view(&filtered, search_term));
         } else {
             let total = data.len();
             let shown = total.min(HEX_RENDER_CAP);
@@ -512,7 +561,8 @@ where
     btn
 }
 
-fn strings_view(strings: &[(usize, String)]) -> impl IntoElement {
+fn strings_view(strings: &[(usize, String)], needle: &str) -> impl IntoElement {
+    let needle_owned = needle.to_string();
     div()
         .id("strings-view")
         .h(px(400.0))
@@ -531,24 +581,61 @@ fn strings_view(strings: &[(usize, String)]) -> impl IntoElement {
                 .flex()
                 .flex_col()
                 .gap_0p5()
-                .children(strings.iter().map(|(offset, s)| {
+                .children(strings.iter().map(move |(offset, s)| {
                     div()
                         .flex()
                         .flex_row()
                         .gap_3()
+                        // Offset in accent blue — reads like a clickable
+                        // address (we'll wire actual click-to-jump in
+                        // a later iteration).
                         .child(
                             div()
-                                .text_color(theme::text_tertiary())
+                                .text_color(theme::accent_blue())
                                 .child(format!("{:08X}", offset)),
                         )
-                        .child(
-                            div()
-                                .text_color(theme::text_primary())
-                                .whitespace_normal()
-                                .child(s.clone()),
-                        )
+                        .child(highlight_string_row(s, &needle_owned))
                 })),
         )
+}
+
+/// Render one strings-view row with the matched substring (if any)
+/// painted in the accent colour. Falls back to a single primary-color
+/// child when the needle is empty or doesn't appear in the haystack.
+fn highlight_string_row(haystack: &str, needle: &str) -> impl IntoElement {
+    let row = div().flex().flex_row().flex_1().whitespace_normal();
+    if needle.is_empty() {
+        return row.child(
+            div()
+                .text_color(theme::text_primary())
+                .child(haystack.to_string()),
+        );
+    }
+    let lower_h = haystack.to_ascii_lowercase();
+    let lower_n = needle.to_ascii_lowercase();
+    let mut segments: Vec<(String, bool)> = Vec::new();
+    let mut cursor = 0;
+    while let Some(pos) = lower_h[cursor..].find(&lower_n) {
+        let start = cursor + pos;
+        let end = start + needle.len();
+        if start > cursor {
+            segments.push((haystack[cursor..start].to_string(), false));
+        }
+        segments.push((haystack[start..end].to_string(), true));
+        cursor = end;
+    }
+    if cursor < haystack.len() {
+        segments.push((haystack[cursor..].to_string(), false));
+    }
+    row.children(segments.into_iter().map(|(text, hit)| {
+        div()
+            .text_color(if hit {
+                theme::accent_blue()
+            } else {
+                theme::text_primary()
+            })
+            .child(text)
+    }))
 }
 
 /// Walk the byte slice and emit runs of printable ASCII (0x20..=0x7E)
