@@ -23,7 +23,13 @@ match) to the original VBIOS.
 | Blank check | ✅ | ✅ |
 | Settings (clock speed, etc.) | ✅ (`--speed`) | ✅ |
 | 4-byte addressing (>16 MB chips) | ✅ | ✅ |
-| I²C scan / read / write / verify / blank-check / erase | ✅ | — |
+| I²C scan / read / write / verify / blank-check / erase | ⚠️ \* | — |
+
+> \* Implemented and unit-tested against a mock transport, but **not
+> yet validated against a real 24Cxx chip**. A couple of CH341A
+> protocol details (ACK-bit polarity for the probe path) are
+> documented assumptions in the code that may need a flip when
+> someone runs it on silicon. Reports welcome via GitHub Issues.
 
 52 unit tests covering the SPI / I²C protocols, the high-level ops,
 and the inspect/search primitives, all running against mock transports
@@ -46,28 +52,47 @@ JEDEC `detect` on a chip and the response decodes correctly to a
 named entry, the rest of the operations are very likely to work
 (they're chip-agnostic at the protocol level).
 
+### Not yet hardware-validated
+
+- **I²C / 24Cxx EEPROMs.** The protocol layer, the CH341A I²C
+  transport, the CLI subcommands, and the chip database are all
+  in place and pass 16 mock-transport unit tests, but the only
+  attempts at running them on physical hardware have hit chips that
+  turned out to be buck regulators rather than EEPROMs. The first
+  real-EEPROM run is likely to surface a CH341A ACK-bit polarity
+  question (the probe path makes a documented assumption that may
+  need to flip — see comments in `src/ch341.rs`). If you try it
+  against a real chip, please open an issue with whatever `etch341
+  -v i2c scan` prints.
+
 ## Install
 
 ### Prerequisites
 
 - Rust 1.85+ (uses 2024 edition)
-- libusb 1.0
+- A C compiler (cc / clang) — `rusb` builds libusb-1.0 from source
+  and links it statically into the binary, so there's no
+  system-wide libusb install needed at build or runtime
 - A CH341A USB programmer (the common "black module" or the "V1.3 mini" with
   on-board ZIF socket both work)
+
+If you'd rather grab a pre-built binary instead of compiling, head
+to the [Releases page](https://github.com/packetThrower/etch341/releases) —
+each release ships `.tar.gz` (Linux / macOS) and `.zip` (Windows)
+archives for arm64 + amd64 on all three platforms.
 
 ### macOS
 
 ```sh
-brew install libusb
 cargo install --path .
 ```
 
-No driver setup needed — macOS leaves the CH341A's vendor interface alone.
+No driver setup needed — macOS leaves the CH341A's vendor interface
+alone, and libusb is bundled into the binary.
 
 ### Linux
 
 ```sh
-sudo apt install libusb-1.0-0-dev   # or your distro's equivalent
 sudo cp platform/udev/99-ch341a.rules /etc/udev/rules.d/
 sudo udevadm control --reload
 cargo install --path .
@@ -112,9 +137,19 @@ etch341 verify -i bios.bin           # compare without writing
 etch341 blank-check                  # confirm all 0xFF
 ```
 
-I²C EEPROMs (24Cxx family) use the nested `i2c` subcommand. Unlike
-SPI NOR there's no JEDEC ID register, so the chip must be selected
-explicitly with `-c`:
+I²C EEPROMs (24Cxx family) use the nested `i2c` subcommand.
+
+> ⚠️ **The I²C path hasn't been hardware-validated yet.** Code,
+> protocol, and tests are all in place but nobody's run it against
+> a real 24Cxx chip. Your first run is also our bring-up. If `i2c
+> scan` returns either an empty list or every address (rather than
+> just the chip's address(es)), the most likely culprit is the
+> CH341A ACK-bit polarity assumption in `src/ch341.rs::i2c_probe` —
+> open an issue with the verbose-mode (`-v i2c scan`) output and
+> we'll get it sorted.
+
+Unlike SPI NOR there's no JEDEC ID register, so the chip must be
+selected explicitly with `-c`:
 
 ```sh
 etch341 i2c scan                            # list 7-bit addrs that ACK
