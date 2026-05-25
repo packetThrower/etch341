@@ -2,7 +2,8 @@
 
 use gpui::{
     App, AppContext, Bounds, Context, Entity, IntoElement, ParentElement, Render, ScrollHandle,
-    Styled, Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, div, px,
+    Styled, Subscription, TitlebarOptions, UniformListScrollHandle, Window, WindowBounds,
+    WindowOptions, div, px,
 };
 use gpui_component::{
     Root, TitleBar,
@@ -141,7 +142,12 @@ pub struct AppView {
     /// contents. Held together so the renderer doesn't re-read the file
     /// on every paint.
     pub hex_input_path: Option<std::path::PathBuf>,
-    pub hex_bytes: Option<Vec<u8>>,
+    /// Arc so the uniform_list closure (which must be `'static`) can
+    /// own a cheap clone without copying the whole buffer.
+    pub hex_bytes: Option<Arc<Vec<u8>>>,
+    /// Preserves the hex view's scroll position across re-renders
+    /// (filter changes, toggling Strings, etc.).
+    pub hex_scroll: UniformListScrollHandle,
     /// Toggle between raw hex dump (false) and extracted-strings view (true).
     pub hex_show_strings: bool,
     /// Live-updated filter for the Strings list. Synced from the Input
@@ -195,6 +201,7 @@ impl AppView {
             verify_input_path: None,
             hex_input_path: None,
             hex_bytes: None,
+            hex_scroll: UniformListScrollHandle::new(),
             hex_show_strings: false,
             hex_search_term: String::new(),
             hex_search_state,
@@ -295,7 +302,7 @@ impl AppView {
                             bytes.len()
                         ));
                         this.hex_input_path = Some(path);
-                        this.hex_bytes = Some(bytes);
+                        this.hex_bytes = Some(Arc::new(bytes));
                     }
                     Err(e) => this.push_log(format!("Hex view load failed: {e}")),
                 }
@@ -753,7 +760,8 @@ impl Render for AppView {
                                     write_path: self.write_input_path.as_deref(),
                                     verify_path: self.verify_input_path.as_deref(),
                                     hex_path: self.hex_input_path.as_deref(),
-                                    hex_bytes: self.hex_bytes.as_deref(),
+                                    hex_bytes: self.hex_bytes.clone(),
+                                    hex_scroll: self.hex_scroll.clone(),
                                     hex_show_strings: self.hex_show_strings,
                                     hex_search_term: self.hex_search_term.as_str(),
                                     hex_search_state: &self.hex_search_state,

@@ -1,10 +1,12 @@
 use super::{AppView, Pane, theme};
 use gpui::{
     ClickEvent, Context, Entity, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
+    StatefulInteractiveElement, Styled, UniformListScrollHandle, div, prelude::FluentBuilder, px,
+    uniform_list,
 };
 use gpui_component::input::{Input, InputState};
 use std::path::Path;
+use std::sync::Arc;
 
 /// Bundle of per-pane state passed from `AppView::render` to keep
 /// `render()`'s signature from growing per added pane.
@@ -14,7 +16,8 @@ pub struct PaneInputs<'a> {
     pub write_path: Option<&'a Path>,
     pub verify_path: Option<&'a Path>,
     pub hex_path: Option<&'a Path>,
-    pub hex_bytes: Option<&'a [u8]>,
+    pub hex_bytes: Option<Arc<Vec<u8>>>,
+    pub hex_scroll: UniformListScrollHandle,
     pub hex_show_strings: bool,
     pub hex_search_term: &'a str,
     pub hex_search_state: &'a Entity<InputState>,
@@ -37,6 +40,7 @@ pub fn render(
         Pane::Hex => hex_pane(
             inputs.hex_path,
             inputs.hex_bytes,
+            inputs.hex_scroll,
             inputs.hex_show_strings,
             inputs.hex_search_term,
             inputs.hex_search_state,
@@ -374,15 +378,10 @@ fn speed_row(
     row
 }
 
-/// Maximum number of bytes the hex viewer renders at once. 16 KB =
-/// 1024 lines × 16 bytes; comfortable to scroll without
-/// virtualization. Larger files render only their first slice with
-/// a note explaining the cap.
-const HEX_RENDER_CAP: usize = 16 * 1024;
-
 fn hex_pane(
     path: Option<&Path>,
-    bytes: Option<&[u8]>,
+    bytes: Option<Arc<Vec<u8>>>,
+    hex_scroll: UniformListScrollHandle,
     show_strings: bool,
     search_term: &str,
     search_state: &Entity<InputState>,
@@ -435,7 +434,8 @@ fn hex_pane(
                 }),
         );
 
-    if let Some(data) = bytes {
+    if let Some(data_arc) = bytes {
+        let data: &[u8] = data_arc.as_slice();
         if show_strings {
             let all = extract_strings(data, 4);
             let needle = search_term.to_ascii_lowercase();
@@ -471,15 +471,7 @@ fn hex_pane(
                 .child(strings_view(&filtered, search_term));
         } else {
             let total = data.len();
-            let shown = total.min(HEX_RENDER_CAP);
-            let footer = if total > HEX_RENDER_CAP {
-                format!(
-                    "Showing 0x000000–0x{:06X} of 0x{:X} bytes ({} total)",
-                    shown, total, total
-                )
-            } else {
-                format!("Showing all 0x{:X} bytes", total)
-            };
+            let footer = format!("Showing all {} bytes (0x{:X})", total, total);
             col = col
                 .child(
                     div()
@@ -487,7 +479,7 @@ fn hex_pane(
                         .text_color(theme::text_tertiary())
                         .child(footer),
                 )
-                .child(hex_view(&data[..shown]));
+                .child(hex_view(data_arc, hex_scroll));
         }
     } else {
         col = col.child(
@@ -666,20 +658,14 @@ fn extract_strings(bytes: &[u8], min_len: usize) -> Vec<(usize, String)> {
     out
 }
 
-/// Render a slice of bytes as 16-byte-per-line hex + ASCII inside a
-/// scrollable column. Stays in a fixed-height container so the
-/// rest of the pane keeps its layout.
-fn hex_view(bytes: &[u8]) -> impl IntoElement {
-    let lines: Vec<String> = bytes
-        .chunks(16)
-        .enumerate()
-        .map(|(i, chunk)| hex_line(i * 16, chunk))
-        .collect();
-
+/// Render bytes as 16-byte-per-line hex + ASCII via `uniform_list`,
+/// so only the visible rows are formatted. Renders the full file
+/// regardless of size (32 MB chip → 2 M lines, scrolls fine because
+/// only ~30 rows are alive at a time).
+fn hex_view(bytes: Arc<Vec<u8>>, scroll: UniformListScrollHandle) -> impl IntoElement {
+    let line_count = bytes.len().div_ceil(16);
     div()
-        .id("hex-view")
         .h(px(400.0))
-        .overflow_y_scroll()
         .border_1()
         .border_color(theme::workshop_glass_strong())
         .rounded(px(6.0))
@@ -690,11 +676,19 @@ fn hex_view(bytes: &[u8]) -> impl IntoElement {
         .text_size(px(11.0))
         .text_color(theme::text_secondary())
         .child(
-            div().flex().flex_col().gap_0p5().children(
-                lines
-                    .into_iter()
-                    .map(|s| div().whitespace_nowrap().child(s)),
-            ),
+            uniform_list("hex-lines", line_count, move |range, _, _| {
+                range
+                    .map(|i| {
+                        let start = i * 16;
+                        let end = (start + 16).min(bytes.len());
+                        div()
+                            .whitespace_nowrap()
+                            .child(hex_line(start, &bytes[start..end]))
+                    })
+                    .collect()
+            })
+            .h_full()
+            .track_scroll(&scroll),
         )
 }
 
