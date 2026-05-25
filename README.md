@@ -25,9 +25,10 @@ match) to the original VBIOS.
 | 4-byte addressing (>16 MB chips) | ✅ | ✅ |
 | I²C scan / read / write / verify / blank-check / erase | ✅ | — |
 
-42 unit tests covering both the SPI and I²C protocols and their
-high-level ops, all running against mock transports. Hardware-touching
-tests are gated behind `--features hardware`.
+52 unit tests covering the SPI / I²C protocols, the high-level ops,
+and the inspect/search primitives, all running against mock transports
+or pure inputs. Hardware-touching tests are gated behind
+`--features hardware`.
 
 ### Hardware-validated
 
@@ -155,13 +156,24 @@ lower-case for an at-a-glance visual contrast.
 
 Global flags:
 
-- `-v, --verbose` — log raw SPI transactions to stderr (invaluable for
-  debugging in-circuit issues)
-- `-c, --chip <NAME>` — override JEDEC autodetect (use the `name` from
-  `chips/chips.toml`, e.g. `W25Q128JV`)
-- `-s, --speed <KHZ>` — SPI clock speed; **currently a no-op flag**, the
-  CH341A uses its default ~750 kHz
-- `-n, --dry-run` — parse and validate without touching the hardware
+- `-v, --verbose` — log every SPI or I²C transaction to stderr.
+  Invaluable for debugging in-circuit issues and for spotting wiring
+  problems (every `-> OUT` line should be followed by a sensible
+  `<- IN`; missing IN bytes mean either the chip isn't responding or
+  the bus is mis-wired).
+- `-c, --chip <NAME>` — for SPI, overrides JEDEC autodetect with a
+  chip name from `chips/chips.toml` (e.g. `W25Q128JV`). For I²C and
+  for `--dry-run` it's **required** (there's no JEDEC equivalent on
+  I²C, and dry-run has no hardware to autodetect).
+- `-s, --speed <KHZ>` — bus clock speed for both SPI and I²C.
+  Supported rates on the CH341A: 20, 100, 400, 750 (default 750).
+- `-n, --dry-run` — for hardware-touching commands, validate
+  everything possible (chip name in DB, input file is readable,
+  start + length fits the chip) and print a `[dry-run]` summary of
+  what would happen. Never opens the CH341. Useful for sanity-
+  checking flags before you actually pull the trigger on an erase or
+  write. Offline commands (`chips`, `strings`, `search`) ignore the
+  flag because they don't touch hardware anyway.
 
 ### GUI
 
@@ -226,6 +238,8 @@ src/
 ├── i2c.rs        24Cxx protocol + I2cTransport trait + helpers
 ├── i2c_ops.rs    high-level I²C scan / read / write / verify / blank / erase
 ├── chipdb.rs     TOML chip DB loader (SPI + I²C, embedded at build)
+├── inspect.rs    parse-pattern / extract-strings / find-pattern shared by CLI + GUI
+├── prefs.rs      ~/.config/etch341/prefs.toml load/save (GUI settings)
 └── gui/          GPUI frontend; behind the `gui` cargo feature (default-on)
 
 chips/chips.toml      24 SPI NOR entries (W25Q, MX25L, GD25Q, SST25VF, AT25SF)

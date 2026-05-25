@@ -23,11 +23,14 @@ pub struct GlobalOpts {
     #[arg(short = 's', long, global = true, default_value_t = 750)]
     pub speed: u32,
 
-    /// Print raw SPI transactions.
+    /// Log every SPI or I²C transaction to stderr.
     #[arg(short = 'v', long, global = true)]
     pub verbose: bool,
 
-    /// Parse + validate input without touching the hardware.
+    /// Validate args and print a [dry-run] summary, never opening
+    /// the CH341. Requires --chip for ops that would otherwise
+    /// JEDEC-autodetect. Offline commands (chips/strings/search)
+    /// ignore this flag.
     #[arg(short = 'n', long, global = true)]
     pub dry_run: bool,
 }
@@ -258,9 +261,33 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
     use crate::ops;
 
     match cmd {
-        Command::Detect => Ok(ops::detect(&global)?),
+        Command::Detect => {
+            if global.dry_run {
+                println!(
+                    "[dry-run] would open CH341A and read JEDEC ID at {} kHz",
+                    global.speed
+                );
+                return Ok(());
+            }
+            Ok(ops::detect(&global)?)
+        }
 
         Command::Read(args) => {
+            if global.dry_run {
+                let chip = resolve_chip_offline(&global)?;
+                let chip_bytes = chip.size_kb.saturating_mul(1024);
+                let len = args.length.unwrap_or(chip_bytes.saturating_sub(args.start));
+                validate_spi_range(&chip, args.start, len)?;
+                println!(
+                    "[dry-run] would read {} bytes (0x{:08X}..0x{:08X}) from {} → {}",
+                    len,
+                    args.start,
+                    args.start + len,
+                    chip.name,
+                    args.output.display()
+                );
+                return Ok(());
+            }
             let mut ch = Ch341::open(global.verbose)?;
             ch.set_clock(global.speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
@@ -272,7 +299,23 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
         }
 
         Command::Write(args) => {
+            // Read the input file in either path so dry-run still
+            // surfaces a missing/unreadable file as an error.
             let data = std::fs::read(&args.input)?;
+            if global.dry_run {
+                let chip = resolve_chip_offline(&global)?;
+                validate_spi_range(&chip, args.start, data.len() as u32)?;
+                println!(
+                    "[dry-run] would {}write {} bytes from {} to {} at 0x{:08X}{}",
+                    if args.no_erase { "" } else { "erase + " },
+                    data.len(),
+                    args.input.display(),
+                    chip.name,
+                    args.start,
+                    if args.no_verify { "" } else { " + verify" },
+                );
+                return Ok(());
+            }
             let mut ch = Ch341::open(global.verbose)?;
             ch.set_clock(global.speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
@@ -290,6 +333,27 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
         }
 
         Command::Erase(args) => {
+            if global.dry_run {
+                let chip = resolve_chip_offline(&global)?;
+                match args.range.as_deref() {
+                    None => println!(
+                        "[dry-run] would erase entire {} chip ({} KB)",
+                        chip.name, chip.size_kb
+                    ),
+                    Some(s) => {
+                        let (start, len) = parse_range(s)?;
+                        validate_spi_range(&chip, start, len)?;
+                        println!(
+                            "[dry-run] would erase {} bytes (0x{:08X}..0x{:08X}) on {}",
+                            len,
+                            start,
+                            start + len,
+                            chip.name
+                        );
+                    }
+                }
+                return Ok(());
+            }
             let mut ch = Ch341::open(global.verbose)?;
             ch.set_clock(global.speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
@@ -306,6 +370,18 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
 
         Command::Verify(args) => {
             let data = std::fs::read(&args.input)?;
+            if global.dry_run {
+                let chip = resolve_chip_offline(&global)?;
+                validate_spi_range(&chip, args.start, data.len() as u32)?;
+                println!(
+                    "[dry-run] would verify {} bytes from {} against {} at 0x{:08X}",
+                    data.len(),
+                    args.input.display(),
+                    chip.name,
+                    args.start
+                );
+                return Ok(());
+            }
             let mut ch = Ch341::open(global.verbose)?;
             ch.set_clock(global.speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
@@ -318,6 +394,14 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
         }
 
         Command::BlankCheck => {
+            if global.dry_run {
+                let chip = resolve_chip_offline(&global)?;
+                println!(
+                    "[dry-run] would blank-check {} ({} KB)",
+                    chip.name, chip.size_kb
+                );
+                return Ok(());
+            }
             let mut ch = Ch341::open(global.verbose)?;
             ch.set_clock(global.speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
@@ -448,6 +532,62 @@ fn plural(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
 }
 
+/// Resolve a SPI chip from the embedded DB by name without touching
+/// hardware. Used by --dry-run paths where there's no CH341 open and
+/// JEDEC autodetect isn't an option. Errors if --chip wasn't given
+/// or names a chip that's not in chips.toml.
+fn resolve_chip_offline(global: &GlobalOpts) -> Result<crate::chipdb::Chip, String> {
+    let name = global.chip.as_deref().ok_or_else(|| {
+        "--dry-run requires --chip <NAME> (no hardware to autodetect)".to_string()
+    })?;
+    crate::chipdb::ChipDb::load_embedded()
+        .find_by_name(name)
+        .cloned()
+        .ok_or_else(|| format!("--chip {name}: not in chip DB (try `etch341 chips --find {name}`)"))
+}
+
+/// Same idea for I²C: name lookup only, no hardware. I²C ops always
+/// require --chip anyway because there's no JEDEC equivalent.
+fn resolve_i2c_chip_offline(global: &GlobalOpts) -> Result<crate::chipdb::I2cChip, String> {
+    let name = global
+        .chip
+        .as_deref()
+        .ok_or_else(|| "I²C ops require --chip <NAME>".to_string())?;
+    crate::chipdb::I2cChipDb::load_embedded()
+        .find_by_name(name)
+        .cloned()
+        .ok_or_else(|| format!("--chip {name}: not in i2c_chips.toml"))
+}
+
+/// Validate `start + len` fits in a SPI chip without overflowing.
+fn validate_spi_range(chip: &crate::chipdb::Chip, start: u32, len: u32) -> Result<(), String> {
+    let chip_bytes = chip.size_kb.saturating_mul(1024);
+    if start.saturating_add(len) > chip_bytes {
+        return Err(format!(
+            "address range out of bounds: 0x{:08X}..0x{:08X} on a {} KB chip ({})",
+            start,
+            start.saturating_add(len),
+            chip.size_kb,
+            chip.name
+        ));
+    }
+    Ok(())
+}
+
+/// Same for an I²C EEPROM.
+fn validate_i2c_range(chip: &crate::chipdb::I2cChip, start: u32, len: u32) -> Result<(), String> {
+    if start.saturating_add(len) > chip.size_bytes {
+        return Err(format!(
+            "address range out of bounds: 0x{:08X}..0x{:08X} on a {} B chip ({})",
+            start,
+            start.saturating_add(len),
+            chip.size_bytes,
+            chip.name
+        ));
+    }
+    Ok(())
+}
+
 /// Compact human-readable byte count: B / KB / MB / GB.
 fn fmt_bytes(n: u64) -> String {
     if n >= 1 << 30 {
@@ -508,6 +648,13 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
 
     match action {
         I2cAction::Scan => {
+            if global.dry_run {
+                println!(
+                    "[dry-run] would open CH341A in I²C mode and probe 0x08..0x77 at {} kHz",
+                    global.speed
+                );
+                return Ok(());
+            }
             let mut ch = Ch341::open_i2c(global.verbose)?;
             ch.set_clock(global.speed)?;
             let hits = i2c_ops::scan(&mut ch)?;
@@ -523,6 +670,22 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
         }
 
         I2cAction::Read(args) => {
+            if global.dry_run {
+                let chip = resolve_i2c_chip_offline(&global)?;
+                let len = args
+                    .length
+                    .unwrap_or(chip.size_bytes.saturating_sub(args.start));
+                validate_i2c_range(&chip, args.start, len)?;
+                println!(
+                    "[dry-run] would i2c-read {} bytes (0x{:08X}..0x{:08X}) from {} → {}",
+                    len,
+                    args.start,
+                    args.start + len,
+                    chip.name,
+                    args.output.display()
+                );
+                return Ok(());
+            }
             let chip = resolve_chip(&global.chip)?;
             let mut ch = Ch341::open_i2c(global.verbose)?;
             ch.set_clock(global.speed)?;
@@ -543,8 +706,21 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
         }
 
         I2cAction::Write(args) => {
-            let chip = resolve_chip(&global.chip)?;
             let data = std::fs::read(&args.input)?;
+            if global.dry_run {
+                let chip = resolve_i2c_chip_offline(&global)?;
+                validate_i2c_range(&chip, args.start, data.len() as u32)?;
+                println!(
+                    "[dry-run] would i2c-write {} bytes from {} to {} at 0x{:08X}{}",
+                    data.len(),
+                    args.input.display(),
+                    chip.name,
+                    args.start,
+                    if args.no_verify { "" } else { " + verify" },
+                );
+                return Ok(());
+            }
+            let chip = resolve_chip(&global.chip)?;
             let mut ch = Ch341::open_i2c(global.verbose)?;
             ch.set_clock(global.speed)?;
             let mut sink = IndicatifSink::new("i2c-wr ");
@@ -575,8 +751,20 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
         }
 
         I2cAction::Verify(args) => {
-            let chip = resolve_chip(&global.chip)?;
             let data = std::fs::read(&args.input)?;
+            if global.dry_run {
+                let chip = resolve_i2c_chip_offline(&global)?;
+                validate_i2c_range(&chip, args.start, data.len() as u32)?;
+                println!(
+                    "[dry-run] would i2c-verify {} bytes from {} against {} at 0x{:08X}",
+                    data.len(),
+                    args.input.display(),
+                    chip.name,
+                    args.start
+                );
+                return Ok(());
+            }
+            let chip = resolve_chip(&global.chip)?;
             let mut ch = Ch341::open_i2c(global.verbose)?;
             ch.set_clock(global.speed)?;
             let mut sink = IndicatifSink::new("i2c-vfy");
@@ -596,6 +784,14 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
         }
 
         I2cAction::BlankCheck(args) => {
+            if global.dry_run {
+                let chip = resolve_i2c_chip_offline(&global)?;
+                println!(
+                    "[dry-run] would i2c-blank-check {} ({} bytes)",
+                    chip.name, chip.size_bytes
+                );
+                return Ok(());
+            }
             let chip = resolve_chip(&global.chip)?;
             let mut ch = Ch341::open_i2c(global.verbose)?;
             ch.set_clock(global.speed)?;
@@ -606,6 +802,14 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
         }
 
         I2cAction::Erase(args) => {
+            if global.dry_run {
+                let chip = resolve_i2c_chip_offline(&global)?;
+                println!(
+                    "[dry-run] would write 0xFF over all {} bytes of {}",
+                    chip.size_bytes, chip.name
+                );
+                return Ok(());
+            }
             let chip = resolve_chip(&global.chip)?;
             let mut ch = Ch341::open_i2c(global.verbose)?;
             ch.set_clock(global.speed)?;
