@@ -7,7 +7,7 @@ use crate::ch341::Ch341;
 use crate::chipdb::{Chip, ChipDb};
 use crate::cli::GlobalOpts;
 use crate::error::{Error, Result};
-use crate::spi::{self, SpiTransport};
+use crate::spi::{self, Addressing, SpiTransport};
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::Write;
@@ -44,6 +44,17 @@ const SECTOR_ERASE_TIMEOUT: Duration = Duration::from_secs(2);
 const PAGE_PROGRAM_TIMEOUT: Duration = Duration::from_secs(1);
 
 const READ_CHUNK: u32 = 4096;
+
+/// Pick the address width for chip-side opcodes. Threshold is 16 MB
+/// (16384 KB) — at or below uses standard 3-byte opcodes; anything
+/// larger needs the 4-byte variants (0x13 / 0x12 / 0x21 / 0xDC).
+fn addressing_for(chip: &Chip) -> Addressing {
+    if chip.size_kb > 16384 {
+        Addressing::FourByte
+    } else {
+        Addressing::ThreeByte
+    }
+}
 
 /// Structured detect result. CLI formats it for stdout; GUI uses the
 /// fields to drive its connection state and activity log.
@@ -163,13 +174,14 @@ pub fn read(
     }
     let mut out = File::create(output)?;
     let mut hasher = Sha256::new();
+    let addressing = addressing_for(chip);
     progress.start(len as u64);
 
     let mut addr = start;
     let end = start + len;
     while addr < end {
         let n = std::cmp::min(READ_CHUNK, end - addr);
-        let data = spi::read_data(spi, addr, n as usize)?;
+        let data = spi::read_data(spi, addressing, addr, n as usize)?;
         out.write_all(&data)?;
         hasher.update(&data);
         addr += n;
@@ -222,17 +234,18 @@ pub fn erase_range(
     // Round end up to sector boundary so we always cover the requested range.
     let aligned_len = len.div_ceil(chip.sector_size) * chip.sector_size;
     let end = start + aligned_len;
+    let addressing = addressing_for(chip);
     progress.start(aligned_len as u64);
 
     let mut addr = start;
     while addr < end {
         // Prefer 64K block when both endpoints land on a 64K boundary.
         if addr % 0x10000 == 0 && (end - addr) >= 0x10000 {
-            spi::block_erase_64k(spi, addr)?;
+            spi::block_erase_64k(spi, addressing, addr)?;
             spi::wait_until_ready(spi, BLOCK_ERASE_TIMEOUT)?;
             addr += 0x10000;
         } else {
-            spi::sector_erase_4k(spi, addr)?;
+            spi::sector_erase_4k(spi, addressing, addr)?;
             spi::wait_until_ready(spi, SECTOR_ERASE_TIMEOUT)?;
             addr += chip.sector_size;
         }
@@ -266,13 +279,20 @@ pub fn write(
     }
 
     progress.start(data.len() as u64);
+    let addressing = addressing_for(chip);
     let page = chip.page_size;
     let mut written: usize = 0;
     while written < data.len() {
         let addr = start + written as u32;
         let page_offset = addr % page;
         let chunk_len = std::cmp::min((page - page_offset) as usize, data.len() - written);
-        spi::page_program(spi, addr, &data[written..written + chunk_len], page)?;
+        spi::page_program(
+            spi,
+            addressing,
+            addr,
+            &data[written..written + chunk_len],
+            page,
+        )?;
         spi::wait_until_ready(spi, PAGE_PROGRAM_TIMEOUT)?;
         written += chunk_len;
         progress.update(written as u64);
@@ -311,6 +331,7 @@ pub fn verify(
             chip_size,
         });
     }
+    let addressing = addressing_for(chip);
     progress.start(expected.len() as u64);
     let mut mismatches = 0usize;
     let mut first_bad: Option<(u32, u8, u8)> = None;
@@ -318,7 +339,7 @@ pub fn verify(
     let end = expected.len();
     while off < end {
         let n = std::cmp::min(READ_CHUNK as usize, end - off);
-        let actual = spi::read_data(spi, start + off as u32, n)?;
+        let actual = spi::read_data(spi, addressing, start + off as u32, n)?;
         for (i, (&a, &e)) in actual.iter().zip(&expected[off..off + n]).enumerate() {
             if a != e {
                 mismatches += 1;
@@ -348,11 +369,12 @@ pub fn blank_check(
     progress: &mut dyn ProgressSink,
 ) -> Result<()> {
     let len = chip.size_kb.saturating_mul(1024);
+    let addressing = addressing_for(chip);
     progress.start(len as u64);
     let mut addr = 0u32;
     while addr < len {
         let n = std::cmp::min(READ_CHUNK, len - addr);
-        let data = spi::read_data(spi, addr, n as usize)?;
+        let data = spi::read_data(spi, addressing, addr, n as usize)?;
         for (i, &b) in data.iter().enumerate() {
             if b != 0xFF {
                 progress.finish();

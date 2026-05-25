@@ -5,8 +5,10 @@ interface. No kernel drivers required.
 
 ## Status
 
-Working programmer for SPI NOR up to 16 MB, on both 3.3V and 1.8V chips
-(with a CH341A V1.7+ module for the 1.8V parts). Round-trip validated
+Working programmer for SPI NOR up to 32 MB+, on both 3.3V and 1.8V chips
+(with a CH341A V1.7+ module for the 1.8V parts). Chips ≤ 16 MB use
+standard 3-byte addressing; > 16 MB chips use the 4-byte opcode variants
+(0x13 / 0x12 / 0x21 / 0xDC) automatically based on the chip's size. Round-trip validated
 against a real Macronix MX25U4033E on an NVIDIA GTX 1060 — full
 erase → blank-check → write → verify cycle landed byte-identical (SHA-256
 match) to the original VBIOS.
@@ -19,8 +21,8 @@ match) to the original VBIOS.
 | Write (with erase + verify) | ✅ | ✅ (arm/confirm + file picker) |
 | Verify | ✅ | ✅ (file picker) |
 | Blank check | ✅ | ✅ |
-| Settings (clock speed, etc.) | ⚠ flag only, no-op | placeholder |
-| 4-byte addressing (>16 MB chips) | ❌ | ❌ |
+| Settings (clock speed, etc.) | ✅ (`--speed`) | ✅ |
+| 4-byte addressing (>16 MB chips) | ✅ | ✅ |
 
 22 unit tests covering the SPI protocol and high-level ops, all running
 against a mock `SpiTransport`. Hardware-touching tests are gated behind
