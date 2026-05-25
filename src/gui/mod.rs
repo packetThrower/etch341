@@ -8,6 +8,7 @@ use gpui::{
 use gpui_component::{
     Root, TitleBar,
     input::{InputEvent, InputState},
+    resizable::{resizable_panel, v_resizable},
 };
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -1006,45 +1007,53 @@ impl Render for AppView {
                     .flex()
                     .flex_col()
                     .child(header::render(&self.connection, &self.progress))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_h(px(0.0))
-                            .min_w(px(0.0))
-                            .overflow_hidden()
-                            // The pane wrapper has to be a flex
-                            // container itself so any pane that wants
-                            // `flex_1` on its inner content (notably
-                            // the Hex viewer's scrollable area) has
-                            // something to flex against.
-                            .flex()
-                            .flex_col()
-                            .child(panes::render(
-                                self.selected,
-                                panes::PaneInputs {
-                                    erase_armed: self.erase_armed,
-                                    write_armed: self.write_armed,
-                                    write_path: self.write_input_path.as_deref(),
-                                    verify_path: self.verify_input_path.as_deref(),
-                                    hex_path: self.hex_input_path.as_deref(),
-                                    hex_bytes: self.hex_bytes.clone(),
-                                    hex_strings: self.hex_strings.clone(),
-                                    hex_byte_matches: self.hex_byte_matches.clone(),
-                                    hex_match_total: self.hex_match_starts.len(),
-                                    hex_current_match: self.hex_current_match,
-                                    hex_scroll: self.hex_scroll.clone(),
-                                    strings_scroll: self.strings_scroll.clone(),
-                                    hex_highlight_line: self.hex_highlight_line,
-                                    hex_show_strings: self.hex_show_strings,
-                                    hex_search_term: self.hex_search_term.as_str(),
-                                    hex_search_state: &self.hex_search_state,
-                                    spi_speed_khz: self.prefs.spi_speed_khz,
-                                    prefs_path: prefs_path_buf.as_deref(),
-                                },
-                                cx,
-                            )),
-                    )
-                    .child(log::render(&self.log_lines, &self.log_scroll)),
+                    .child({
+                        // Pane area + log live inside a `v_resizable`
+                        // from gpui-component, giving a draggable
+                        // splitter between them. The wrapper div
+                        // absorbs the main column's remaining vertical
+                        // space; the v_resizable inside `size_full`s
+                        // and distributes that height between two
+                        // resizable_panels.
+                        let pane_inputs = panes::PaneInputs {
+                            erase_armed: self.erase_armed,
+                            write_armed: self.write_armed,
+                            write_path: self.write_input_path.as_deref(),
+                            verify_path: self.verify_input_path.as_deref(),
+                            hex_path: self.hex_input_path.as_deref(),
+                            hex_bytes: self.hex_bytes.clone(),
+                            hex_strings: self.hex_strings.clone(),
+                            hex_byte_matches: self.hex_byte_matches.clone(),
+                            hex_match_total: self.hex_match_starts.len(),
+                            hex_current_match: self.hex_current_match,
+                            hex_scroll: self.hex_scroll.clone(),
+                            strings_scroll: self.strings_scroll.clone(),
+                            hex_highlight_line: self.hex_highlight_line,
+                            hex_show_strings: self.hex_show_strings,
+                            hex_search_term: self.hex_search_term.as_str(),
+                            hex_search_state: &self.hex_search_state,
+                            spi_speed_khz: self.prefs.spi_speed_khz,
+                            prefs_path: prefs_path_buf.as_deref(),
+                        };
+                        div().flex_1().min_h(px(0.0)).min_w(px(0.0)).child(
+                            v_resizable("pane-log-split")
+                                .child(
+                                    resizable_panel().child(
+                                        div()
+                                            .overflow_hidden()
+                                            .flex()
+                                            .flex_col()
+                                            .child(panes::render(self.selected, pane_inputs, cx)),
+                                    ),
+                                )
+                                .child(
+                                    resizable_panel()
+                                        .size(px(180.0))
+                                        .size_range(px(80.0)..px(500.0))
+                                        .child(log::render(&self.log_lines, &self.log_scroll)),
+                                ),
+                        )
+                    }),
             )
     }
 }

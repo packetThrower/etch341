@@ -531,11 +531,7 @@ fn hex_pane(
 /// Counter + prev/next chevrons for the find navigator. Shows `i+1/N`
 /// when a cursor is set, just `N` when matches exist but the user
 /// hasn't navigated yet. Chevrons wrap around at the ends.
-fn find_nav(
-    current: Option<usize>,
-    total: usize,
-    cx: &mut Context<AppView>,
-) -> impl IntoElement {
+fn find_nav(current: Option<usize>, total: usize, cx: &mut Context<AppView>) -> impl IntoElement {
     let counter_text = match current {
         Some(i) => format!("{}/{}", i + 1, total),
         None => format!("{} match{}", total, if total == 1 { "" } else { "es" }),
@@ -582,9 +578,11 @@ where
         .text_size(px(14.0))
         .hover(|d| d.bg(theme::workshop_glass_strong()))
         .child(label)
-        .on_click(cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
-            on_click(this, cx);
-        }))
+        .on_click(
+            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+                on_click(this, cx);
+            }),
+        )
 }
 
 /// Two-button segmented toggle: Hex on the left, Strings on the right.
@@ -664,40 +662,40 @@ fn strings_view(
     // Same shape as `hex_view`: style chained directly on the
     // uniform_list so its flex_1 sees the hex_pane parent.
     uniform_list("strings-list", count, move |range, _, _| {
-                range
-                    .map(|virtual_i| {
-                        let real_i = matched_arc[virtual_i];
-                        let (offset, s) = &all[real_i];
-                        let offset_val = *offset;
-                        let weak = weak_view.clone();
-                        let mut row = div()
-                            .id(("string-row", virtual_i))
-                            .flex()
-                            .flex_row()
-                            .gap_3()
-                            .cursor_pointer()
-                            .hover(|d| d.bg(theme::workshop_glass_strong()))
-                            .child(
-                                div()
-                                    .text_color(theme::accent_blue())
-                                    .child(format!("{:08X}", offset_val)),
-                            )
-                            .child(highlight_string_row(s, &needle))
-                            .on_click(move |_: &ClickEvent, _, app| {
-                                weak.update(app, |this, cx| {
-                                    this.jump_to_hex_offset(offset_val, cx);
-                                })
-                                .ok();
-                            });
-                        // Ledger-paper stripe — every other row gets a
-                        // subtle bg to track horizontally without losing
-                        // your spot.
-                        if virtual_i % 2 == 1 {
-                            row = row.bg(theme::workshop_glass());
-                        }
-                        row
-                    })
-                    .collect()
+        range
+            .map(|virtual_i| {
+                let real_i = matched_arc[virtual_i];
+                let (offset, s) = &all[real_i];
+                let offset_val = *offset;
+                let weak = weak_view.clone();
+                let mut row = div()
+                    .id(("string-row", virtual_i))
+                    .flex()
+                    .flex_row()
+                    .gap_3()
+                    .cursor_pointer()
+                    .hover(|d| d.bg(theme::workshop_glass_strong()))
+                    .child(
+                        div()
+                            .text_color(theme::accent_blue())
+                            .child(format!("{:08X}", offset_val)),
+                    )
+                    .child(highlight_string_row(s, &needle))
+                    .on_click(move |_: &ClickEvent, _, app| {
+                        weak.update(app, |this, cx| {
+                            this.jump_to_hex_offset(offset_val, cx);
+                        })
+                        .ok();
+                    });
+                // Ledger-paper stripe — every other row gets a
+                // subtle bg to track horizontally without losing
+                // your spot.
+                if virtual_i % 2 == 1 {
+                    row = row.bg(theme::workshop_glass());
+                }
+                row
+            })
+            .collect()
     })
     .flex_1()
     .min_h(px(0.0))
