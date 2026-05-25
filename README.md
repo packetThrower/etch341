@@ -76,9 +76,23 @@ hit `PermissionDenied`.
 
 ### Windows
 
-1. Run [Zadig](https://zadig.akeo.ie/) and bind **WinUSB** to the CH341A
-   device (VID 0x1A86 / PID 0x5512).
-2. `cargo install --path .`
+Windows doesn't ship a generic userspace USB driver, so the CH341A
+either enumerates as an unknown device or gets claimed by a vendor
+serial-port driver — either way, libusb can't open it. The one-time
+fix is to bind the **WinUSB** generic driver to the device:
+
+1. Plug in the CH341A.
+2. Run [Zadig](https://zadig.akeo.ie/) (≈600 KB, no installer).
+3. In Zadig's `Options` menu, enable `List All Devices`.
+4. Select the entry with VID `0x1A86` / PID `0x5512`, choose **WinUSB**
+   from the driver dropdown, and click `Install Driver`.
+5. `cargo install --path .`
+
+You only need to do steps 1–4 once per machine. If `etch341 detect`
+reports `DeviceNotFound` on Windows after running it once, the driver
+binding is usually the cause — re-check in Zadig that the device is
+still bound to WinUSB and not to a vendor driver that took over after
+an update.
 
 ## Usage
 

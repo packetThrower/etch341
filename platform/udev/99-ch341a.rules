@@ -1,0 +1,17 @@
+# CH341A USB SPI / I2C programmer
+#
+# Without this rule, libusb opens the device read-only and etch341
+# (and any other userspace tool) will fail with PermissionDenied.
+#
+# Install:
+#   sudo cp 99-ch341a.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload
+#   # then unplug and replug the CH341A
+#
+# The TAG+="uaccess" line grants access to the user owning the local
+# seat (modern systemd / logind setups — works out of the box on most
+# desktop distros). The MODE/GROUP fallback covers older systems and
+# headless boxes where you can add yourself to the plugdev group:
+#   sudo usermod -aG plugdev $USER
+
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="5512", MODE="0660", GROUP="plugdev", TAG+="uaccess"
