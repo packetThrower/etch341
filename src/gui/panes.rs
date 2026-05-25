@@ -14,9 +14,7 @@ pub fn render(selected: Pane, cx: &mut Context<AppView>) -> impl IntoElement {
         Pane::Verify => {
             stub("Verify", "Compare a file against the chip without writing.").into_any_element()
         }
-        Pane::Blank => {
-            stub("Blank check", "Confirm the chip reads back as all 0xFF.").into_any_element()
-        }
+        Pane::Blank => blank_pane(cx).into_any_element(),
         Pane::Settings => stub(
             "Settings",
             "SPI clock speed, chip DB override, preferences.",
@@ -43,6 +41,28 @@ fn read_pane(cx: &mut Context<AppView>) -> impl IntoElement {
             "start-read",
             cx,
             |this, cx| this.start_read(cx),
+        ))
+}
+
+fn blank_pane(cx: &mut Context<AppView>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_4()
+        .px_5()
+        .py_5()
+        .child(heading("Blank check"))
+        .child(body(
+            "Reads the entire chip and confirms every byte is 0xFF. \
+             Most useful after an erase — fails with the address of the \
+             first non-FF byte if the chip isn't actually blank. A \
+             programmed chip (e.g. a VBIOS) will fail at offset 0x0.",
+        ))
+        .child(action_button_for(
+            "Run blank check",
+            "start-blank",
+            cx,
+            |this, cx| this.start_blank_check(cx),
         ))
 }
 
@@ -109,12 +129,23 @@ fn action_button_for<F>(
 where
     F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
 {
+    // `min_w` keeps short buttons (Refresh, Start read) the same size
+    // for visual consistency, while longer labels (Run blank check)
+    // grow to fit. `flex_none` prevents the button from being stretched
+    // by its parent flex column. Horizontal padding pairs with the
+    // intrinsic text width.
     div()
         .id(id)
+        // `flex_none` only controls main-axis grow/shrink; the parent
+        // `flex_col` still stretches us across the cross axis (width).
+        // `self_start` opts out so the button hugs its intrinsic
+        // width + padding instead of filling the pane.
+        .self_start()
         .flex()
         .items_center()
         .justify_center()
-        .w(px(110.0))
+        .min_w(px(110.0))
+        .px_4()
         .py_2()
         .rounded(px(6.0))
         .bg(theme::accent_blue())

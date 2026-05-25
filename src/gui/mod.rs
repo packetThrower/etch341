@@ -205,6 +205,57 @@ impl AppView {
         })
         .detach();
     }
+
+    /// Background-spawn a full-chip blank check. Useful for verifying
+    /// that an erase succeeded (`ops::blank_check` returns
+    /// `Error::NotBlank { addr, value }` on the first non-FF byte;
+    /// the location is included in the error message).
+    pub fn start_blank_check(&mut self, cx: &mut Context<Self>) {
+        self.push_log("→ blank check".into());
+        cx.notify();
+
+        cx.spawn(async move |weak, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
+                    let chip = match detect.diagnosis {
+                        Diagnosis::Known(c) => c,
+                        Diagnosis::UnknownChip => {
+                            return Err(format!(
+                                "unknown JEDEC 0x{} — add to chips.toml",
+                                detect.jedec_string()
+                            ));
+                        }
+                        Diagnosis::MisoStuckLow => {
+                            return Err("MISO stuck low (target board contention)".into());
+                        }
+                        Diagnosis::MisoFloatsHigh => {
+                            return Err("MISO floats high (no chip / HOLD# grounded)".into());
+                        }
+                    };
+                    let size = chip.size_kb.saturating_mul(1024);
+                    ops::blank_check(&mut ch, &chip).map_err(|e| format!("{e}"))?;
+                    Ok::<_, String>((chip.name, size))
+                })
+                .await;
+
+            weak.update(cx, |this, cx| {
+                match outcome {
+                    Ok((name, size)) => {
+                        this.push_log(format!("Blank OK : all {size} bytes are 0xFF ({name})"));
+                    }
+                    Err(err) => {
+                        this.push_log(format!("Blank FAIL: {err}"));
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
 }
 
 /// Pick a filename for the next read dump. Lives in $HOME so it persists
