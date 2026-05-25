@@ -37,9 +37,16 @@ lint:
 fmt:
     cargo fmt
 
+# Verify the tree is already formatted (CI-style; non-zero exit on drift).
+fmt-check:
+    cargo fmt --all -- --check
+
 # Fast typecheck (no codegen). CLI-only path.
 check:
     cargo check --no-default-features
+
+# Run before committing: fmt drift + clippy + tests.
+precommit: fmt-check lint test
 
 # Run the GUI.
 run:
