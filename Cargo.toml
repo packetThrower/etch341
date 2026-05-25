@@ -40,25 +40,24 @@ sha2 = "0.10"
 # that even a CLI-only binary linking it has negligible cost.
 rfd = "0.14"
 
-# GUI stack — feature-gated. Pinning convention mirrors Baudrun:
+# GUI stack — feature-gated.
 #
-# `gpui` and `gpui_platform` deliberately have NO rev. gpui-component's
+# `gpui` and `gpui_platform` deliberately have NO rev. The gpui-component
 # git tip pins gpui with no rev either; Cargo only unifies two git deps
 # of the same crate when their specs match. A rev pin here would
-# duplicate the Zed crate graph in the build. Reproducibility comes
+# duplicate the gpui crate graph in the build. Reproducibility comes
 # from Cargo.lock — bump with `cargo update -p gpui` deliberately.
 gpui = { git = "https://github.com/zed-industries/zed", optional = true }
 
 # Per-platform backend. Linux `wayland` and `x11` features are NOT
 # default — without them, `gpui::guess_compositor()` returns "Wayland"
 # inside a Wayland session but the matching arm is cfg'd out, hitting
-# `unreachable!()` before the first window paints. (Same pitfall as
-# Baudrun.) Harmless on macOS / Windows.
+# `unreachable!()` before the first window paints. Harmless on macOS / Windows.
 gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "wayland", "x11"], optional = true }
 
-# Widget library. Pinned to a git rev because crates.io 0.5.x targets a
-# crates.io gpui that conflicts with our Zed-git pin. The git tip pins
-# gpui to the Zed monorepo with no rev, so Cargo unifies it against ours.
+# Widget library. Pinned to a git rev because the crates.io version
+# targets a different gpui than our git pin. The git tip pins gpui with
+# no rev, so Cargo unifies it against ours.
 gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "2d2524d89efc47270e9a0ee18f10fa72cd573eff", optional = true }
 
 # Lucide icon SVGs. Without `.with_assets(Assets)` at startup, every

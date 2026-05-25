@@ -1,7 +1,5 @@
 //! CH341A USB protocol layer.
 //!
-//! Reference: flashrom/programmers/ch341a_spi.c (canonical).
-//!
 //! Pin map (CH341A "black module" SPI mode):
 //!   D0 = SCS    (chip-select, active low)
 //!   D1 = CS1    (unused, held high)
@@ -21,7 +19,9 @@ use std::time::Duration;
 pub const VID: u16 = 0x1A86;
 pub const PID: u16 = 0x5512;
 
-pub const SUPPORTED_SPEEDS_KHZ: &[u32] = &[400, 750, 1500, 3000, 6000, 12000, 24000];
+/// SPI clock rates the `set_clock` command can select. Higher CH341
+/// rates exist but require vendor commands etch341 doesn't implement.
+pub const SUPPORTED_SPEEDS_KHZ: &[u32] = &[20, 100, 400, 750];
 
 const INTERFACE: u8 = 0;
 const EP_OUT: u8 = 0x02;
@@ -35,6 +35,13 @@ const MAX_PAYLOAD_PER_PKT: usize = PACKET_LEN - 1;
 // Stream command opcodes
 const CMD_SPI_STREAM: u8 = 0xA8;
 const CMD_UIO_STREAM: u8 = 0xAB;
+const CMD_I2C_STREAM: u8 = 0xAA;
+
+// I²C-stream sub-commands. The set-speed command rides on the I²C
+// stream even though we're driving SPI — the CH341 multiplexes
+// clock control through this command.
+const I2C_STM_SET: u8 = 0x60;
+const I2C_STM_END: u8 = 0x00;
 
 // UIO sub-commands (OR'd with a 6-bit payload)
 const UIO_STM_END: u8 = 0x20;
@@ -45,7 +52,7 @@ const UIO_STM_OUT: u8 = 0x80;
 const CS_BIT: u8 = 1 << 0;
 
 /// All three CS lines high (D0..D2 = 1), SCK low (D3 = 0),
-/// DOUT lines high (D4..D5 = 1). Matches flashrom's "idle" state.
+/// DOUT lines high (D4..D5 = 1). Standard SPI idle state.
 const PIN_IDLE: u8 = 0x37;
 
 /// Direction byte for SPI mode: D0..D5 outputs, D6..D7 inputs
@@ -77,6 +84,21 @@ impl Ch341 {
         let mut ch = Self { handle, verbose };
         ch.enable_spi_pins()?;
         Ok(ch)
+    }
+
+    /// Set SPI clock to one of [`SUPPORTED_SPEEDS_KHZ`]. Returns
+    /// `Error::UnsupportedSpeed` for any other rate. No-op-safe to
+    /// call multiple times; safe to call before or after `enable_spi_pins`.
+    pub fn set_clock(&self, khz: u32) -> Result<()> {
+        let bits = match khz {
+            20 => 0u8,
+            100 => 1,
+            400 => 2,
+            750 => 3,
+            other => return Err(Error::UnsupportedSpeed(other)),
+        };
+        let buf = [CMD_I2C_STREAM, I2C_STM_SET | bits, I2C_STM_END];
+        self.bulk_out(&buf)
     }
 
     fn enable_spi_pins(&mut self) -> Result<()> {

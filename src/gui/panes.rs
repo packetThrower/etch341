@@ -12,6 +12,8 @@ pub struct PaneInputs<'a> {
     pub write_armed: bool,
     pub write_path: Option<&'a Path>,
     pub verify_path: Option<&'a Path>,
+    pub spi_speed_khz: u32,
+    pub prefs_path: Option<&'a Path>,
 }
 
 pub fn render(
@@ -28,11 +30,9 @@ pub fn render(
         }
         Pane::Verify => verify_pane(inputs.verify_path, cx).into_any_element(),
         Pane::Blank => blank_pane(cx).into_any_element(),
-        Pane::Settings => stub(
-            "Settings",
-            "SPI clock speed, chip DB override, preferences.",
-        )
-        .into_any_element(),
+        Pane::Settings => {
+            settings_pane(inputs.spi_speed_khz, inputs.prefs_path, cx).into_any_element()
+        }
     }
 }
 
@@ -244,6 +244,125 @@ where
         .child(action_button_for(button_label, button_id, cx, on_click))
 }
 
+fn settings_pane(
+    current_khz: u32,
+    prefs_path: Option<&Path>,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
+    // Matches `ch341::SUPPORTED_SPEEDS_KHZ` — the set the CH341A
+    // accepts via the standard I²C-stream set-speed command.
+    let speeds: &[(u32, &str)] = &[
+        (20, "20 kHz — slowest, most signal-tolerant"),
+        (100, "100 kHz — conservative default"),
+        (400, "400 kHz"),
+        (750, "750 kHz — fastest reliable rate (recommended)"),
+    ];
+
+    let mut col = div()
+        .flex()
+        .flex_col()
+        .gap_4()
+        .px_5()
+        .py_5()
+        .child(heading("Settings"))
+        .child(body(
+            "SPI clock speed for every op below. Saved immediately to your \
+             preferences file; the next op picks up the new value when it \
+             opens the CH341A.",
+        ))
+        .child(
+            div()
+                .text_size(px(11.0))
+                .text_color(theme::text_tertiary())
+                .child("SPI CLOCK SPEED"),
+        );
+
+    for &(khz, label) in speeds {
+        col = col.child(speed_row(khz, label, current_khz == khz, cx));
+    }
+
+    col = col.child(
+        div()
+            .pt_3()
+            .text_size(px(11.0))
+            .text_color(theme::text_tertiary())
+            .child("PREFERENCES FILE"),
+    );
+    let path_text = prefs_path
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "(unable to determine — $HOME not set)".to_string());
+    col = col.child(
+        div()
+            .text_size(px(12.0))
+            .font_family("Menlo")
+            .text_color(theme::text_secondary())
+            .whitespace_normal()
+            .child(path_text),
+    );
+
+    col
+}
+
+fn speed_row(
+    khz: u32,
+    label: &'static str,
+    active: bool,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
+    let dot_outer_color = if active {
+        theme::accent_blue()
+    } else {
+        theme::workshop_glass_strong()
+    };
+    let mut row = div()
+        .id(("speed", khz as u64))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .px_3()
+        .py_2()
+        .rounded(px(6.0))
+        .cursor_pointer()
+        .hover(|d| d.bg(theme::workshop_glass_strong()))
+        .child(
+            div()
+                .w(px(12.0))
+                .h(px(12.0))
+                .rounded_full()
+                .border_1()
+                .border_color(dot_outer_color)
+                .flex()
+                .items_center()
+                .justify_center()
+                .when(active, |d| {
+                    d.child(
+                        div()
+                            .w(px(6.0))
+                            .h(px(6.0))
+                            .rounded_full()
+                            .bg(theme::accent_blue()),
+                    )
+                }),
+        )
+        .child(
+            div()
+                .text_color(if active {
+                    theme::text_primary()
+                } else {
+                    theme::text_secondary()
+                })
+                .child(label.to_string()),
+        )
+        .on_click(cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+            this.set_spi_speed(khz, cx);
+        }));
+    if active {
+        row = row.bg(theme::accent_blue_tint());
+    }
+    row
+}
+
 fn blank_pane(cx: &mut Context<AppView>) -> impl IntoElement {
     div()
         .flex()
@@ -279,23 +398,6 @@ fn detect_pane(cx: &mut Context<AppView>) -> impl IntoElement {
              and updates the session header above.",
         ))
         .child(action_button("Refresh", cx))
-}
-
-fn stub(title: &'static str, body_text: &'static str) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap_3()
-        .px_5()
-        .py_5()
-        .child(heading(title))
-        .child(body(body_text))
-        .child(
-            div()
-                .text_color(theme::text_tertiary())
-                .text_size(px(11.0))
-                .child("(not wired yet — coming in next iteration)"),
-        )
 }
 
 fn heading(text: &'static str) -> impl IntoElement {

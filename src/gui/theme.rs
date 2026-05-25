@@ -1,4 +1,4 @@
-//! Color tokens lifted from Baudrun's "Operator's Bench" palette.
+//! Color palette for etch341. Dark theme only.
 
 use gpui::{Hsla, Rgba};
 

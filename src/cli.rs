@@ -19,8 +19,8 @@ pub struct GlobalOpts {
     #[arg(short = 'c', long, global = true)]
     pub chip: Option<String>,
 
-    /// SPI clock speed in kHz. Supported: 400, 750, 1500, 3000, 6000, 12000, 24000.
-    #[arg(short = 's', long, global = true, default_value_t = 1500)]
+    /// SPI clock speed in kHz. Supported: 20, 100, 400, 750.
+    #[arg(short = 's', long, global = true, default_value_t = 750)]
     pub speed: u32,
 
     /// Print raw SPI transactions.
@@ -152,6 +152,7 @@ pub fn dispatch(
 
         Command::Read(args) => {
             let mut ch = Ch341::open(global.verbose)?;
+            ch.set_clock(global.speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let chip_bytes = chip.size_kb.saturating_mul(1024);
             let len = args.length.unwrap_or(chip_bytes.saturating_sub(args.start));
@@ -163,6 +164,7 @@ pub fn dispatch(
         Command::Write(args) => {
             let data = std::fs::read(&args.input)?;
             let mut ch = Ch341::open(global.verbose)?;
+            ch.set_clock(global.speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let mut sink = IndicatifSink::new("write  ");
             ops::write(
@@ -179,6 +181,7 @@ pub fn dispatch(
 
         Command::Erase(args) => {
             let mut ch = Ch341::open(global.verbose)?;
+            ch.set_clock(global.speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let mut sink = IndicatifSink::new("erase  ");
             match args.range.as_deref() {
@@ -194,6 +197,7 @@ pub fn dispatch(
         Command::Verify(args) => {
             let data = std::fs::read(&args.input)?;
             let mut ch = Ch341::open(global.verbose)?;
+            ch.set_clock(global.speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let mut sink = IndicatifSink::new("verify ");
             let mismatches = ops::verify(&mut ch, &chip, &data, args.start, &mut sink)?;
@@ -205,6 +209,7 @@ pub fn dispatch(
 
         Command::BlankCheck => {
             let mut ch = Ch341::open(global.verbose)?;
+            ch.set_clock(global.speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let mut sink = IndicatifSink::new("blank  ");
             ops::blank_check(&mut ch, &chip, &mut sink)?;

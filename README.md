@@ -177,7 +177,7 @@ The `Ch341` struct is the production implementation.
 ## Development
 
 ```sh
-just build        # full build (CLI + GUI; first time pulls Zed for GPUI)
+just build        # full build (CLI + GUI; first time pulls the gpui git dep)
 just build-cli    # CLI only, much faster
 just test         # unit tests, no hardware
 just run -- detect -v

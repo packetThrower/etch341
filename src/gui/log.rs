@@ -6,12 +6,12 @@ use gpui::{
 use gpui_component::scroll::ScrollableElement;
 
 pub fn render(lines: &[LogLine], scroll: &ScrollHandle) -> impl IntoElement {
-    // Baudrun pattern: outer `.relative()` is the positioning context;
-    // the scrollable element and the `vertical_scrollbar` are siblings
-    // inside it. Earlier we had the scrollbar as a child of the
-    // scrollable, which caused the scrollbar itself to scroll along
-    // with the content — looked "backwards" because the thumb stayed
-    // near the visual top of the content rather than the viewport.
+    // The outer `.relative()` is the positioning context; the
+    // scrollable element and the `vertical_scrollbar` must be
+    // SIBLINGS inside it — not parent and child. If the scrollbar
+    // is a child of the scrolling element, it scrolls along with
+    // the content and the thumb stays near the visual top of the
+    // content rather than the viewport, which looks "backwards".
     div()
         .relative()
         .h(px(240.0))
