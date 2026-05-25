@@ -1,10 +1,10 @@
 //! GPUI frontend. Compiled only with the `gui` feature.
 
 use gpui::{
-    App, AppContext, Bounds, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
-    KeyBinding, ParentElement, Render, ScrollHandle, ScrollStrategy, Styled, Subscription,
-    TitlebarOptions, UniformListScrollHandle, Window, WindowBounds, WindowOptions, actions, div,
-    px,
+    App, AppContext, Bounds, ClipboardItem, Context, Entity, FocusHandle, InteractiveElement,
+    IntoElement, KeyBinding, ParentElement, Render, ScrollHandle, ScrollStrategy, Styled,
+    Subscription, TitlebarOptions, UniformListScrollHandle, Window, WindowBounds, WindowOptions,
+    actions, div, px,
 };
 use gpui_component::{
     Root, TitleBar,
@@ -24,7 +24,10 @@ use crate::prefs::Prefs;
 // zero-sized types implementing `Action`; key bindings dispatch by
 // type. `None` context means the binding fires anywhere in the
 // window's dispatch chain.
-actions!(etch341, [FocusFind, FindNextAction, FindPrevAction]);
+actions!(
+    etch341,
+    [FocusFind, FindNextAction, FindPrevAction, CopyHexSelection]
+);
 
 /// Interpret a search needle as either hex bytes (when condensed
 /// form is all-hex-digits + even length) or ASCII (otherwise).
@@ -110,6 +113,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             KeyBinding::new("cmd-f", FocusFind, Some("Input")),
             KeyBinding::new("cmd-g", FindNextAction, None),
             KeyBinding::new("cmd-shift-g", FindPrevAction, None),
+            // Cmd+C in the Hex pane copies the selected bytes. The
+            // handler early-returns when an Input has focus, so the
+            // gpui-component Input's own copy-to-clipboard still
+            // works inside the search field.
+            KeyBinding::new("cmd-c", CopyHexSelection, None),
         ]);
 
         let bounds = Bounds::centered(None, gpui::size(px(1200.0), px(800.0)), cx);
@@ -258,6 +266,15 @@ pub struct AppView {
     pub strings_scroll: UniformListScrollHandle,
     /// Toggle between raw hex dump (false) and extracted-strings view (true).
     pub hex_show_strings: bool,
+    /// Byte-selection range in the hex view: `(anchor, extent)`, both
+    /// inclusive offsets into `hex_bytes`. Stored unnormalized so
+    /// shift-click can extend in either direction relative to the
+    /// anchor; callers normalize via `selection_range()`.
+    pub hex_selection: Option<(usize, usize)>,
+    /// True between mouse-down and mouse-up inside the hex view.
+    /// Gates drag-extend so `on_mouse_move` only extends while the
+    /// button is held.
+    pub hex_selecting: bool,
     /// Live-updated filter for the Strings list. Synced from the Input
     /// widget via the subscription stored in `_subscriptions`.
     pub hex_search_term: String,
@@ -331,6 +348,8 @@ impl AppView {
             strings_scroll: UniformListScrollHandle::new(),
             hex_highlight_line: None,
             hex_show_strings: false,
+            hex_selection: None,
+            hex_selecting: false,
             hex_search_term: String::new(),
             hex_search_state,
             _subscriptions: vec![sub],
@@ -572,6 +591,84 @@ impl AppView {
             .scroll_to_item_with_offset(line, ScrollStrategy::Top, 3);
         self.hex_highlight_line = Some(line);
         cx.notify();
+    }
+
+    /// Selection as a normalized `(lo, hi)` inclusive range. Returns
+    /// `None` if nothing is selected or `hex_bytes` is empty.
+    pub fn selection_range(&self) -> Option<(usize, usize)> {
+        let (a, b) = self.hex_selection?;
+        Some(if a <= b { (a, b) } else { (b, a) })
+    }
+
+    /// Mouse-down on a hex byte cell. Anchors a new selection — or,
+    /// if shift is held and a selection already exists, extends it
+    /// without moving the anchor. Sets `hex_selecting` so subsequent
+    /// drag-moves can extend.
+    pub fn begin_select(&mut self, byte: usize, shift: bool, cx: &mut Context<Self>) {
+        if shift {
+            if let Some((anchor, _)) = self.hex_selection {
+                self.hex_selection = Some((anchor, byte));
+            } else {
+                self.hex_selection = Some((byte, byte));
+            }
+        } else {
+            self.hex_selection = Some((byte, byte));
+        }
+        self.hex_selecting = true;
+        cx.notify();
+    }
+
+    /// Mouse-move while the left button is held inside the hex view.
+    /// No-op outside an active drag.
+    pub fn extend_select(&mut self, byte: usize, cx: &mut Context<Self>) {
+        if !self.hex_selecting {
+            return;
+        }
+        if let Some((anchor, _)) = self.hex_selection {
+            self.hex_selection = Some((anchor, byte));
+            cx.notify();
+        }
+    }
+
+    /// Mouse-up — drag is over, but the selection persists for Cmd+C.
+    pub fn end_select(&mut self, _cx: &mut Context<Self>) {
+        self.hex_selecting = false;
+    }
+
+    /// Copy the current hex-view selection to the system clipboard as
+    /// space-separated upper-case hex (e.g. "DE AD BE EF"). Gated on
+    /// the Hex pane being visible — Cmd+C in any other context (Write
+    /// pane, focused Input, etc.) is a no-op here so the OS / Input
+    /// widget's own copy still works.
+    pub fn copy_hex_selection(&mut self, cx: &mut Context<Self>) {
+        if self.selected != Pane::Hex {
+            return;
+        }
+        let Some((lo, hi)) = self.selection_range() else {
+            return;
+        };
+        let Some(bytes) = self.hex_bytes.as_ref() else {
+            return;
+        };
+        let end = (hi + 1).min(bytes.len());
+        if lo >= end {
+            return;
+        }
+        let slice = &bytes[lo..end];
+        let mut s = String::with_capacity(slice.len() * 3);
+        for (i, b) in slice.iter().enumerate() {
+            if i > 0 {
+                s.push(' ');
+            }
+            s.push_str(&format!("{:02X}", b));
+        }
+        cx.write_to_clipboard(ClipboardItem::new_string(s));
+        self.push_log(format!(
+            "Copied {} byte{} from 0x{:08X}",
+            end - lo,
+            if end - lo == 1 { "" } else { "s" },
+            lo
+        ));
     }
 
     /// Open the file picker, load the chosen file into memory, and
@@ -1082,6 +1179,11 @@ impl Render for AppView {
                     this.find_prev(cx);
                 }),
             )
+            .on_action(
+                cx.listener(|this: &mut AppView, _: &CopyHexSelection, _, cx| {
+                    this.copy_hex_selection(cx);
+                }),
+            )
             .child(sidebar::render(self.selected, cx))
             .child(
                 div()
@@ -1121,6 +1223,7 @@ impl Render for AppView {
                             strings_scroll: self.strings_scroll.clone(),
                             hex_highlight_line: self.hex_highlight_line,
                             hex_show_strings: self.hex_show_strings,
+                            hex_selection: self.selection_range(),
                             hex_search_term: self.hex_search_term.as_str(),
                             hex_search_state: &self.hex_search_state,
                             spi_speed_khz: self.prefs.spi_speed_khz,

@@ -1,8 +1,8 @@
 use super::{AppView, Pane, theme};
 use gpui::{
-    ClickEvent, Context, Entity, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, UniformListScrollHandle, WeakEntity, div,
-    prelude::FluentBuilder, px, uniform_list,
+    ClickEvent, Context, Entity, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
+    MouseMoveEvent, ParentElement, StatefulInteractiveElement, Styled, UniformListScrollHandle,
+    WeakEntity, div, prelude::FluentBuilder, px, uniform_list,
 };
 use gpui_component::input::{Input, InputState};
 use std::collections::HashSet;
@@ -26,6 +26,9 @@ pub struct PaneInputs<'a> {
     pub strings_scroll: UniformListScrollHandle,
     pub hex_highlight_line: Option<usize>,
     pub hex_show_strings: bool,
+    /// Normalized `(lo, hi)` inclusive byte range. `None` = no
+    /// selection. Already normalized by the caller (AppView::selection_range).
+    pub hex_selection: Option<(usize, usize)>,
     pub hex_search_term: &'a str,
     pub hex_search_state: &'a Entity<InputState>,
     pub spi_speed_khz: u32,
@@ -55,6 +58,7 @@ pub fn render(
             inputs.strings_scroll,
             inputs.hex_highlight_line,
             inputs.hex_show_strings,
+            inputs.hex_selection,
             inputs.hex_search_term,
             inputs.hex_search_state,
             cx,
@@ -402,6 +406,7 @@ fn hex_pane(
     strings_scroll: UniformListScrollHandle,
     highlight_line: Option<usize>,
     show_strings: bool,
+    selection: Option<(usize, usize)>,
     search_term: &str,
     search_state: &Entity<InputState>,
     cx: &mut Context<AppView>,
@@ -507,7 +512,19 @@ fn hex_pane(
                 ));
         } else {
             let total = data.len();
-            let footer = format!("Showing all {} bytes (0x{:X})", total, total);
+            // Selection summary takes the footer slot when present —
+            // it's the more actionable signal (Cmd+C copies it). Falls
+            // back to the file-size readout otherwise.
+            let footer = match selection {
+                Some((lo, hi)) => format!(
+                    "Selection: 0x{:08X}..0x{:08X} ({} byte{})",
+                    lo,
+                    hi,
+                    hi - lo + 1,
+                    if hi == lo { "" } else { "s" }
+                ),
+                None => format!("Showing all {} bytes (0x{:X})", total, total),
+            };
             col = col
                 .child(
                     div()
@@ -515,7 +532,14 @@ fn hex_pane(
                         .text_color(theme::text_tertiary())
                         .child(footer),
                 )
-                .child(hex_view(data_arc, hex_scroll, highlight_line, byte_matches));
+                .child(hex_view(
+                    data_arc,
+                    hex_scroll,
+                    highlight_line,
+                    byte_matches,
+                    selection,
+                    cx,
+                ));
         }
     } else {
         col = col.child(
@@ -764,8 +788,15 @@ fn hex_view(
     scroll: UniformListScrollHandle,
     highlight_line: Option<usize>,
     byte_matches: Arc<HashSet<usize>>,
+    selection: Option<(usize, usize)>,
+    cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let line_count = bytes.len().div_ceil(16);
+    // WeakEntity captured into the per-row closures so each byte
+    // cell's mouse handler can update AppView via `weak.update(...)`.
+    // Strong handles would extend AppView's lifetime past its window.
+    let weak = cx.entity().downgrade();
+    let weak_up = weak.clone();
     // Style applied directly to `uniform_list`. Earlier shape had the
     // styling on a wrapper div and `flex_1` on the inner uniform_list
     // — but uniform_list's internal layout doesn't honour `flex_1`
@@ -778,7 +809,13 @@ fn hex_view(
             .map(|i| {
                 let start = i * 16;
                 let end = (start + 16).min(bytes.len());
-                let row = hex_row(start, &bytes[start..end], &byte_matches);
+                let row = hex_row(
+                    start,
+                    &bytes[start..end],
+                    &byte_matches,
+                    selection,
+                    weak.clone(),
+                );
                 if Some(i) == highlight_line {
                     row.bg(theme::accent_blue_tint())
                 } else if (i / 8) % 2 == 1 {
@@ -801,6 +838,12 @@ fn hex_view(
     .text_size(px(11.0))
     .text_color(theme::text_secondary())
     .track_scroll(&scroll)
+    // Drag ends on mouse-up anywhere inside the hex view. A release
+    // outside this region leaves `hex_selecting=true`, but the next
+    // mouse-down clears it anyway.
+    .on_mouse_up(MouseButton::Left, move |_, _, app| {
+        weak_up.update(app, |this, cx| this.end_select(cx)).ok();
+    })
 }
 
 /// Render one hex line as a flex_row of small text spans, each with
@@ -810,7 +853,13 @@ fn hex_view(
 ///   - mid   (control + high bytes): structured data, less prominent
 ///     than text but more than padding
 /// ASCII column on the right uses the same brightness mapping.
-fn hex_row(offset: usize, chunk: &[u8], matches: &HashSet<usize>) -> gpui::Div {
+fn hex_row(
+    offset: usize,
+    chunk: &[u8],
+    matches: &HashSet<usize>,
+    selection: Option<(usize, usize)>,
+    weak: WeakEntity<AppView>,
+) -> gpui::Div {
     let mut row = div()
         .h(px(16.0))
         .flex()
@@ -823,32 +872,35 @@ fn hex_row(offset: usize, chunk: &[u8], matches: &HashSet<usize>) -> gpui::Div {
         );
 
     // Hex columns: 16 byte slots, extra gap after the 8th. Matched
-    // bytes (search hits) get the accent-blue color + tint background.
+    // bytes (search hits) get the accent-blue color + tint background;
+    // selected bytes get a neutral selection tint (overlays match tint
+    // when both apply — selection wins because it's the user's active
+    // intent).
     for i in 0..16 {
         if i == 8 {
             row = row.child(div().child(" "));
         }
         let cell = if let Some(&b) = chunk.get(i) {
             let pos = offset + i;
-            let is_match = matches.contains(&pos);
-            let color = if is_match {
-                theme::accent_blue()
-            } else {
-                hex_color_for(b)
-            };
-            let mut d = div().text_color(color).child(format!("{:02X} ", b));
-            if is_match {
-                d = d.bg(theme::accent_blue_tint());
-            }
-            d
+            row = row.child(byte_cell(
+                pos,
+                format!("{:02X} ", b),
+                hex_color_for(b),
+                matches.contains(&pos),
+                in_selection(pos, selection),
+                weak.clone(),
+            ));
+            continue;
         } else {
             div().child("   ")
         };
         row = row.child(cell);
     }
 
-    // ASCII column: separator + 16 chars + separator. Same match
-    // highlighting as the hex column.
+    // ASCII column: separator + 16 chars + separator. Same match +
+    // selection highlighting as the hex column; mouse events on the
+    // ASCII cells extend the selection too, so the user can drag
+    // across either side of the row.
     row = row.child(
         div()
             .text_color(theme::text_tertiary())
@@ -857,25 +909,26 @@ fn hex_row(offset: usize, chunk: &[u8], matches: &HashSet<usize>) -> gpui::Div {
     for i in 0..16 {
         let cell = if let Some(&b) = chunk.get(i) {
             let pos = offset + i;
-            let is_match = matches.contains(&pos);
             let is_printable = (0x20..0x7F).contains(&b);
             let glyph = if is_printable {
                 (b as char).to_string()
             } else {
                 ".".to_string()
             };
-            let color = if is_match {
-                theme::accent_blue()
-            } else if is_printable {
+            let base_color = if is_printable {
                 theme::text_primary()
             } else {
                 theme::text_tertiary()
             };
-            let mut d = div().text_color(color).child(glyph);
-            if is_match {
-                d = d.bg(theme::accent_blue_tint());
-            }
-            d
+            row = row.child(byte_cell(
+                pos,
+                glyph,
+                base_color,
+                matches.contains(&pos),
+                in_selection(pos, selection),
+                weak.clone(),
+            ));
+            continue;
         } else {
             div().child(" ".to_string())
         };
@@ -887,6 +940,59 @@ fn hex_row(offset: usize, chunk: &[u8], matches: &HashSet<usize>) -> gpui::Div {
             .child("|".to_string()),
     );
     row
+}
+
+/// One interactive byte cell — used by both the hex and ASCII
+/// columns. Encapsulates the color/tint precedence (selection over
+/// match over base) and the mouse-down / mouse-move handlers that
+/// drive selection.
+fn byte_cell(
+    pos: usize,
+    glyph: String,
+    base_color: gpui::Hsla,
+    is_match: bool,
+    is_selected: bool,
+    weak: WeakEntity<AppView>,
+) -> gpui::Stateful<gpui::Div> {
+    let color = if is_match {
+        theme::accent_blue()
+    } else {
+        base_color
+    };
+    let mut d = div()
+        // Tuple id keeps each cell uniquely interactive — gpui requires
+        // an id before .on_mouse_down / .on_mouse_move take effect.
+        .id(("hex-cell", pos))
+        .text_color(color)
+        .child(glyph);
+    if is_selected {
+        d = d.bg(theme::selection_tint());
+    } else if is_match {
+        d = d.bg(theme::accent_blue_tint());
+    }
+    let weak_down = weak.clone();
+    let weak_move = weak;
+    d.on_mouse_down(MouseButton::Left, move |ev: &MouseDownEvent, _, app| {
+        let shift = ev.modifiers.shift;
+        weak_down
+            .update(app, |this, cx| this.begin_select(pos, shift, cx))
+            .ok();
+    })
+    .on_mouse_move(move |ev: &MouseMoveEvent, _, app| {
+        if ev.pressed_button == Some(MouseButton::Left) {
+            weak_move
+                .update(app, |this, cx| this.extend_select(pos, cx))
+                .ok();
+        }
+    })
+}
+
+/// True if `pos` is inside the (already-normalized) selection range.
+fn in_selection(pos: usize, selection: Option<(usize, usize)>) -> bool {
+    match selection {
+        Some((lo, hi)) => pos >= lo && pos <= hi,
+        None => false,
+    }
 }
 
 /// Tier color for a hex byte. Tuning the brightness here is how the

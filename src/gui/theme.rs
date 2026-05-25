@@ -38,6 +38,14 @@ pub fn accent_blue_tint() -> Hsla {
     from_rgb(0x007AFF, 0.25)
 }
 
+/// Background tint for selected hex bytes. Neutral (white-ish) so
+/// it reads as "selected" rather than "matched" — search matches
+/// already use accent_blue_tint, and the two need to be visually
+/// distinct when a selection covers a match.
+pub fn selection_tint() -> Hsla {
+    from_rgb(0xFFFFFF, 0.18)
+}
+
 pub fn success_green() -> Hsla {
     from_rgb(0x32D74B, 1.0)
 }
