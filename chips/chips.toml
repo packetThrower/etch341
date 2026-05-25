@@ -124,6 +124,20 @@ sector_size = 4096
 erase_time_ms = 60
 notes = "Macronix 256 Mbit (4-byte addressing required >16 MB)"
 
+# --- Macronix MX25U (1.8V, manufacturer 0xC2, family 0x25) --------
+# These chips require a 1.8V-capable programmer (CH341A V1.7+, CH347,
+# or a 1.8V level-shifter adapter). DO NOT connect to a 3.3V-only
+# programmer — you'll over-volt every input pin.
+
+[[chip]]
+name = "MX25U4033E"
+jedec_id = "C22533"
+size_kb = 512
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "Macronix 4 Mbit, 1.8V — common GPU VBIOS chip (e.g. GTX 1060)"
+
 # --- GigaDevice GD25Q (manufacturer 0xC8) -------------------------
 
 [[chip]]
