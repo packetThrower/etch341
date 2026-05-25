@@ -150,6 +150,73 @@ impl AppView {
         self.log_scroll
             .set_offset(gpui::point(px(0.0), px(-100_000.0)));
     }
+
+    /// Fire a background read of the whole chip to a timestamped file
+    /// in $HOME. The blocking USB+SPI work runs on
+    /// `cx.background_executor()` so the GUI stays responsive; on
+    /// completion the foreground updates the log + connection state.
+    pub fn start_read(&mut self, cx: &mut Context<Self>) {
+        let path = read_output_path();
+        self.push_log(format!("→ read → {}", path.display()));
+        cx.notify();
+
+        let path_for_task = path.clone();
+        cx.spawn(async move |weak, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
+                    let chip = match detect.diagnosis {
+                        Diagnosis::Known(c) => c,
+                        Diagnosis::UnknownChip => {
+                            return Err(format!(
+                                "unknown JEDEC 0x{} — add to chips.toml",
+                                detect.jedec_string()
+                            ));
+                        }
+                        Diagnosis::MisoStuckLow => {
+                            return Err("MISO stuck low (target board contention)".into());
+                        }
+                        Diagnosis::MisoFloatsHigh => {
+                            return Err("MISO floats high (no chip / HOLD# grounded)".into());
+                        }
+                    };
+                    let size = chip.size_kb.saturating_mul(1024);
+                    ops::read(&mut ch, &chip, 0, size, &path_for_task)
+                        .map_err(|e| format!("read: {e}"))?;
+                    Ok::<_, String>((chip.name, size))
+                })
+                .await;
+
+            weak.update(cx, |this, cx| {
+                match outcome {
+                    Ok((name, size)) => {
+                        this.push_log(format!("Read OK : {size} bytes from {name}"));
+                        this.push_log(format!("Saved   : {}", path.display()));
+                    }
+                    Err(err) => {
+                        this.push_log(format!("Read FAIL: {err}"));
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+}
+
+/// Pick a filename for the next read dump. Lives in $HOME so it persists
+/// past reboots; the seconds-since-epoch suffix makes consecutive reads
+/// land in distinct files.
+fn read_output_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    std::path::PathBuf::from(home).join(format!("etch341-read-{secs}.bin"))
 }
 
 impl Render for AppView {
@@ -164,6 +231,15 @@ impl Render for AppView {
             .child(
                 div()
                     .flex_1()
+                    // `min_w(0)` overrides flex's default `min-width: auto`
+                    // — without it, intrinsic widths of deeply-nested
+                    // children (long paragraphs, log lines) push this
+                    // column wider than the available viewport, and the
+                    // right edge runs off-window. With `min_w(0)`, flex
+                    // shrink obeys the parent's calculated width and
+                    // wrapping kicks in for descendants that have
+                    // `whitespace_normal`.
+                    .min_w(px(0.0))
                     .flex()
                     .flex_col()
                     .child(header::render(&self.connection))
@@ -171,6 +247,8 @@ impl Render for AppView {
                         div()
                             .flex_1()
                             .min_h(px(0.0))
+                            .min_w(px(0.0))
+                            .overflow_hidden()
                             .child(panes::render(self.selected, cx)),
                     )
                     .child(log::render(&self.log_lines, &self.log_scroll)),

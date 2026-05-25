@@ -44,7 +44,12 @@ pub fn render(lines: &[LogLine], scroll: &ScrollHandle) -> impl IntoElement {
                                         .text_color(theme::text_tertiary())
                                         .child(line.timestamp.clone()),
                                 )
-                                .child(div().child(line.text.clone()))
+                                .child(
+                            // Wrap long log lines (file paths,
+                            // error messages) instead of letting
+                            // them run off the right edge.
+                            div().flex_1().whitespace_normal().child(line.text.clone()),
+                        )
                         })),
                 ),
         )

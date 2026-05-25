@@ -7,7 +7,7 @@ use gpui::{
 pub fn render(selected: Pane, cx: &mut Context<AppView>) -> impl IntoElement {
     match selected {
         Pane::Detect => detect_pane(cx).into_any_element(),
-        Pane::Read => stub("Read", "Dump the chip contents to a file.").into_any_element(),
+        Pane::Read => read_pane(cx).into_any_element(),
         Pane::Erase => stub("Erase", "Erase the entire chip or a specific range. Destructive.")
             .into_any_element(),
         Pane::Write => stub("Write", "Program the chip from a file.").into_any_element(),
@@ -23,6 +23,27 @@ pub fn render(selected: Pane, cx: &mut Context<AppView>) -> impl IntoElement {
         )
         .into_any_element(),
     }
+}
+
+fn read_pane(cx: &mut Context<AppView>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_4()
+        .px_5()
+        .py_5()
+        .child(heading("Read"))
+        .child(body(
+            "Auto-detects the chip and dumps its entire contents to a \
+             timestamped file in your home directory. Runs on a background \
+             thread so the GUI stays responsive — watch the log for progress.",
+        ))
+        .child(action_button_for(
+            "Start read",
+            "start-read",
+            cx,
+            |this, cx| this.start_read(cx),
+        ))
 }
 
 fn detect_pane(cx: &mut Context<AppView>) -> impl IntoElement {
@@ -65,12 +86,31 @@ fn heading(text: &'static str) -> impl IntoElement {
 }
 
 fn body(text: &'static str) -> impl IntoElement {
-    div().text_color(theme::text_secondary()).child(text)
+    // `whitespace_normal` overrides gpui's default `nowrap`; without
+    // this, long descriptions push the pane wider than its viewport
+    // and the right edge clips off-screen.
+    div()
+        .text_color(theme::text_secondary())
+        .whitespace_normal()
+        .child(text)
 }
 
 fn action_button(label: &'static str, cx: &mut Context<AppView>) -> impl IntoElement {
+    // Legacy single-purpose button used by the Detect pane.
+    action_button_for(label, label, cx, |this, cx| this.refresh_detect(cx))
+}
+
+fn action_button_for<F>(
+    label: &'static str,
+    id: &'static str,
+    cx: &mut Context<AppView>,
+    on_click: F,
+) -> impl IntoElement
+where
+    F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
+{
     div()
-        .id(label)
+        .id(id)
         .flex()
         .items_center()
         .justify_center()
@@ -82,7 +122,7 @@ fn action_button(label: &'static str, cx: &mut Context<AppView>) -> impl IntoEle
         .cursor_pointer()
         .hover(|d| d.bg(theme::accent_blue_hover()))
         .child(label)
-        .on_click(cx.listener(|this: &mut AppView, _: &ClickEvent, _, cx| {
-            this.refresh_detect(cx);
+        .on_click(cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+            on_click(this, cx);
         }))
 }
