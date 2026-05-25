@@ -24,7 +24,13 @@ gui = [
 hardware = []
 
 [dependencies]
-rusb = "0.9"
+# `vendored` builds libusb-1.0 from source and links it statically into
+# the binary. Without it, every release artifact needs a matching
+# libusb-1.0 installed on the target machine — fine for `cargo install`
+# users, awful for downloads from the GitHub Release page. Trade-off
+# is a slightly slower first build (cc compiles libusb's ~50 .c files)
+# and a slightly bigger binary (~80 KB).
+rusb = { version = "0.9", features = ["vendored"] }
 clap = { version = "4", features = ["derive"] }
 thiserror = "1"
 indicatif = "0.17"
