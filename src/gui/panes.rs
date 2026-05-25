@@ -703,17 +703,13 @@ fn hex_view(
                     .map(|i| {
                         let start = i * 16;
                         let end = (start + 16).min(bytes.len());
-                        // Explicit row height so uniform_list's
-                        // measurement of item 0 matches the rendered
-                        // height of every subsequent row exactly.
-                        // 16px is comfortable at our 11px font.
-                        let row = div()
-                            .h(px(16.0))
-                            .whitespace_nowrap()
-                            .child(hex_line(start, &bytes[start..end]));
+                        let row = hex_row(start, &bytes[start..end]);
                         if Some(i) == highlight_line {
+                            // Highlight = bg tint only; per-byte text
+                            // colors set inside the row stay intact
+                            // (gpui's per-element text_color wins over
+                            // a parent override).
                             row.bg(theme::accent_blue_tint())
-                                .text_color(theme::text_primary())
                         } else {
                             row
                         }
@@ -725,33 +721,79 @@ fn hex_view(
         )
 }
 
-fn hex_line(offset: usize, chunk: &[u8]) -> String {
-    // Hex bytes — pad short final chunks so the ASCII column lines up.
-    let mut hex = String::with_capacity(16 * 3 + 2);
-    for (i, b) in chunk.iter().enumerate() {
+/// Render one hex line as a flex_row of small text spans, each with
+/// its own color based on the byte's class. Three tiers:
+///   - bright (printable ASCII 0x20-0x7E): "content" bytes pop
+///   - dim   (null + 0xFF): padding / erased regions fade into the bg
+///   - mid   (control + high bytes): structured data, less prominent
+///     than text but more than padding
+/// ASCII column on the right uses the same brightness mapping.
+fn hex_row(offset: usize, chunk: &[u8]) -> gpui::Div {
+    let mut row = div()
+        .h(px(16.0))
+        .flex()
+        .flex_row()
+        .whitespace_nowrap()
+        .child(
+            div()
+                .text_color(theme::text_tertiary())
+                .child(format!("{:08X}  ", offset)),
+        );
+
+    // Hex columns: 16 byte slots, extra gap after the 8th.
+    for i in 0..16 {
         if i == 8 {
-            hex.push(' '); // extra gap between byte 7 and byte 8
+            row = row.child(div().child(" "));
         }
-        hex.push_str(&format!("{:02X} ", b));
+        let cell = if let Some(&b) = chunk.get(i) {
+            div()
+                .text_color(hex_color_for(b))
+                .child(format!("{:02X} ", b))
+        } else {
+            div().child("   ")
+        };
+        row = row.child(cell);
     }
-    for i in chunk.len()..16 {
-        if i == 8 {
-            hex.push(' ');
-        }
-        hex.push_str("   ");
-    }
-    // ASCII representation: printable ASCII byte → glyph, else '.'.
-    let ascii: String = chunk
-        .iter()
-        .map(|&b| {
+
+    // ASCII column: separator + 16 chars + separator.
+    row = row.child(
+        div()
+            .text_color(theme::text_tertiary())
+            .child(" |".to_string()),
+    );
+    for i in 0..16 {
+        let cell = if let Some(&b) = chunk.get(i) {
             if (0x20..0x7F).contains(&b) {
-                b as char
+                div()
+                    .text_color(theme::text_primary())
+                    .child((b as char).to_string())
             } else {
-                '.'
+                div()
+                    .text_color(theme::text_tertiary())
+                    .child(".".to_string())
             }
-        })
-        .collect();
-    format!("{:08X}  {}  |{}|", offset, hex.trim_end(), ascii)
+        } else {
+            div().child(" ".to_string())
+        };
+        row = row.child(cell);
+    }
+    row = row.child(
+        div()
+            .text_color(theme::text_tertiary())
+            .child("|".to_string()),
+    );
+    row
+}
+
+/// Tier color for a hex byte. Tuning the brightness here is how the
+/// "scan the dump for structure" feeling emerges — null and 0xFF
+/// runs should sink, printable runs should float.
+fn hex_color_for(b: u8) -> gpui::Hsla {
+    match b {
+        0x00 | 0xFF => theme::text_tertiary(),
+        0x20..=0x7E => theme::text_primary(),
+        _ => theme::text_secondary(),
+    }
 }
 
 fn blank_pane(cx: &mut Context<AppView>) -> impl IntoElement {
