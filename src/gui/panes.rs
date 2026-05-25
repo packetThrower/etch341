@@ -3,20 +3,30 @@ use gpui::{
     div, prelude::FluentBuilder, px, ClickEvent, Context, InteractiveElement, IntoElement,
     ParentElement, StatefulInteractiveElement, Styled,
 };
+use std::path::Path;
+
+/// Bundle of per-pane state passed from `AppView::render` to keep
+/// `render()`'s signature from growing per added pane.
+pub struct PaneInputs<'a> {
+    pub erase_armed: bool,
+    pub write_armed: bool,
+    pub write_path: Option<&'a Path>,
+    pub verify_path: Option<&'a Path>,
+}
 
 pub fn render(
     selected: Pane,
-    erase_armed: bool,
+    inputs: PaneInputs<'_>,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     match selected {
         Pane::Detect => detect_pane(cx).into_any_element(),
         Pane::Read => read_pane(cx).into_any_element(),
-        Pane::Erase => erase_pane(erase_armed, cx).into_any_element(),
-        Pane::Write => stub("Write", "Program the chip from a file.").into_any_element(),
-        Pane::Verify => {
-            stub("Verify", "Compare a file against the chip without writing.").into_any_element()
+        Pane::Erase => erase_pane(inputs.erase_armed, cx).into_any_element(),
+        Pane::Write => {
+            write_pane(inputs.write_path, inputs.write_armed, cx).into_any_element()
         }
+        Pane::Verify => verify_pane(inputs.verify_path, cx).into_any_element(),
         Pane::Blank => blank_pane(cx).into_any_element(),
         Pane::Settings => stub(
             "Settings",
@@ -104,6 +114,134 @@ fn erase_button(armed: bool, cx: &mut Context<AppView>) -> impl IntoElement {
         .on_click(cx.listener(|this: &mut AppView, _: &ClickEvent, _, cx| {
             this.arm_or_fire_erase(cx);
         }))
+}
+
+fn write_pane(
+    path: Option<&Path>,
+    armed: bool,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
+    let (label, bg) = if armed {
+        ("Click again to confirm", theme::caution_red())
+    } else {
+        ("Write chip", theme::accent_blue())
+    };
+    div()
+        .flex()
+        .flex_col()
+        .gap_4()
+        .px_5()
+        .py_5()
+        .child(heading("Write"))
+        .child(body(
+            "Programs the chip from a file. Erases first, then writes \
+             page-by-page, then verifies. DESTRUCTIVE — same arm/confirm \
+             protection as Erase. Switching panes resets the arm state.",
+        ))
+        .child(file_picker_row(
+            path,
+            "Browse…",
+            "pick-write",
+            cx,
+            |this, cx| this.pick_write_file(cx),
+        ))
+        .when(armed && path.is_some(), |this| {
+            this.child(
+                div()
+                    .self_start()
+                    .px_3()
+                    .py_2()
+                    .rounded(px(6.0))
+                    .bg(theme::warning_amber())
+                    .text_color(theme::bench_black())
+                    .whitespace_normal()
+                    .child("Armed — next click will erase and overwrite the chip."),
+            )
+        })
+        .child(
+            div()
+                .id("start-write")
+                .self_start()
+                .flex()
+                .items_center()
+                .justify_center()
+                .min_w(px(110.0))
+                .px_4()
+                .py_2()
+                .rounded(px(6.0))
+                .bg(bg)
+                .text_color(theme::text_primary())
+                .cursor_pointer()
+                .child(label)
+                .on_click(cx.listener(|this: &mut AppView, _: &ClickEvent, _, cx| {
+                    this.arm_or_fire_write(cx);
+                })),
+        )
+}
+
+fn verify_pane(path: Option<&Path>, cx: &mut Context<AppView>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_4()
+        .px_5()
+        .py_5()
+        .child(heading("Verify"))
+        .child(body(
+            "Reads the chip and compares against a file byte-by-byte. \
+             Non-destructive; reports the first mismatch's address if any \
+             bytes differ.",
+        ))
+        .child(file_picker_row(
+            path,
+            "Browse…",
+            "pick-verify",
+            cx,
+            |this, cx| this.pick_verify_file(cx),
+        ))
+        .child(action_button_for(
+            "Verify",
+            "start-verify",
+            cx,
+            |this, cx| this.start_verify(cx),
+        ))
+}
+
+/// Path display + Browse button row. Path text wraps if long.
+fn file_picker_row<F>(
+    path: Option<&Path>,
+    button_label: &'static str,
+    button_id: &'static str,
+    cx: &mut Context<AppView>,
+    on_click: F,
+) -> impl IntoElement
+where
+    F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
+{
+    let display = path
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "(no file selected)".to_string());
+    let path_color = if path.is_some() {
+        theme::text_primary()
+    } else {
+        theme::text_tertiary()
+    };
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .whitespace_normal()
+                .text_color(path_color)
+                .text_size(px(12.0))
+                .font_family("Menlo")
+                .child(display),
+        )
+        .child(action_button_for(button_label, button_id, cx, on_click))
 }
 
 fn blank_pane(cx: &mut Context<AppView>) -> impl IntoElement {

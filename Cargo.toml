@@ -33,6 +33,13 @@ serde = { version = "1", features = ["derive"] }
 hex = "0.4"
 sha2 = "0.10"
 
+# Native file-picker dialogs (NSOpenPanel on macOS, GTK on Linux,
+# IFileOpenDialog on Windows). Used by the GUI's Write / Verify
+# panes to choose a binary file. Stays in the default deps because
+# the CLI build skips the GUI feature, and rfd is light enough
+# that even a CLI-only binary linking it has negligible cost.
+rfd = "0.14"
+
 # GUI stack — feature-gated. Pinning convention mirrors Baudrun:
 #
 # `gpui` and `gpui_platform` deliberately have NO rev. gpui-component's

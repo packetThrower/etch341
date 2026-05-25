@@ -79,6 +79,14 @@ pub struct AppView {
     /// the second click within the same pane visit fires the actual
     /// erase. Reset to false when the user navigates away.
     pub erase_armed: bool,
+    /// Same two-stage trigger as `erase_armed` but for the Write
+    /// pane. Write is destructive (erase-then-program by default),
+    /// so it gets the same arm/confirm protection.
+    pub write_armed: bool,
+    /// File selected via the Write pane's Browse button.
+    pub write_input_path: Option<std::path::PathBuf>,
+    /// File selected via the Verify pane's Browse button.
+    pub verify_input_path: Option<std::path::PathBuf>,
 }
 
 impl AppView {
@@ -92,7 +100,162 @@ impl AppView {
             }],
             log_scroll: ScrollHandle::new(),
             erase_armed: false,
+            write_armed: false,
+            write_input_path: None,
+            verify_input_path: None,
         }
+    }
+
+    /// Open the OS file picker to choose a binary to write to the chip.
+    /// Synchronous: NSOpenPanel runs its own event loop, the GUI is
+    /// frozen for the dialog's duration. Acceptable for modal pickers.
+    pub fn pick_write_file(&mut self, cx: &mut Context<Self>) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Flash dumps", &["bin", "rom"])
+            .add_filter("All files", &["*"])
+            .pick_file()
+        {
+            self.push_log(format!("Picked for write: {}", path.display()));
+            self.write_input_path = Some(path);
+            // Re-arm protection on file change.
+            self.write_armed = false;
+        }
+        cx.notify();
+    }
+
+    pub fn pick_verify_file(&mut self, cx: &mut Context<Self>) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Flash dumps", &["bin", "rom"])
+            .add_filter("All files", &["*"])
+            .pick_file()
+        {
+            self.push_log(format!("Picked for verify: {}", path.display()));
+            self.verify_input_path = Some(path);
+        }
+        cx.notify();
+    }
+
+    /// Two-stage trigger for write (same shape as `arm_or_fire_erase`).
+    pub fn arm_or_fire_write(&mut self, cx: &mut Context<Self>) {
+        if self.write_input_path.is_none() {
+            self.push_log("Write FAIL: no input file selected".into());
+            cx.notify();
+            return;
+        }
+        if self.write_armed {
+            self.write_armed = false;
+            self.start_write(cx);
+        } else {
+            self.write_armed = true;
+            self.push_log("⚠ Write armed — click again to confirm".into());
+            cx.notify();
+        }
+    }
+
+    /// Background-spawn ops::write with erase-first + verify-after
+    /// (matches the CLI's default behaviour). Path must already be set.
+    fn start_write(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = self.write_input_path.clone() else {
+            self.push_log("Write FAIL: no input file selected".into());
+            cx.notify();
+            return;
+        };
+        self.push_log(format!("→ write {} (erase + program + verify)", path.display()));
+        cx.notify();
+
+        cx.spawn(async move |weak, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let data = std::fs::read(&path).map_err(|e| format!("read input: {e}"))?;
+                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
+                    let chip = match detect.diagnosis {
+                        Diagnosis::Known(c) => c,
+                        Diagnosis::UnknownChip => {
+                            return Err(format!(
+                                "unknown JEDEC 0x{} — add to chips.toml",
+                                detect.jedec_string()
+                            ));
+                        }
+                        Diagnosis::MisoStuckLow => {
+                            return Err("MISO stuck low (target board contention)".into());
+                        }
+                        Diagnosis::MisoFloatsHigh => {
+                            return Err("MISO floats high (no chip / HOLD# grounded)".into());
+                        }
+                    };
+                    ops::write(&mut ch, &chip, &data, 0, true, true)
+                        .map_err(|e| format!("write: {e}"))?;
+                    Ok::<_, String>((chip.name, data.len()))
+                })
+                .await;
+
+            weak.update(cx, |this, cx| {
+                match outcome {
+                    Ok((name, n)) => {
+                        this.push_log(format!("Write OK : {n} bytes to {name} (verified)"));
+                    }
+                    Err(err) => this.push_log(format!("Write FAIL: {err}")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Background-spawn ops::verify. Read-only, no confirmation needed.
+    pub fn start_verify(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = self.verify_input_path.clone() else {
+            self.push_log("Verify FAIL: no input file selected".into());
+            cx.notify();
+            return;
+        };
+        self.push_log(format!("→ verify against {}", path.display()));
+        cx.notify();
+
+        cx.spawn(async move |weak, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let data = std::fs::read(&path).map_err(|e| format!("read input: {e}"))?;
+                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
+                    let chip = match detect.diagnosis {
+                        Diagnosis::Known(c) => c,
+                        Diagnosis::UnknownChip => {
+                            return Err(format!(
+                                "unknown JEDEC 0x{} — add to chips.toml",
+                                detect.jedec_string()
+                            ));
+                        }
+                        Diagnosis::MisoStuckLow => return Err("MISO stuck low".into()),
+                        Diagnosis::MisoFloatsHigh => return Err("MISO floats high".into()),
+                    };
+                    let mismatches = ops::verify(&mut ch, &chip, &data, 0)
+                        .map_err(|e| format!("verify: {e}"))?;
+                    Ok::<_, String>((chip.name, data.len(), mismatches))
+                })
+                .await;
+
+            weak.update(cx, |this, cx| {
+                match outcome {
+                    Ok((name, n, 0)) => {
+                        this.push_log(format!("Verify OK: all {n} bytes match {name}"));
+                    }
+                    Ok((name, n, mis)) => {
+                        this.push_log(format!(
+                            "Verify FAIL: {mis} of {n} bytes differ ({name})"
+                        ));
+                    }
+                    Err(err) => this.push_log(format!("Verify FAIL: {err}")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Run `ops::run_detect` synchronously on the UI thread and fold the
@@ -371,7 +534,16 @@ impl Render for AppView {
                             .min_h(px(0.0))
                             .min_w(px(0.0))
                             .overflow_hidden()
-                            .child(panes::render(self.selected, self.erase_armed, cx)),
+                            .child(panes::render(
+                                self.selected,
+                                panes::PaneInputs {
+                                    erase_armed: self.erase_armed,
+                                    write_armed: self.write_armed,
+                                    write_path: self.write_input_path.as_deref(),
+                                    verify_path: self.verify_input_path.as_deref(),
+                                },
+                                cx,
+                            )),
                     )
                     .child(log::render(&self.log_lines, &self.log_scroll)),
             )
