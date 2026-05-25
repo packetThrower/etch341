@@ -1,7 +1,8 @@
-use super::{theme, Connection};
+use super::{theme, Connection, SharedProgress};
 use gpui::{div, px, IntoElement, ParentElement, Styled};
+use std::sync::atomic::Ordering;
 
-pub fn render(conn: &Connection) -> impl IntoElement {
+pub fn render(conn: &Connection, progress: &SharedProgress) -> impl IntoElement {
     let (dot, label) = match conn {
         Connection::Disconnected => (theme::caution_red(), "no CH341A".to_string()),
         Connection::NoChip => (theme::warning_amber(), "CH341A · no chip".to_string()),
@@ -9,6 +10,26 @@ pub fn render(conn: &Connection) -> impl IntoElement {
             theme::success_green(),
             format!("CH341A · {chip_name} · {} KB", size_kb),
         ),
+    };
+
+    // Right-hand activity tag: "idle" when nothing's running, otherwise
+    // "<label> 27% (140 KB / 512 KB)" updated by the polling task.
+    let activity = if progress.active.load(Ordering::Relaxed) {
+        let current = progress.current.load(Ordering::Relaxed);
+        let total = progress.total.load(Ordering::Relaxed);
+        let label = progress.label.lock().unwrap().clone();
+        if total > 0 {
+            let pct = (current * 100) / total;
+            format!(
+                "{label} {pct}% ({} / {})",
+                fmt_bytes(current),
+                fmt_bytes(total)
+            )
+        } else {
+            format!("{label}…")
+        }
+    } else {
+        "idle".to_string()
     };
 
     div()
@@ -20,18 +41,18 @@ pub fn render(conn: &Connection) -> impl IntoElement {
         .py_3()
         .border_b_1()
         .border_color(theme::workshop_glass_strong())
-        .child(
-            div()
-                .w(px(8.0))
-                .h(px(8.0))
-                .rounded_full()
-                .bg(dot),
-        )
+        .child(div().w(px(8.0)).h(px(8.0)).rounded_full().bg(dot))
         .child(div().text_color(theme::text_primary()).child(label))
         .child(div().flex_1())
-        .child(
-            div()
-                .text_color(theme::text_tertiary())
-                .child("idle"),
-        )
+        .child(div().text_color(theme::text_tertiary()).child(activity))
+}
+
+fn fmt_bytes(n: u64) -> String {
+    if n >= 1 << 20 {
+        format!("{:.1} MB", n as f64 / (1u64 << 20) as f64)
+    } else if n >= 1 << 10 {
+        format!("{:.1} KB", n as f64 / (1u64 << 10) as f64)
+    } else {
+        format!("{n} B")
+    }
 }

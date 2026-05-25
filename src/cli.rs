@@ -104,6 +104,42 @@ fn parse_addr(s: &str) -> Result<u32, String> {
     }
 }
 
+/// CLI `ProgressSink` impl driving an `indicatif::ProgressBar`. Built
+/// fresh per op so the label tag (read / write / erase …) matches
+/// what's happening. Lives in cli.rs because the GUI uses its own
+/// implementation against a shared atomic counter — ops itself stays
+/// presentation-agnostic.
+struct IndicatifSink {
+    pb: indicatif::ProgressBar,
+}
+
+impl IndicatifSink {
+    fn new(label: &'static str) -> Self {
+        let pb = indicatif::ProgressBar::new(0);
+        pb.set_style(
+            indicatif::ProgressStyle::with_template(&format!(
+                "{{spinner}} {label}{{bar:40}} {{bytes}}/{{total_bytes}} ({{eta}})"
+            ))
+            .expect("static template")
+            .progress_chars("=> "),
+        );
+        Self { pb }
+    }
+}
+
+impl crate::ops::ProgressSink for IndicatifSink {
+    fn start(&mut self, total: u64) {
+        self.pb.set_length(total);
+        self.pb.set_position(0);
+    }
+    fn update(&mut self, current: u64) {
+        self.pb.set_position(current);
+    }
+    fn finish(&mut self) {
+        self.pb.finish_and_clear();
+    }
+}
+
 pub fn dispatch(
     global: GlobalOpts,
     cmd: Command,
@@ -119,7 +155,8 @@ pub fn dispatch(
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let chip_bytes = chip.size_kb.saturating_mul(1024);
             let len = args.length.unwrap_or(chip_bytes.saturating_sub(args.start));
-            ops::read(&mut ch, &chip, args.start, len, &args.output)?;
+            let mut sink = IndicatifSink::new("read   ");
+            ops::read(&mut ch, &chip, args.start, len, &args.output, &mut sink)?;
             Ok(())
         }
 
@@ -127,6 +164,7 @@ pub fn dispatch(
             let data = std::fs::read(&args.input)?;
             let mut ch = Ch341::open(global.verbose)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
+            let mut sink = IndicatifSink::new("write  ");
             ops::write(
                 &mut ch,
                 &chip,
@@ -134,6 +172,7 @@ pub fn dispatch(
                 args.start,
                 !args.no_erase,
                 !args.no_verify,
+                &mut sink,
             )?;
             Ok(())
         }
@@ -141,11 +180,12 @@ pub fn dispatch(
         Command::Erase(args) => {
             let mut ch = Ch341::open(global.verbose)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
+            let mut sink = IndicatifSink::new("erase  ");
             match args.range.as_deref() {
-                None => ops::erase_chip(&mut ch, &chip)?,
+                None => ops::erase_chip(&mut ch, &chip, &mut sink)?,
                 Some(s) => {
                     let (start, len) = parse_range(s)?;
-                    ops::erase_range(&mut ch, &chip, start, len)?;
+                    ops::erase_range(&mut ch, &chip, start, len, &mut sink)?;
                 }
             }
             Ok(())
@@ -155,7 +195,8 @@ pub fn dispatch(
             let data = std::fs::read(&args.input)?;
             let mut ch = Ch341::open(global.verbose)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
-            let mismatches = ops::verify(&mut ch, &chip, &data, args.start)?;
+            let mut sink = IndicatifSink::new("verify ");
+            let mismatches = ops::verify(&mut ch, &chip, &data, args.start, &mut sink)?;
             if mismatches > 0 {
                 return Err(format!("verify failed: {} byte(s) differ", mismatches).into());
             }
@@ -165,7 +206,8 @@ pub fn dispatch(
         Command::BlankCheck => {
             let mut ch = Ch341::open(global.verbose)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
-            ops::blank_check(&mut ch, &chip)?;
+            let mut sink = IndicatifSink::new("blank  ");
+            ops::blank_check(&mut ch, &chip, &mut sink)?;
             Ok(())
         }
     }

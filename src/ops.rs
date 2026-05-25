@@ -8,12 +8,35 @@ use crate::chipdb::{Chip, ChipDb};
 use crate::cli::GlobalOpts;
 use crate::error::{Error, Result};
 use crate::spi::{self, SpiTransport};
-use indicatif::{ProgressBar, ProgressStyle};
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
+
+/// Long-op progress channel. The CLI implementation drives an
+/// `indicatif::ProgressBar`; the GUI's implementation writes to an
+/// `Arc<AtomicU64>` pair the render thread polls. All methods have
+/// no-op defaults so an `impl ProgressSink for MyType {}` is enough.
+pub trait ProgressSink: Send {
+    /// Called once at the start of an operation with the total work
+    /// expected (bytes for read/write/verify/blank, sectors for erase).
+    fn start(&mut self, total: u64) {
+        let _ = total;
+    }
+    /// Called periodically as work progresses.
+    fn update(&mut self, current: u64) {
+        let _ = current;
+    }
+    /// Called once when work completes (success or failure path).
+    fn finish(&mut self) {}
+}
+
+/// Default sink that swallows all events. Useful for tests and for
+/// callers that don't care about progress.
+#[derive(Default)]
+pub struct NullSink;
+impl ProgressSink for NullSink {}
 
 const CHIP_ERASE_TIMEOUT: Duration = Duration::from_secs(300);
 const BLOCK_ERASE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -125,6 +148,7 @@ pub fn read(
     start: u32,
     len: u32,
     output: &Path,
+    progress: &mut dyn ProgressSink,
 ) -> Result<()> {
     let chip_size = chip.size_kb.saturating_mul(1024);
     if start.saturating_add(len) > chip_size {
@@ -132,7 +156,7 @@ pub fn read(
     }
     let mut out = File::create(output)?;
     let mut hasher = Sha256::new();
-    let pb = progress(len as u64, "read   ");
+    progress.start(len as u64);
 
     let mut addr = start;
     let end = start + len;
@@ -142,22 +166,27 @@ pub fn read(
         out.write_all(&data)?;
         hasher.update(&data);
         addr += n;
-        pb.set_position((addr - start) as u64);
+        progress.update((addr - start) as u64);
     }
-    pb.finish_and_clear();
+    progress.finish();
     println!("Read OK  : {} bytes → {}", len, output.display());
     println!("SHA-256  : {}", hex::encode(hasher.finalize()));
     Ok(())
 }
 
-pub fn erase_chip(spi: &mut dyn SpiTransport, chip: &Chip) -> Result<()> {
+pub fn erase_chip(
+    spi: &mut dyn SpiTransport,
+    chip: &Chip,
+    progress: &mut dyn ProgressSink,
+) -> Result<()> {
     println!("Erasing entire chip ({} KB)…", chip.size_kb);
+    // No granular progress for whole-chip erase — just start/finish
+    // bookends so observers (GUI header, indicatif spinner) know
+    // an operation is in flight.
+    progress.start(chip.size_kb.saturating_mul(1024) as u64);
     spi::chip_erase(spi)?;
-    let pb = ProgressBar::new_spinner();
-    pb.set_message("waiting for WIP to clear");
-    pb.enable_steady_tick(Duration::from_millis(200));
     spi::wait_until_ready(spi, CHIP_ERASE_TIMEOUT)?;
-    pb.finish_with_message("erased");
+    progress.finish();
     Ok(())
 }
 
@@ -166,6 +195,7 @@ pub fn erase_range(
     chip: &Chip,
     start: u32,
     len: u32,
+    progress: &mut dyn ProgressSink,
 ) -> Result<()> {
     let chip_size = chip.size_kb.saturating_mul(1024);
     if start.saturating_add(len) > chip_size {
@@ -178,7 +208,7 @@ pub fn erase_range(
     // Round end up to sector boundary so we always cover the requested range.
     let aligned_len = len.div_ceil(chip.sector_size) * chip.sector_size;
     let end = start + aligned_len;
-    let pb = progress(aligned_len as u64, "erase  ");
+    progress.start(aligned_len as u64);
 
     let mut addr = start;
     while addr < end {
@@ -192,9 +222,9 @@ pub fn erase_range(
             spi::wait_until_ready(spi, SECTOR_ERASE_TIMEOUT)?;
             addr += chip.sector_size;
         }
-        pb.set_position((addr - start) as u64);
+        progress.update((addr - start) as u64);
     }
-    pb.finish_and_clear();
+    progress.finish();
     println!("Erase OK : {} bytes (rounded from {})", aligned_len, len);
     Ok(())
 }
@@ -206,6 +236,7 @@ pub fn write(
     start: u32,
     erase: bool,
     verify_after: bool,
+    progress: &mut dyn ProgressSink,
 ) -> Result<()> {
     let chip_size = chip.size_kb.saturating_mul(1024);
     if start.saturating_add(data.len() as u32) > chip_size {
@@ -217,10 +248,10 @@ pub fn write(
     }
 
     if erase {
-        erase_range(spi, chip, start, data.len() as u32)?;
+        erase_range(spi, chip, start, data.len() as u32, progress)?;
     }
 
-    let pb = progress(data.len() as u64, "write  ");
+    progress.start(data.len() as u64);
     let page = chip.page_size;
     let mut written: usize = 0;
     while written < data.len() {
@@ -230,13 +261,13 @@ pub fn write(
         spi::page_program(spi, addr, &data[written..written + chunk_len], page)?;
         spi::wait_until_ready(spi, PAGE_PROGRAM_TIMEOUT)?;
         written += chunk_len;
-        pb.set_position(written as u64);
+        progress.update(written as u64);
     }
-    pb.finish_and_clear();
+    progress.finish();
     println!("Write OK : {} bytes at 0x{:08X}", data.len(), start);
 
     if verify_after {
-        let bad = verify(spi, chip, data, start)?;
+        let bad = verify(spi, chip, data, start, progress)?;
         if bad > 0 {
             return Err(Error::VerifyFailed { addr: 0, expected: 0, actual: 0 });
         }
@@ -252,6 +283,7 @@ pub fn verify(
     chip: &Chip,
     expected: &[u8],
     start: u32,
+    progress: &mut dyn ProgressSink,
 ) -> Result<usize> {
     let chip_size = chip.size_kb.saturating_mul(1024);
     if start.saturating_add(expected.len() as u32) > chip_size {
@@ -261,7 +293,7 @@ pub fn verify(
             chip_size,
         });
     }
-    let pb = progress(expected.len() as u64, "verify ");
+    progress.start(expected.len() as u64);
     let mut mismatches = 0usize;
     let mut first_bad: Option<(u32, u8, u8)> = None;
     let mut off: usize = 0;
@@ -276,9 +308,9 @@ pub fn verify(
             }
         }
         off += n;
-        pb.set_position(off as u64);
+        progress.update(off as u64);
     }
-    pb.finish_and_clear();
+    progress.finish();
 
     if mismatches == 0 {
         println!("Verify OK: {} bytes match", expected.len());
@@ -292,37 +324,29 @@ pub fn verify(
     Ok(mismatches)
 }
 
-pub fn blank_check(spi: &mut dyn SpiTransport, chip: &Chip) -> Result<()> {
+pub fn blank_check(
+    spi: &mut dyn SpiTransport,
+    chip: &Chip,
+    progress: &mut dyn ProgressSink,
+) -> Result<()> {
     let len = chip.size_kb.saturating_mul(1024);
-    let pb = progress(len as u64, "blank  ");
+    progress.start(len as u64);
     let mut addr = 0u32;
     while addr < len {
         let n = std::cmp::min(READ_CHUNK, len - addr);
         let data = spi::read_data(spi, addr, n as usize)?;
         for (i, &b) in data.iter().enumerate() {
             if b != 0xFF {
-                pb.finish_and_clear();
+                progress.finish();
                 return Err(Error::NotBlank { addr: addr + i as u32, value: b });
             }
         }
         addr += n;
-        pb.set_position(addr as u64);
+        progress.update(addr as u64);
     }
-    pb.finish_and_clear();
+    progress.finish();
     println!("Blank OK : all {} bytes are 0xFF", len);
     Ok(())
-}
-
-fn progress(total: u64, label: &'static str) -> ProgressBar {
-    let pb = ProgressBar::new(total);
-    pb.set_style(
-        ProgressStyle::with_template(&format!(
-            "{{spinner}} {label}{{bar:40}} {{bytes}}/{{total_bytes}} ({{eta}})"
-        ))
-        .expect("static template")
-        .progress_chars("=> "),
-    );
-    pb
 }
 
 #[cfg(test)]
@@ -360,7 +384,7 @@ mod tests {
         let mut mock = MockSpi::new([read_step(0, 16, body.clone())]);
         let chip = fake_chip(1);
         let tmp = std::env::temp_dir().join("etch341_read_test.bin");
-        read(&mut mock, &chip, 0, 16, &tmp).unwrap();
+        read(&mut mock, &chip, 0, 16, &tmp, &mut NullSink).unwrap();
         let got = std::fs::read(&tmp).unwrap();
         assert_eq!(got, body);
         mock.assert_drained();
@@ -371,7 +395,7 @@ mod tests {
     fn read_rejects_out_of_range() {
         let chip = fake_chip(1);
         let mut mock = MockSpi::new([]);
-        let r = read(&mut mock, &chip, 0, 2048, Path::new("/tmp/x.bin"));
+        let r = read(&mut mock, &chip, 0, 2048, Path::new("/tmp/x.bin"), &mut NullSink);
         assert!(matches!(r, Err(Error::AddressOutOfRange { .. })));
     }
 
@@ -382,7 +406,7 @@ mod tests {
             (vec![0xC7], vec![0x00]),
             wip_clear_step(),
         ]);
-        erase_chip(&mut mock, &fake_chip(1)).unwrap();
+        erase_chip(&mut mock, &fake_chip(1), &mut NullSink).unwrap();
         mock.assert_drained();
     }
 
@@ -394,7 +418,7 @@ mod tests {
             (vec![0xD8, 0x01, 0x00, 0x00], vec![0; 4]),
             wip_clear_step(),
         ]);
-        erase_range(&mut mock, &fake_chip(128), 0x10000, 0x10000).unwrap();
+        erase_range(&mut mock, &fake_chip(128), 0x10000, 0x10000, &mut NullSink).unwrap();
         mock.assert_drained();
     }
 
@@ -409,14 +433,14 @@ mod tests {
             (vec![0x20, 0x00, 0x10, 0x00], vec![0; 4]),
             wip_clear_step(),
         ]);
-        erase_range(&mut mock, &fake_chip(128), 0, 0x2000).unwrap();
+        erase_range(&mut mock, &fake_chip(128), 0, 0x2000, &mut NullSink).unwrap();
         mock.assert_drained();
     }
 
     #[test]
     fn erase_range_rejects_unaligned_start() {
         let mut mock = MockSpi::new([]);
-        let r = erase_range(&mut mock, &fake_chip(128), 0x100, 0x1000);
+        let r = erase_range(&mut mock, &fake_chip(128), 0x100, 0x1000, &mut NullSink);
         assert!(matches!(r, Err(Error::UnalignedErase { .. })));
     }
 
@@ -446,7 +470,7 @@ mod tests {
         steps.push(wip_clear_step());
 
         let mut mock = MockSpi::new(steps);
-        write(&mut mock, &fake_chip(128), &data, 0x80, false, false).unwrap();
+        write(&mut mock, &fake_chip(128), &data, 0x80, false, false, &mut NullSink).unwrap();
         mock.assert_drained();
     }
 
@@ -455,7 +479,7 @@ mod tests {
         let expected = vec![0xAA, 0xBB, 0xCC, 0xDD];
         let actual = vec![0xAA, 0x00, 0xCC, 0x00];
         let mut mock = MockSpi::new([read_step(0, 4, actual)]);
-        let count = verify(&mut mock, &fake_chip(1), &expected, 0).unwrap();
+        let count = verify(&mut mock, &fake_chip(1), &expected, 0, &mut NullSink).unwrap();
         assert_eq!(count, 2);
         mock.assert_drained();
     }
@@ -463,7 +487,7 @@ mod tests {
     #[test]
     fn blank_check_passes_on_all_ff() {
         let mut mock = MockSpi::new([read_step(0, 1024, vec![0xFF; 1024])]);
-        blank_check(&mut mock, &fake_chip(1)).unwrap();
+        blank_check(&mut mock, &fake_chip(1), &mut NullSink).unwrap();
         mock.assert_drained();
     }
 
@@ -472,7 +496,7 @@ mod tests {
         let mut body = vec![0xFF; 1024];
         body[10] = 0x42;
         let mut mock = MockSpi::new([read_step(0, 1024, body)]);
-        let r = blank_check(&mut mock, &fake_chip(1));
+        let r = blank_check(&mut mock, &fake_chip(1), &mut NullSink);
         assert!(matches!(r, Err(Error::NotBlank { addr: 10, value: 0x42 })));
     }
 }

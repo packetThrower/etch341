@@ -5,9 +5,12 @@ use gpui::{
     Styled, TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::{Root, TitleBar};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use crate::ch341::Ch341;
-use crate::ops::{self, Diagnosis};
+use crate::ops::{self, Diagnosis, ProgressSink};
 
 mod header;
 mod log;
@@ -67,6 +70,48 @@ pub struct LogLine {
     pub text: String,
 }
 
+/// Shared progress state between the background ops task and the
+/// foreground render. The ops task writes via `GuiSink::update`; a
+/// poller task on the foreground polls + calls `cx.notify()` every
+/// 100ms while `active` is true so the session header re-renders
+/// with the latest values.
+#[derive(Default)]
+pub struct SharedProgress {
+    pub current: AtomicU64,
+    pub total: AtomicU64,
+    pub label: Mutex<String>,
+    pub active: AtomicBool,
+}
+
+/// `ProgressSink` impl that writes into a `SharedProgress`. The
+/// label is set once at construction so we don't burn a Mutex lock
+/// in the hot path.
+pub struct GuiSink {
+    shared: Arc<SharedProgress>,
+    label: &'static str,
+}
+
+impl GuiSink {
+    fn new(shared: Arc<SharedProgress>, label: &'static str) -> Self {
+        Self { shared, label }
+    }
+}
+
+impl ProgressSink for GuiSink {
+    fn start(&mut self, total: u64) {
+        *self.shared.label.lock().unwrap() = self.label.to_string();
+        self.shared.total.store(total, Ordering::Relaxed);
+        self.shared.current.store(0, Ordering::Relaxed);
+        self.shared.active.store(true, Ordering::Relaxed);
+    }
+    fn update(&mut self, current: u64) {
+        self.shared.current.store(current, Ordering::Relaxed);
+    }
+    fn finish(&mut self) {
+        self.shared.active.store(false, Ordering::Relaxed);
+    }
+}
+
 pub struct AppView {
     pub selected: Pane,
     pub connection: Connection,
@@ -87,6 +132,9 @@ pub struct AppView {
     pub write_input_path: Option<std::path::PathBuf>,
     /// File selected via the Verify pane's Browse button.
     pub verify_input_path: Option<std::path::PathBuf>,
+    /// Shared with the background ops task; rendered in the session
+    /// header by `header::render`.
+    pub progress: Arc<SharedProgress>,
 }
 
 impl AppView {
@@ -103,7 +151,31 @@ impl AppView {
             write_armed: false,
             write_input_path: None,
             verify_input_path: None,
+            progress: Arc::new(SharedProgress::default()),
         }
+    }
+
+    /// Spawn a foreground task that calls `cx.notify()` every 100ms
+    /// for as long as `progress.active` is true. Each `start_*` op
+    /// kicks off a poller; the loop exits one tick after the work
+    /// completes (so the final 100% state lands before going away).
+    fn spawn_progress_poller(&self, cx: &mut Context<Self>) {
+        let progress = self.progress.clone();
+        cx.spawn(async move |weak, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(100))
+                    .await;
+                let still_active = progress.active.load(Ordering::Relaxed);
+                if weak.update(cx, |_, cx| cx.notify()).is_err() {
+                    break; // view has gone away
+                }
+                if !still_active {
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 
     /// Open the OS file picker to choose a binary to write to the chip.
@@ -162,11 +234,14 @@ impl AppView {
         };
         self.push_log(format!("→ write {} (erase + program + verify)", path.display()));
         cx.notify();
+        self.spawn_progress_poller(cx);
 
+        let progress = self.progress.clone();
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
+                    let mut sink = GuiSink::new(progress, "write");
                     let data = std::fs::read(&path).map_err(|e| format!("read input: {e}"))?;
                     let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
                     let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
@@ -185,7 +260,7 @@ impl AppView {
                             return Err("MISO floats high (no chip / HOLD# grounded)".into());
                         }
                     };
-                    ops::write(&mut ch, &chip, &data, 0, true, true)
+                    ops::write(&mut ch, &chip, &data, 0, true, true, &mut sink)
                         .map_err(|e| format!("write: {e}"))?;
                     Ok::<_, String>((chip.name, data.len()))
                 })
@@ -214,11 +289,14 @@ impl AppView {
         };
         self.push_log(format!("→ verify against {}", path.display()));
         cx.notify();
+        self.spawn_progress_poller(cx);
 
+        let progress = self.progress.clone();
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
+                    let mut sink = GuiSink::new(progress, "verify");
                     let data = std::fs::read(&path).map_err(|e| format!("read input: {e}"))?;
                     let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
                     let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
@@ -233,7 +311,7 @@ impl AppView {
                         Diagnosis::MisoStuckLow => return Err("MISO stuck low".into()),
                         Diagnosis::MisoFloatsHigh => return Err("MISO floats high".into()),
                     };
-                    let mismatches = ops::verify(&mut ch, &chip, &data, 0)
+                    let mismatches = ops::verify(&mut ch, &chip, &data, 0, &mut sink)
                         .map_err(|e| format!("verify: {e}"))?;
                     Ok::<_, String>((chip.name, data.len(), mismatches))
                 })
@@ -327,12 +405,15 @@ impl AppView {
         let path = read_output_path();
         self.push_log(format!("→ read → {}", path.display()));
         cx.notify();
+        self.spawn_progress_poller(cx);
 
         let path_for_task = path.clone();
+        let progress = self.progress.clone();
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
+                    let mut sink = GuiSink::new(progress, "read");
                     let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
                     let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
                     let chip = match detect.diagnosis {
@@ -351,7 +432,7 @@ impl AppView {
                         }
                     };
                     let size = chip.size_kb.saturating_mul(1024);
-                    ops::read(&mut ch, &chip, 0, size, &path_for_task)
+                    ops::read(&mut ch, &chip, 0, size, &path_for_task, &mut sink)
                         .map_err(|e| format!("read: {e}"))?;
                     Ok::<_, String>((chip.name, size))
                 })
@@ -397,11 +478,14 @@ impl AppView {
     fn start_erase(&mut self, cx: &mut Context<Self>) {
         self.push_log("→ erase chip starting (may take 30s–minutes)".into());
         cx.notify();
+        self.spawn_progress_poller(cx);
 
+        let progress = self.progress.clone();
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
+                    let mut sink = GuiSink::new(progress, "erase");
                     let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
                     let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
                     let chip = match detect.diagnosis {
@@ -419,7 +503,8 @@ impl AppView {
                             return Err("MISO floats high (no chip / HOLD# grounded)".into());
                         }
                     };
-                    ops::erase_chip(&mut ch, &chip).map_err(|e| format!("erase: {e}"))?;
+                    ops::erase_chip(&mut ch, &chip, &mut sink)
+                        .map_err(|e| format!("erase: {e}"))?;
                     Ok::<_, String>(chip.name)
                 })
                 .await;
@@ -447,11 +532,14 @@ impl AppView {
     pub fn start_blank_check(&mut self, cx: &mut Context<Self>) {
         self.push_log("→ blank check".into());
         cx.notify();
+        self.spawn_progress_poller(cx);
 
+        let progress = self.progress.clone();
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
+                    let mut sink = GuiSink::new(progress, "blank");
                     let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
                     let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
                     let chip = match detect.diagnosis {
@@ -470,7 +558,7 @@ impl AppView {
                         }
                     };
                     let size = chip.size_kb.saturating_mul(1024);
-                    ops::blank_check(&mut ch, &chip).map_err(|e| format!("{e}"))?;
+                    ops::blank_check(&mut ch, &chip, &mut sink).map_err(|e| format!("{e}"))?;
                     Ok::<_, String>((chip.name, size))
                 })
                 .await;
@@ -527,7 +615,7 @@ impl Render for AppView {
                     .min_w(px(0.0))
                     .flex()
                     .flex_col()
-                    .child(header::render(&self.connection))
+                    .child(header::render(&self.connection, &self.progress))
                     .child(
                         div()
                             .flex_1()
