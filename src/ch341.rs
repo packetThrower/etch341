@@ -184,33 +184,34 @@ impl Drop for Ch341 {
 // I²C transport
 // ---------------------------------------------------------------
 //
-// CH341A I²C-stream model: one USB OUT packet builds an entire I²C
-// transaction from `STA`, `OUT|N` (followed by N data bytes), `IN|N`,
-// and `STO` substream commands; one USB IN packet returns the
-// captured data + ACK status.
+// CH341A I²C-stream model: a single USB OUT packet builds an entire
+// I²C transaction from substream commands — `STA` (start), `OUT|N`
+// (write N data bytes), `IN|N` (read N data bytes), `STO` (stop).
 //
-// **Hardware-validation notes** (work from documented references —
-// re-verify against silicon when test EEPROMs arrive):
-//   - The IN packet returns one status byte per OUT byte plus the
-//     `IN|N` payload. We currently *only* parse the IN payload bytes
-//     and ignore the ACK status; NACKs surface via probe (a zero-byte
-//     write that fails to return anything reasonable) or via
-//     downstream read mismatches. Once silicon confirms the ACK-bit
-//     polarity we should reject I²C writes that NACK mid-stream.
-//   - 7-bit slave addresses are shifted left by 1 on the wire to make
-//     room for the R/W bit (W = 0, R = 1).
-//   - Per single CH341 USB packet (32 B), the maximum I²C data
-//     payload is bounded by the substream envelope; see the i2c.rs
-//     `MAX_WRITE_DATA_PER_TXN` / `MAX_READ_CHUNK` constants.
+// **Important observed behaviour:** the CH341 does NOT return any
+// IN-endpoint data for `OUT` substreams — no per-byte ACK status, no
+// per-OUT-byte echo. The IN endpoint produces bytes only when an
+// `IN|N` substream actually reads N bytes off the bus. Early drafts
+// of this code assumed the CH341 echoed ACK status; that caused
+// every probe to time out (silicon evidence: verbose-mode scan
+// showed OUTs going out, zero IN replies).
+//
+//   - 7-bit slave addresses are shifted left by 1 on the wire to
+//     make room for the R/W bit (W = 0, R = 1).
+//   - Probe detects presence by reading 1 byte after addressing the
+//     slave for *read*: if SDA is pulled high (no slave), we get
+//     0xFF; if a slave drives it, we get whatever it sends. False
+//     positives are possible for a slave whose current pointer
+//     happens to return 0xFF, but for an EEPROM bus scan this is
+//     close enough — and dramatically better than nothing.
 
 impl Ch341 {
     /// Build the I²C transaction stream for `i2c_transfer`. Pure-write
     /// (rx_len == 0) skips the restart-read half; pure-read (tx empty,
     /// rx_len > 0) skips the write half. Returns the bytes ready to
-    /// send to the CH341 OUT endpoint plus the number of payload bytes
-    /// to read back from IN (just `rx_len` data bytes — ACK statuses
-    /// are returned interleaved before the data and are intentionally
-    /// discarded for now).
+    /// send to the CH341 OUT endpoint plus the number of bytes to
+    /// expect from IN (just `rx_len` — `OUT` substreams don't produce
+    /// IN traffic).
     fn build_i2c_stream(slave_7bit: u8, tx: &[u8], rx_len: usize) -> (Vec<u8>, usize) {
         let mut out = Vec::with_capacity(8 + tx.len());
         out.push(CMD_I2C_STREAM);
@@ -231,15 +232,7 @@ impl Ch341 {
         out.push(I2C_STM_STO);
         out.push(I2C_STM_END);
 
-        // Total IN-endpoint bytes the CH341 will return for this
-        // stream: one ACK byte per OUT byte (slave + tx) plus rx_len
-        // for the IN substream. We skip the ACK bytes during parsing.
-        let ack_bytes = if !tx.is_empty() || rx_len == 0 {
-            1 + tx.len()
-        } else {
-            0
-        } + if rx_len > 0 { 1 } else { 0 };
-        (out, ack_bytes + rx_len)
+        (out, rx_len)
     }
 }
 
@@ -252,38 +245,29 @@ impl I2cTransport for Ch341 {
         }
         let mut buf = vec![0u8; in_total];
         self.bulk_in(&mut buf)?;
-        // Strip the leading ACK bytes; keep only the read payload.
-        let data_start = in_total - rx_len;
-        Ok(buf[data_start..].to_vec())
+        Ok(buf)
     }
 
     fn i2c_probe(&mut self, slave_7bit: u8) -> Result<bool> {
-        // Minimal "is anyone home" stream: START, slave|W, STOP. The
-        // CH341 sends back one ACK byte for the slave-address write.
-        // We can't reliably read the ACK polarity without silicon
-        // testing, so we treat a successful USB exchange as "ACKed"
-        // and rely on downstream behaviour (read errors, blank-check
-        // mismatches) to expose silent misses. Hardware bring-up
-        // should refine this to look at the response byte's high bit.
+        // Address the slave for *read* and grab 1 byte. With no
+        // device present, SDA stays pulled-up between bits and we
+        // get 0xFF back; with a device present we typically get
+        // either real data or 0x00. The 0xFF heuristic is the same
+        // one most CH341 userspace tools (ch341eeprom, etc.) use
+        // because the CH341 doesn't expose NACK detection directly.
         let buf = [
             CMD_I2C_STREAM,
             I2C_STM_STA,
             I2C_STM_OUT | 1,
-            slave_7bit << 1,
+            (slave_7bit << 1) | 0x01,
+            I2C_STM_IN | 1,
             I2C_STM_STO,
             I2C_STM_END,
         ];
         self.bulk_out(&buf)?;
         let mut resp = [0u8; 1];
         match self.bulk_in(&mut resp) {
-            Ok(()) => {
-                // Polarity TBD — for now, assume "high bit clear ==
-                // ACK" (which matches the most common reading of the
-                // CH341 docs). The probe will return some false-true
-                // / false-false results until validated, but bus-scan
-                // is still useful as a "who's even here" signal.
-                Ok(resp[0] & 0x80 == 0)
-            }
+            Ok(()) => Ok(resp[0] != 0xFF),
             Err(_) => Ok(false),
         }
     }
