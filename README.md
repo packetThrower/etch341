@@ -1,0 +1,179 @@
+# etch341
+
+Cross-platform CLI + GUI flash programmer for the **CH341A** USB SPI/I²C
+interface. No kernel drivers required.
+
+## Status
+
+Early. The CLI is feature-complete for SPI NOR work up to 16 MB; the GUI is
+a working scaffold (window, navigation, Detect action) but the per-op forms
+(Read/Erase/Write/Verify/Blank) are not yet wired.
+
+| Feature | CLI | GUI |
+| --- | --- | --- |
+| Detect (JEDEC ID → chip lookup) | ✅ | ✅ |
+| Read | ✅ | placeholder |
+| Erase (full + range) | ✅ | placeholder |
+| Write (with erase + verify) | ✅ | placeholder |
+| Verify | ✅ | placeholder |
+| Blank check | ✅ | placeholder |
+| Settings (clock speed, etc.) | ⚠ flag only, no-op | placeholder |
+| 4-byte addressing (>16 MB chips) | ❌ | ❌ |
+
+22 unit tests covering the SPI protocol and high-level ops, all running
+against a mock `SpiTransport`. Hardware-touching tests are gated behind
+`--features hardware`.
+
+## Install
+
+### Prerequisites
+
+- Rust 1.85+ (uses 2024 edition)
+- libusb 1.0
+- A CH341A USB programmer (the common "black module" or the "V1.3 mini" with
+  on-board ZIF socket both work)
+
+### macOS
+
+```sh
+brew install libusb
+cargo install --path .
+```
+
+No driver setup needed — macOS leaves the CH341A's vendor interface alone.
+
+### Linux
+
+```sh
+sudo apt install libusb-1.0-0-dev   # or your distro's equivalent
+sudo cp platform/udev/99-ch341a.rules /etc/udev/rules.d/
+sudo udevadm control --reload
+cargo install --path .
+```
+
+The udev rule lets unprivileged users open the device. Without it you'll
+hit `PermissionDenied`.
+
+### Windows
+
+1. Run [Zadig](https://zadig.akeo.ie/) and bind **WinUSB** to the CH341A
+   device (VID 0x1A86 / PID 0x5512).
+2. `cargo install --path .`
+
+## Usage
+
+### CLI
+
+```sh
+etch341 detect                       # identify the chip
+etch341 read -o bios.bin             # dump entire chip to file
+etch341 read -o head.bin --length 0x1000   # first 4 KB only
+etch341 write -i bios.bin            # erase + program + verify
+etch341 write -i bios.bin --no-erase --no-verify   # raw program
+etch341 erase                        # full chip erase
+etch341 erase --range 0x10000:0x10000   # erase one 64 KB block
+etch341 verify -i bios.bin           # compare without writing
+etch341 blank-check                  # confirm all 0xFF
+```
+
+Global flags:
+
+- `-v, --verbose` — log raw SPI transactions to stderr (invaluable for
+  debugging in-circuit issues)
+- `-c, --chip <NAME>` — override JEDEC autodetect (use the `name` from
+  `chips/chips.toml`, e.g. `W25Q128JV`)
+- `-s, --speed <KHZ>` — SPI clock speed; **currently a no-op flag**, the
+  CH341A uses its default ~750 kHz
+- `-n, --dry-run` — parse and validate without touching the hardware
+
+### GUI
+
+```sh
+etch341      # no subcommand → opens the GUI window
+```
+
+Build the CLI-only variant (no GPUI fetch, much smaller binary, faster
+build) with:
+
+```sh
+cargo build --release --no-default-features
+```
+
+## Hardware notes
+
+### In-circuit programming on enterprise hardware
+
+In-circuit attempts on **server-class boards, dual-BIOS systems, and
+firewalls** frequently fail. The host's SPI controller actively drives MISO
+low even when the board is "powered off" — `etch341 detect` returns
+`JEDEC ID : 0x000000` and the verbose log shows clean command bytes going
+out but nothing meaningful coming back.
+
+Diagnose with the loopback test:
+
+```sh
+etch341 detect -v       # with clip OFF the chip; nothing else changed
+```
+
+- `<- IN [4]: ffffffff` → CH341A is healthy; the target board is fighting us
+- `<- IN [4]: 00000000` → CH341A or wiring problem, not the target
+
+Remedies, in order of effort:
+
+1. Use a loose chip in the CH341A's on-board ZIF socket
+2. Lift pin 8 (VCC) of the in-circuit chip and inject 3.3V externally
+3. Hot-air the chip off and use the ZIF
+
+### Voltage
+
+The black-module CH341A has a 3.3V/5V jumper near the USB end. **3.3V is
+correct for every chip currently in `chips/chips.toml`** (W25Q, MX25L,
+GD25Q, AT25SF). 5V will damage 3.3V-only parts.
+
+### Pin 1
+
+The SOIC-8 clip's red wire = pin 1. The chip's pin 1 is marked with a dot
+or notch on the package. About half of first-attempt failures are
+clip-reversed.
+
+## Architecture
+
+```
+src/
+├── main.rs       entry point; no-args → GUI, subcommand → CLI
+├── cli.rs        clap derive definitions + dispatch
+├── error.rs      thiserror enum
+├── ch341.rs      USB layer (CS control, bit reversal, bulk transfers)
+├── spi.rs        SPI NOR opcodes + SpiTransport trait + helpers
+├── ops.rs        high-level read / erase / write / verify / blank / detect
+├── chipdb.rs     TOML chip DB loader (embedded into the binary at build)
+└── gui/          GPUI frontend; behind the `gui` cargo feature (default-on)
+
+chips/chips.toml  23 entries across W25Q, MX25L, GD25Q, SST25VF, AT25SF
+```
+
+The `SpiTransport` trait abstracts the USB layer so the high-level ops can
+be unit-tested against a deterministic mock (`src/spi.rs::test_support::MockSpi`).
+The `Ch341` struct is the production implementation.
+
+## Development
+
+```sh
+just build        # full build (CLI + GUI; first time pulls Zed for GPUI)
+just build-cli    # CLI only, much faster
+just test         # unit tests, no hardware
+just run -- detect -v
+```
+
+Or use Cargo directly:
+
+```sh
+cargo build --no-default-features    # CLI only
+cargo test  --no-default-features
+cargo run                            # GUI
+cargo run   --no-default-features -- detect -v
+```
+
+## License
+
+MIT OR Apache-2.0

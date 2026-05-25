@@ -1,0 +1,230 @@
+# Chip database. Loaded at runtime by `chipdb.rs`.
+#
+# `jedec_id` is the 3-byte response to opcode 0x9F: manufacturer
+# byte + 2-byte device ID, formatted as 6 uppercase hex chars
+# with no separator (e.g. "EF4018").
+#
+# `erase_time_ms` is the *typical 4K sector erase* time from the
+# datasheet, used for progress estimation during range erases.
+# Full chip erase is orders of magnitude longer and is polled
+# against SR1.WIP rather than estimated.
+#
+# Values here are best-effort from public datasheets — verify
+# against the part you're actually programming.
+
+# --- Winbond W25Q (manufacturer 0xEF) -----------------------------
+
+[[chip]]
+name = "W25Q80DV"
+jedec_id = "EF4014"
+size_kb = 1024
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 8 Mbit"
+
+[[chip]]
+name = "W25Q16JV"
+jedec_id = "EF4015"
+size_kb = 2048
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 16 Mbit"
+
+[[chip]]
+name = "W25Q32JV"
+jedec_id = "EF4016"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 32 Mbit"
+
+[[chip]]
+name = "W25Q64JV"
+jedec_id = "EF4017"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 64 Mbit — common BIOS flash"
+
+[[chip]]
+name = "W25Q128JV"
+jedec_id = "EF4018"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 128 Mbit — common BIOS flash"
+
+[[chip]]
+name = "W25Q256JV"
+jedec_id = "EF4019"
+size_kb = 32768
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 256 Mbit (4-byte addressing required >16 MB)"
+
+# --- Macronix MX25L (manufacturer 0xC2) ---------------------------
+
+[[chip]]
+name = "MX25L8005"
+jedec_id = "C22014"
+size_kb = 1024
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "Macronix 8 Mbit"
+
+[[chip]]
+name = "MX25L1606E"
+jedec_id = "C22015"
+size_kb = 2048
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "Macronix 16 Mbit"
+
+[[chip]]
+name = "MX25L3206E"
+jedec_id = "C22016"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "Macronix 32 Mbit"
+
+[[chip]]
+name = "MX25L6406E"
+jedec_id = "C22017"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "Macronix 64 Mbit"
+
+[[chip]]
+name = "MX25L12835F"
+jedec_id = "C22018"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "Macronix 128 Mbit"
+
+[[chip]]
+name = "MX25L25635F"
+jedec_id = "C22019"
+size_kb = 32768
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "Macronix 256 Mbit (4-byte addressing required >16 MB)"
+
+# --- GigaDevice GD25Q (manufacturer 0xC8) -------------------------
+
+[[chip]]
+name = "GD25Q80"
+jedec_id = "C84014"
+size_kb = 1024
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "GigaDevice 8 Mbit"
+
+[[chip]]
+name = "GD25Q16"
+jedec_id = "C84015"
+size_kb = 2048
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "GigaDevice 16 Mbit"
+
+[[chip]]
+name = "GD25Q32"
+jedec_id = "C84016"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "GigaDevice 32 Mbit"
+
+[[chip]]
+name = "GD25Q64"
+jedec_id = "C84017"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "GigaDevice 64 Mbit"
+
+[[chip]]
+name = "GD25Q128"
+jedec_id = "C84018"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "GigaDevice 128 Mbit"
+
+# --- SST25VF (manufacturer 0xBF) ----------------------------------
+
+[[chip]]
+name = "SST25VF016B"
+jedec_id = "BF2541"
+size_kb = 2048
+page_size = 256
+sector_size = 4096
+erase_time_ms = 25
+notes = "SST 16 Mbit (AAI word-program supported)"
+
+[[chip]]
+name = "SST25VF032B"
+jedec_id = "BF254A"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 25
+notes = "SST 32 Mbit"
+
+[[chip]]
+name = "SST25VF064C"
+jedec_id = "BF254B"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 25
+notes = "SST 64 Mbit"
+
+# --- Adesto / Atmel AT25SF (manufacturer 0x1F) --------------------
+
+[[chip]]
+name = "AT25SF041"
+jedec_id = "1F8401"
+size_kb = 512
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Adesto 4 Mbit"
+
+[[chip]]
+name = "AT25SF081"
+jedec_id = "1F8501"
+size_kb = 1024
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Adesto 8 Mbit"
+
+[[chip]]
+name = "AT25SF161"
+jedec_id = "1F8601"
+size_kb = 2048
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Adesto 16 Mbit"

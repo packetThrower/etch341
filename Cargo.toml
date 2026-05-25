@@ -1,0 +1,64 @@
+[package]
+name = "etch341"
+version = "0.1.0"
+edition = "2024"
+description = "Cross-platform CLI/GUI flash programmer for the CH341A USB SPI/I²C interface."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+authors = ["packetThrower"]
+
+[[bin]]
+name = "etch341"
+path = "src/main.rs"
+
+[features]
+default = ["gui"]
+gui = [
+    "dep:gpui",
+    "dep:gpui_platform",
+    "dep:gpui-component",
+    "dep:gpui-component-assets",
+]
+# Gates hardware-touching integration tests so CI without a CH341A
+# attached still passes. Tag tests with `#[cfg(feature = "hardware")]`.
+hardware = []
+
+[dependencies]
+rusb = "0.9"
+clap = { version = "4", features = ["derive"] }
+thiserror = "1"
+indicatif = "0.17"
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+hex = "0.4"
+sha2 = "0.10"
+
+# GUI stack — feature-gated. Pinning convention mirrors Baudrun:
+#
+# `gpui` and `gpui_platform` deliberately have NO rev. gpui-component's
+# git tip pins gpui with no rev either; Cargo only unifies two git deps
+# of the same crate when their specs match. A rev pin here would
+# duplicate the Zed crate graph in the build. Reproducibility comes
+# from Cargo.lock — bump with `cargo update -p gpui` deliberately.
+gpui = { git = "https://github.com/zed-industries/zed", optional = true }
+
+# Per-platform backend. Linux `wayland` and `x11` features are NOT
+# default — without them, `gpui::guess_compositor()` returns "Wayland"
+# inside a Wayland session but the matching arm is cfg'd out, hitting
+# `unreachable!()` before the first window paints. (Same pitfall as
+# Baudrun.) Harmless on macOS / Windows.
+gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "wayland", "x11"], optional = true }
+
+# Widget library. Pinned to a git rev because crates.io 0.5.x targets a
+# crates.io gpui that conflicts with our Zed-git pin. The git tip pins
+# gpui to the Zed monorepo with no rev, so Cargo unifies it against ours.
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "2d2524d89efc47270e9a0ee18f10fa72cd573eff", optional = true }
+
+# Lucide icon SVGs. Without `.with_assets(Assets)` at startup, every
+# `IconName::*` referenced by a gpui-component widget renders as an
+# empty rect. Pin to the same rev so the icon set tracks the `IconName`
+# enum in gpui-component.
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "2d2524d89efc47270e9a0ee18f10fa72cd573eff", optional = true }
+
+[dev-dependencies]
+mockall = "0.12"

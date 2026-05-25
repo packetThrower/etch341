@@ -1,0 +1,478 @@
+//! High-level operations: detect / read / erase / write / verify / blank_check.
+//!
+//! Each op takes a `&mut dyn SpiTransport` so it can be unit-tested
+//! against a mock. Only `detect` opens the real hardware itself.
+
+use crate::ch341::Ch341;
+use crate::chipdb::{Chip, ChipDb};
+use crate::cli::GlobalOpts;
+use crate::error::{Error, Result};
+use crate::spi::{self, SpiTransport};
+use indicatif::{ProgressBar, ProgressStyle};
+use sha2::{Digest, Sha256};
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
+use std::time::Duration;
+
+const CHIP_ERASE_TIMEOUT: Duration = Duration::from_secs(300);
+const BLOCK_ERASE_TIMEOUT: Duration = Duration::from_secs(10);
+const SECTOR_ERASE_TIMEOUT: Duration = Duration::from_secs(2);
+const PAGE_PROGRAM_TIMEOUT: Duration = Duration::from_secs(1);
+
+const READ_CHUNK: u32 = 4096;
+
+/// Structured detect result. CLI formats it for stdout; GUI uses the
+/// fields to drive its connection state and activity log.
+#[derive(Debug, Clone)]
+pub struct DetectResult {
+    pub jedec_id: [u8; 3],
+    pub diagnosis: Diagnosis,
+}
+
+#[derive(Debug, Clone)]
+pub enum Diagnosis {
+    MisoStuckLow,
+    MisoFloatsHigh,
+    Known(Chip),
+    UnknownChip,
+}
+
+impl DetectResult {
+    pub fn jedec_string(&self) -> String {
+        format!(
+            "{:02X}{:02X}{:02X}",
+            self.jedec_id[0], self.jedec_id[1], self.jedec_id[2]
+        )
+    }
+}
+
+/// JEDEC read + DB lookup, no printing. Caller (CLI or GUI) decides how
+/// to surface the result.
+pub fn run_detect(spi: &mut dyn SpiTransport) -> Result<DetectResult> {
+    let id = spi::jedec_read(spi)?;
+    let diagnosis = match id {
+        [0x00, 0x00, 0x00] => Diagnosis::MisoStuckLow,
+        [0xFF, 0xFF, 0xFF] => Diagnosis::MisoFloatsHigh,
+        _ => {
+            let jedec = format!("{:02X}{:02X}{:02X}", id[0], id[1], id[2]);
+            match ChipDb::load_embedded().find_by_jedec(&jedec) {
+                Some(c) => Diagnosis::Known(c.clone()),
+                None => Diagnosis::UnknownChip,
+            }
+        }
+    };
+    Ok(DetectResult { jedec_id: id, diagnosis })
+}
+
+pub fn detect(global: &GlobalOpts) -> Result<()> {
+    let mut ch = Ch341::open(global.verbose)?;
+    let result = run_detect(&mut ch)?;
+    println!("JEDEC ID : 0x{}", result.jedec_string());
+    match &result.diagnosis {
+        Diagnosis::MisoStuckLow => {
+            println!("Chip     : MISO stuck low — target board likely fighting us.");
+            println!("           Lift pin 8 (VCC) or remove the chip from the board.");
+        }
+        Diagnosis::MisoFloatsHigh => {
+            println!("Chip     : MISO floats high — no chip detected.");
+            println!("           Check clip orientation, VCC jumper (3.3V), and chip power.");
+        }
+        Diagnosis::Known(c) => {
+            println!("Chip     : {}", c.name);
+            println!(
+                "Size     : {} KB ({} pages of {} B, {} sectors of {} B)",
+                c.size_kb,
+                (c.size_kb as u64 * 1024) / c.page_size as u64,
+                c.page_size,
+                (c.size_kb as u64 * 1024) / c.sector_size as u64,
+                c.sector_size,
+            );
+            if !c.notes.is_empty() {
+                println!("Notes    : {}", c.notes);
+            }
+        }
+        Diagnosis::UnknownChip => {
+            println!(
+                "Chip     : unknown (JEDEC 0x{} not in chips.toml)",
+                result.jedec_string()
+            );
+            println!("           Add an entry to chips/chips.toml or pass --chip <NAME>.");
+        }
+    }
+    Ok(())
+}
+
+/// Pick a chip via `--chip <NAME>` if given, else by reading JEDEC ID.
+pub fn resolve_chip(spi: &mut dyn SpiTransport, global: &GlobalOpts) -> Result<Chip> {
+    let db = ChipDb::load_embedded();
+    if let Some(name) = &global.chip {
+        return db
+            .find_by_name(name)
+            .cloned()
+            .ok_or_else(|| Error::ChipNotRecognized(name.clone()));
+    }
+    let id = spi::jedec_read(spi)?;
+    let jedec = format!("{:02X}{:02X}{:02X}", id[0], id[1], id[2]);
+    db.find_by_jedec(&jedec)
+        .cloned()
+        .ok_or(Error::ChipNotRecognized(jedec))
+}
+
+pub fn read(
+    spi: &mut dyn SpiTransport,
+    chip: &Chip,
+    start: u32,
+    len: u32,
+    output: &Path,
+) -> Result<()> {
+    let chip_size = chip.size_kb.saturating_mul(1024);
+    if start.saturating_add(len) > chip_size {
+        return Err(Error::AddressOutOfRange { addr: start, len, chip_size });
+    }
+    let mut out = File::create(output)?;
+    let mut hasher = Sha256::new();
+    let pb = progress(len as u64, "read   ");
+
+    let mut addr = start;
+    let end = start + len;
+    while addr < end {
+        let n = std::cmp::min(READ_CHUNK, end - addr);
+        let data = spi::read_data(spi, addr, n as usize)?;
+        out.write_all(&data)?;
+        hasher.update(&data);
+        addr += n;
+        pb.set_position((addr - start) as u64);
+    }
+    pb.finish_and_clear();
+    println!("Read OK  : {} bytes → {}", len, output.display());
+    println!("SHA-256  : {}", hex::encode(hasher.finalize()));
+    Ok(())
+}
+
+pub fn erase_chip(spi: &mut dyn SpiTransport, chip: &Chip) -> Result<()> {
+    println!("Erasing entire chip ({} KB)…", chip.size_kb);
+    spi::chip_erase(spi)?;
+    let pb = ProgressBar::new_spinner();
+    pb.set_message("waiting for WIP to clear");
+    pb.enable_steady_tick(Duration::from_millis(200));
+    spi::wait_until_ready(spi, CHIP_ERASE_TIMEOUT)?;
+    pb.finish_with_message("erased");
+    Ok(())
+}
+
+pub fn erase_range(
+    spi: &mut dyn SpiTransport,
+    chip: &Chip,
+    start: u32,
+    len: u32,
+) -> Result<()> {
+    let chip_size = chip.size_kb.saturating_mul(1024);
+    if start.saturating_add(len) > chip_size {
+        return Err(Error::AddressOutOfRange { addr: start, len, chip_size });
+    }
+    if start % chip.sector_size != 0 {
+        return Err(Error::UnalignedErase { addr: start, sector_size: chip.sector_size });
+    }
+
+    // Round end up to sector boundary so we always cover the requested range.
+    let aligned_len = len.div_ceil(chip.sector_size) * chip.sector_size;
+    let end = start + aligned_len;
+    let pb = progress(aligned_len as u64, "erase  ");
+
+    let mut addr = start;
+    while addr < end {
+        // Prefer 64K block when both endpoints land on a 64K boundary.
+        if addr % 0x10000 == 0 && (end - addr) >= 0x10000 {
+            spi::block_erase_64k(spi, addr)?;
+            spi::wait_until_ready(spi, BLOCK_ERASE_TIMEOUT)?;
+            addr += 0x10000;
+        } else {
+            spi::sector_erase_4k(spi, addr)?;
+            spi::wait_until_ready(spi, SECTOR_ERASE_TIMEOUT)?;
+            addr += chip.sector_size;
+        }
+        pb.set_position((addr - start) as u64);
+    }
+    pb.finish_and_clear();
+    println!("Erase OK : {} bytes (rounded from {})", aligned_len, len);
+    Ok(())
+}
+
+pub fn write(
+    spi: &mut dyn SpiTransport,
+    chip: &Chip,
+    data: &[u8],
+    start: u32,
+    erase: bool,
+    verify_after: bool,
+) -> Result<()> {
+    let chip_size = chip.size_kb.saturating_mul(1024);
+    if start.saturating_add(data.len() as u32) > chip_size {
+        return Err(Error::AddressOutOfRange {
+            addr: start,
+            len: data.len() as u32,
+            chip_size,
+        });
+    }
+
+    if erase {
+        erase_range(spi, chip, start, data.len() as u32)?;
+    }
+
+    let pb = progress(data.len() as u64, "write  ");
+    let page = chip.page_size;
+    let mut written: usize = 0;
+    while written < data.len() {
+        let addr = start + written as u32;
+        let page_offset = addr % page;
+        let chunk_len = std::cmp::min((page - page_offset) as usize, data.len() - written);
+        spi::page_program(spi, addr, &data[written..written + chunk_len], page)?;
+        spi::wait_until_ready(spi, PAGE_PROGRAM_TIMEOUT)?;
+        written += chunk_len;
+        pb.set_position(written as u64);
+    }
+    pb.finish_and_clear();
+    println!("Write OK : {} bytes at 0x{:08X}", data.len(), start);
+
+    if verify_after {
+        let bad = verify(spi, chip, data, start)?;
+        if bad > 0 {
+            return Err(Error::VerifyFailed { addr: 0, expected: 0, actual: 0 });
+        }
+    }
+    Ok(())
+}
+
+/// Compare `expected` against the chip starting at `start`. Returns the
+/// number of mismatched bytes (0 = clean). Prints the first mismatch's
+/// address to stderr to aid debugging.
+pub fn verify(
+    spi: &mut dyn SpiTransport,
+    chip: &Chip,
+    expected: &[u8],
+    start: u32,
+) -> Result<usize> {
+    let chip_size = chip.size_kb.saturating_mul(1024);
+    if start.saturating_add(expected.len() as u32) > chip_size {
+        return Err(Error::AddressOutOfRange {
+            addr: start,
+            len: expected.len() as u32,
+            chip_size,
+        });
+    }
+    let pb = progress(expected.len() as u64, "verify ");
+    let mut mismatches = 0usize;
+    let mut first_bad: Option<(u32, u8, u8)> = None;
+    let mut off: usize = 0;
+    let end = expected.len();
+    while off < end {
+        let n = std::cmp::min(READ_CHUNK as usize, end - off);
+        let actual = spi::read_data(spi, start + off as u32, n)?;
+        for (i, (&a, &e)) in actual.iter().zip(&expected[off..off + n]).enumerate() {
+            if a != e {
+                mismatches += 1;
+                first_bad.get_or_insert((start + (off + i) as u32, e, a));
+            }
+        }
+        off += n;
+        pb.set_position(off as u64);
+    }
+    pb.finish_and_clear();
+
+    if mismatches == 0 {
+        println!("Verify OK: {} bytes match", expected.len());
+    } else {
+        let (addr, e, a) = first_bad.unwrap();
+        eprintln!(
+            "Verify FAIL: {} byte(s) differ; first at 0x{:08X} (expected 0x{:02X}, got 0x{:02X})",
+            mismatches, addr, e, a
+        );
+    }
+    Ok(mismatches)
+}
+
+pub fn blank_check(spi: &mut dyn SpiTransport, chip: &Chip) -> Result<()> {
+    let len = chip.size_kb.saturating_mul(1024);
+    let pb = progress(len as u64, "blank  ");
+    let mut addr = 0u32;
+    while addr < len {
+        let n = std::cmp::min(READ_CHUNK, len - addr);
+        let data = spi::read_data(spi, addr, n as usize)?;
+        for (i, &b) in data.iter().enumerate() {
+            if b != 0xFF {
+                pb.finish_and_clear();
+                return Err(Error::NotBlank { addr: addr + i as u32, value: b });
+            }
+        }
+        addr += n;
+        pb.set_position(addr as u64);
+    }
+    pb.finish_and_clear();
+    println!("Blank OK : all {} bytes are 0xFF", len);
+    Ok(())
+}
+
+fn progress(total: u64, label: &'static str) -> ProgressBar {
+    let pb = ProgressBar::new(total);
+    pb.set_style(
+        ProgressStyle::with_template(&format!(
+            "{{spinner}} {label}{{bar:40}} {{bytes}}/{{total_bytes}} ({{eta}})"
+        ))
+        .expect("static template")
+        .progress_chars("=> "),
+    );
+    pb
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::spi::test_support::MockSpi;
+
+    fn fake_chip(size_kb: u32) -> Chip {
+        Chip {
+            name: "FAKE".into(),
+            jedec_id: "AABBCC".into(),
+            size_kb,
+            page_size: 256,
+            sector_size: 4096,
+            erase_time_ms: 50,
+            notes: String::new(),
+        }
+    }
+
+    fn read_step(addr: u32, n: usize, body: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
+        let mut tx = vec![0x03, (addr >> 16) as u8, (addr >> 8) as u8, addr as u8];
+        tx.resize(4 + n, 0);
+        let mut rx = vec![0u8; 4];
+        rx.extend(body);
+        (tx, rx)
+    }
+
+    fn wip_clear_step() -> (Vec<u8>, Vec<u8>) {
+        (vec![0x05, 0x00], vec![0x00, 0x00])
+    }
+
+    #[test]
+    fn read_writes_bytes_to_file_and_hashes() {
+        let body: Vec<u8> = (0..16u8).collect();
+        let mut mock = MockSpi::new([read_step(0, 16, body.clone())]);
+        let chip = fake_chip(1);
+        let tmp = std::env::temp_dir().join("etch341_read_test.bin");
+        read(&mut mock, &chip, 0, 16, &tmp).unwrap();
+        let got = std::fs::read(&tmp).unwrap();
+        assert_eq!(got, body);
+        mock.assert_drained();
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn read_rejects_out_of_range() {
+        let chip = fake_chip(1);
+        let mut mock = MockSpi::new([]);
+        let r = read(&mut mock, &chip, 0, 2048, Path::new("/tmp/x.bin"));
+        assert!(matches!(r, Err(Error::AddressOutOfRange { .. })));
+    }
+
+    #[test]
+    fn erase_chip_polls_until_wip_clear() {
+        let mut mock = MockSpi::new([
+            (vec![0x06], vec![0x00]),
+            (vec![0xC7], vec![0x00]),
+            wip_clear_step(),
+        ]);
+        erase_chip(&mut mock, &fake_chip(1)).unwrap();
+        mock.assert_drained();
+    }
+
+    #[test]
+    fn erase_range_uses_block_when_aligned() {
+        // 64K starting at 0x10000 → one block erase, not 16 sector erases.
+        let mut mock = MockSpi::new([
+            (vec![0x06], vec![0x00]),
+            (vec![0xD8, 0x01, 0x00, 0x00], vec![0; 4]),
+            wip_clear_step(),
+        ]);
+        erase_range(&mut mock, &fake_chip(128), 0x10000, 0x10000).unwrap();
+        mock.assert_drained();
+    }
+
+    #[test]
+    fn erase_range_falls_back_to_sectors_when_short() {
+        // 8K at 0x0 → 2 sector erases (not a full block).
+        let mut mock = MockSpi::new([
+            (vec![0x06], vec![0]),
+            (vec![0x20, 0x00, 0x00, 0x00], vec![0; 4]),
+            wip_clear_step(),
+            (vec![0x06], vec![0]),
+            (vec![0x20, 0x00, 0x10, 0x00], vec![0; 4]),
+            wip_clear_step(),
+        ]);
+        erase_range(&mut mock, &fake_chip(128), 0, 0x2000).unwrap();
+        mock.assert_drained();
+    }
+
+    #[test]
+    fn erase_range_rejects_unaligned_start() {
+        let mut mock = MockSpi::new([]);
+        let r = erase_range(&mut mock, &fake_chip(128), 0x100, 0x1000);
+        assert!(matches!(r, Err(Error::UnalignedErase { .. })));
+    }
+
+    #[test]
+    fn write_does_page_aligned_program() {
+        // Two pages worth starting mid-page (offset 0x80 → first chunk 128 bytes,
+        // second chunk 256 bytes, third chunk 128 bytes).
+        let data: Vec<u8> = (0..512u32).map(|i| i as u8).collect();
+        let mut steps: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+        // First chunk: 128 bytes at 0x80
+        let mut c1 = vec![0x02, 0x00, 0x00, 0x80];
+        c1.extend_from_slice(&data[0..128]);
+        steps.push((vec![0x06], vec![0]));
+        steps.push((c1, vec![0; 132]));
+        steps.push(wip_clear_step());
+        // Second chunk: 256 bytes at 0x100
+        let mut c2 = vec![0x02, 0x00, 0x01, 0x00];
+        c2.extend_from_slice(&data[128..384]);
+        steps.push((vec![0x06], vec![0]));
+        steps.push((c2, vec![0; 260]));
+        steps.push(wip_clear_step());
+        // Third chunk: 128 bytes at 0x200
+        let mut c3 = vec![0x02, 0x00, 0x02, 0x00];
+        c3.extend_from_slice(&data[384..512]);
+        steps.push((vec![0x06], vec![0]));
+        steps.push((c3, vec![0; 132]));
+        steps.push(wip_clear_step());
+
+        let mut mock = MockSpi::new(steps);
+        write(&mut mock, &fake_chip(128), &data, 0x80, false, false).unwrap();
+        mock.assert_drained();
+    }
+
+    #[test]
+    fn verify_counts_mismatches() {
+        let expected = vec![0xAA, 0xBB, 0xCC, 0xDD];
+        let actual = vec![0xAA, 0x00, 0xCC, 0x00];
+        let mut mock = MockSpi::new([read_step(0, 4, actual)]);
+        let count = verify(&mut mock, &fake_chip(1), &expected, 0).unwrap();
+        assert_eq!(count, 2);
+        mock.assert_drained();
+    }
+
+    #[test]
+    fn blank_check_passes_on_all_ff() {
+        let mut mock = MockSpi::new([read_step(0, 1024, vec![0xFF; 1024])]);
+        blank_check(&mut mock, &fake_chip(1)).unwrap();
+        mock.assert_drained();
+    }
+
+    #[test]
+    fn blank_check_reports_first_non_ff() {
+        let mut body = vec![0xFF; 1024];
+        body[10] = 0x42;
+        let mut mock = MockSpi::new([read_step(0, 1024, body)]);
+        let r = blank_check(&mut mock, &fake_chip(1));
+        assert!(matches!(r, Err(Error::NotBlank { addr: 10, value: 0x42 })));
+    }
+}
