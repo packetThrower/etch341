@@ -3,7 +3,7 @@ name = "etch341"
 version = "0.1.0"
 edition = "2024"
 description = "Cross-platform CLI/GUI flash programmer for the CH341A USB SPI/I²C interface."
-license = "MIT OR Apache-2.0"
+license = "GPL-3.0-or-later"
 readme = "README.md"
 authors = ["packetThrower"]
 

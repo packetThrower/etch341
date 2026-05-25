@@ -270,4 +270,4 @@ cargo run   --no-default-features -- detect -v
 
 ## License
 
-MIT OR Apache-2.0
+GPL-3.0-or-later. See [LICENSE](LICENSE) for the full text.
