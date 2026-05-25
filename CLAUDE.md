@@ -218,4 +218,4 @@ mockall = "0.12"
 9. Write `README.md` with install instructions for all three platforms
 10. Add a `Makefile` or `justfile` with targets: `build`, `test`, `release`, `lint`
 
-You can reference flashrom (https://github.com/flashrom/flashrom) for tested implementatoin. It's written in C.
+For protocol details, open-source firmware-flashing tools that target the CH341A are a useful cross-reference for tested byte sequences and timing.
