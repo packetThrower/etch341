@@ -195,6 +195,8 @@ pub struct AppView {
     /// AppView because gpui-component widgets read/write through an
     /// Entity; sharing it across renders keeps cursor + IME state.
     pub hex_search_state: Entity<InputState>,
+    /// Separate Input for the "jump to offset" field in the Hex pane.
+    pub jump_offset_state: Entity<InputState>,
     /// Keeps subscriptions alive for as long as AppView exists. Drop
     /// the subscription = dead callback = stale UI.
     _subscriptions: Vec<Subscription>,
@@ -209,6 +211,9 @@ impl AppView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let hex_search_state =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter strings…"));
+        let jump_offset_state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Offset in hex, e.g. 0xFA00 or FA00")
+        });
         // Bridge the Input's Change events into our own `hex_search_term`
         // String so panes::render can filter without needing the Entity.
         // `subscribe_in` (not plain `subscribe`) is the canonical way to
@@ -222,6 +227,16 @@ impl AppView {
                 if matches!(event, InputEvent::Change) {
                     this.hex_search_term = state.read(cx).value().to_string();
                     cx.notify();
+                }
+            },
+        );
+        let sub_jump = cx.subscribe_in(
+            &jump_offset_state,
+            window,
+            |this: &mut AppView, state, event: &InputEvent, _, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    let raw = state.read(cx).value().to_string();
+                    this.jump_via_input(&raw, cx);
                 }
             },
         );
@@ -246,7 +261,8 @@ impl AppView {
             hex_show_strings: false,
             hex_search_term: String::new(),
             hex_search_state,
-            _subscriptions: vec![sub],
+            jump_offset_state,
+            _subscriptions: vec![sub, sub_jump],
             progress: Arc::new(SharedProgress::default()),
             prefs: Prefs::load(),
         }
@@ -315,6 +331,52 @@ impl AppView {
     /// scroll the hex `uniform_list` so the byte at `offset` is
     /// centered in the viewport. Scroll position takes effect on the
     /// next render (after `cx.notify()` triggers it).
+    /// Parse the `Jump:` input value and dispatch to
+    /// `jump_to_hex_offset`. Accepts `0xFA00`, `0XFA00`, or bare hex
+    /// `FA00`. Logs an explanatory error on bad input or out-of-range
+    /// offsets — leaves the input intact so the user can correct it.
+    pub fn jump_via_input(&mut self, raw: &str, cx: &mut Context<Self>) {
+        // Strip ALL whitespace so `0x FA 00` and `55 AA` both parse.
+        // The address is logically the concatenation of the hex digits
+        // typed; users sometimes type a byte sequence with spaces.
+        let condensed: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
+        if condensed.is_empty() {
+            return;
+        }
+        let stripped = condensed
+            .strip_prefix("0x")
+            .or_else(|| condensed.strip_prefix("0X"))
+            .unwrap_or(&condensed);
+        let parsed = usize::from_str_radix(stripped, 16);
+        match parsed {
+            Ok(offset) => {
+                let size = self.hex_bytes.as_ref().map(|b| b.len()).unwrap_or(0);
+                if size == 0 {
+                    self.push_log("Jump: no file loaded".into());
+                    cx.notify();
+                    return;
+                }
+                if offset >= size {
+                    self.push_log(format!(
+                        "Jump: 0x{:X} is past end of file (size 0x{:X})",
+                        offset, size
+                    ));
+                    cx.notify();
+                    return;
+                }
+                self.push_log(format!("Jump to 0x{:X}", offset));
+                self.jump_to_hex_offset(offset, cx);
+            }
+            Err(_) => {
+                self.push_log(format!(
+                    "Jump: \u{201C}{}\u{201D} isn't a valid hex offset",
+                    raw
+                ));
+                cx.notify();
+            }
+        }
+    }
+
     pub fn jump_to_hex_offset(&mut self, offset: usize, cx: &mut Context<Self>) {
         self.hex_show_strings = false;
         let line = offset / 16;
@@ -831,6 +893,7 @@ impl Render for AppView {
                                     hex_show_strings: self.hex_show_strings,
                                     hex_search_term: self.hex_search_term.as_str(),
                                     hex_search_state: &self.hex_search_state,
+                                    jump_offset_state: &self.jump_offset_state,
                                     spi_speed_khz: self.prefs.spi_speed_khz,
                                     prefs_path: prefs_path_buf.as_deref(),
                                 },

@@ -24,6 +24,7 @@ pub struct PaneInputs<'a> {
     pub hex_show_strings: bool,
     pub hex_search_term: &'a str,
     pub hex_search_state: &'a Entity<InputState>,
+    pub jump_offset_state: &'a Entity<InputState>,
     pub spi_speed_khz: u32,
     pub prefs_path: Option<&'a Path>,
 }
@@ -50,6 +51,7 @@ pub fn render(
             inputs.hex_show_strings,
             inputs.hex_search_term,
             inputs.hex_search_state,
+            inputs.jump_offset_state,
             cx,
         )
         .into_any_element(),
@@ -394,6 +396,7 @@ fn hex_pane(
     show_strings: bool,
     search_term: &str,
     search_state: &Entity<InputState>,
+    jump_state: &Entity<InputState>,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let mut col = div()
@@ -441,6 +444,29 @@ fn hex_pane(
                             .child(Input::new(search_state)),
                     )
                 }),
+        )
+        .child(
+            // Jump-to-offset row. Always present (lets you punch in an
+            // address in either Hex or Strings mode — jump always lands
+            // in Hex view).
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_3()
+                .child(
+                    div()
+                        .w(px(70.0))
+                        .text_size(px(11.0))
+                        .text_color(theme::text_tertiary())
+                        .child("JUMP TO"),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .text_color(theme::bench_black())
+                        .child(Input::new(jump_state)),
+                ),
         );
 
     if let Some(data_arc) = bytes {
