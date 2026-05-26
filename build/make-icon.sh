@@ -33,6 +33,14 @@ mkdir -p windows
 magick appicon.png -define icon:auto-resize=256,128,64,48,32,16 windows/icon.ico
 echo "Wrote $(pwd)/windows/icon.ico"
 
+# cargo-wix's main.wxs references resources/icons/icon.ico for the
+# ARPPRODUCTICON property, and Cargo.toml's [package.metadata.packager]
+# icons list also points there. Mirror the build/windows/icon.ico
+# into resources/icons/ so both consumers find it at the same path.
+mkdir -p ../resources/icons
+cp windows/icon.ico ../resources/icons/icon.ico
+echo "Wrote ../resources/icons/icon.ico"
+
 # resources/icons/ holds the cross-platform set that cargo-packager
 # consumes at build time (icons = [...] in [package.metadata.packager]).
 RES=../resources/icons
