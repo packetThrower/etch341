@@ -177,3 +177,8 @@ installer-mode = "currentUser"
 # UpgradeCode value in packaging/windows/wix/main.wxs and must
 # never change for the lifetime of this product.
 upgrade-guid = "A1FC4A94-D7CC-4E33-AED8-691272859196"
+# cargo-wix looks for wix/main.wxs at the package root by default;
+# we keep ours under packaging/windows/wix/ to group it with the
+# rest of the per-platform packaging assets, so it has to be
+# pointed at explicitly.
+include = ["packaging/windows/wix/main.wxs"]
