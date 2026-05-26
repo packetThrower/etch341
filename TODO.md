@@ -130,6 +130,24 @@ unit-tested but haven't seen silicon yet:
       and MX25L25635F + family entries use the 4-byte opcode
       variants (`0x13` / `0x12` / `0x21` / `0xDC`) but no chip in
       this size range has been physically tested.
+- [ ] **Silent stuck-high MISO on large reads** — silicon test on
+      a W25Q128JVSQ (16 MB, JEDEC `EF4018`) showed read 1 of a
+      fresh `detect` → `read` sequence return ~3241 stale-`0xFF`
+      bytes scattered across a ~4 MB range; reads 2/3/4 (including
+      one at 750 kHz) all matched each other (SHA `68ba78ad…`).
+      For a 16 MB chip we send ~540,000 USB IN packets of 31 bytes
+      each; a single packet returning the requested length with
+      `0xFF` padding (vs the real MISO data) is indistinguishable
+      from real erased flash and silently corrupts that chunk. The
+      smaller chips tested so far (1 MB W25Q80DV ×2, 128 KB
+      MX25L1006E) all matched on first try — so failure rate scales
+      with packet count. Fix candidates: (a) add an internal double-
+      read-and-compare mode behind a `--verify-read` flag for
+      critical dumps; (b) use `FAST_READ` (`0x0B`) with its dummy
+      byte to give the chip an extra cycle of timing margin; (c)
+      shorter chunks to limit the blast radius of any one bad
+      packet. The 3-out-of-4 reads matching gives a clean workaround
+      today: always dump twice and `cmp` before trusting the result.
 
 ---
 
