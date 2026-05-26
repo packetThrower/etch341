@@ -12,11 +12,10 @@ it from here.
 
 ---
 
-## Flashrom feature parity
+## SPI flash feature gaps
 
-etch341 is CH341A-specific by design, but several `flashrom`
-features are worth porting since users coming from `flashrom` will
-look for them.
+Standard programmer features etch341 doesn't have yet, in
+priority order.
 
 ### High value, low–medium effort
 
@@ -73,16 +72,14 @@ look for them.
 
 ### Big effort, big payoff (when there's a real need)
 
-- [ ] **Region / layout support** — flashrom's `--layout
-      <file>` / `--include <name>` / `--region <name>`. A layout
-      file describes named regions (`BIOS`, `ME`, `GBE`, `PD` on
-      Intel chipsets) by `start:end:name`. `etch341 read --region
-      BIOS` reads just that range; `etch341 write --include
-      BIOS,ME` writes only those regions and leaves the rest of
-      the chip untouched. Critical for modern Intel motherboards
-      where touching the ME region risks bricking. ~5 hr including
-      a layout-file parser, a region-overlay engine, and updated
-      verify-after-partial-write semantics.
+- [ ] **Region / layout support** — `etch341 read --region BIOS`,
+      `etch341 write --include BIOS,ME`, etc. A layout file
+      describes named regions (`BIOS`, `ME`, `GBE`, `PD` on Intel
+      chipsets) as `start:end:name` lines; ops can target one or
+      several by name. Critical for modern Intel motherboards
+      where touching the ME region risks bricking. ~5 hr
+      including a layout-file parser, a region-overlay engine,
+      and updated verify-after-partial-write semantics.
 - [ ] **IFD (Intel Flash Descriptor) parsing** — recognise the
       magic header at offset 0x10 (`0x0FF0A55A`), parse the
       descriptor, auto-derive region boundaries instead of
@@ -97,11 +94,10 @@ look for them.
 
 ### Low value / out of scope
 
-- **Other programmers** (FT2232, Bus Pirate, Raspberry Pi GPIO,
-  Dediprog, ...) — would need a major refactor of the SpiTransport
-  trait into a programmer-pluggable system. The CH341A focus is
-  etch341's whole identity; if you need a different programmer,
-  reach for `flashrom` instead.
+- **Other programmer hardware** (FT2232, Bus Pirate, Raspberry Pi
+  GPIO, dedicated commercial programmers, ...) — would need a
+  major refactor of the `SpiTransport` trait into a programmer-
+  pluggable system. The CH341A focus is etch341's whole identity.
 - **93xx microwire EEPROMs** — different protocol from SPI NOR
   and from 24Cxx I²C. Small audience; `eeprom-prog` or
   `minipro` cover this.
@@ -129,7 +125,45 @@ unit-tested but haven't seen silicon yet:
 
 ---
 
-## Polish / quality of life
+## GUI / UX
+
+The GUI works but feels heavier than it needs to. Items in this
+section are about visual + interaction polish rather than new
+functionality.
+
+- [ ] **Try a stepper-style sidebar** —
+      `gpui_component::stepper::Stepper` is a vertical/horizontal
+      progress-step component that better matches the implicit
+      workflow (Detect → Read → Erase → Write → Verify is a
+      natural sequence). Today's sidebar is a flat pane-list with
+      no sense of progression. A vertical stepper with each op as
+      a step, plus the inspection panes (Hex, Settings) below the
+      stepper as flat items, would surface the canonical flow.
+      Investigate the look first before committing — might not
+      fit the freeform "jump to any pane" usage that already
+      works.
+- [ ] **Smaller buttons** — primary action buttons in the
+      operation panes are sized for prominent CTAs but read as
+      bulky against the tighter chrome around them. Drop padding +
+      font size one notch (e.g. `py_2` → `py_1`, `text-sm` →
+      `text-xs`) and re-check the arm/confirm two-stage flow still
+      reads.
+- [ ] **Unify pane layout** — each operation pane (Detect / Read /
+      Erase / Write / Verify / Blank) has slightly different
+      spacing, heading sizes, and CTA placement because they grew
+      organically. Factor the per-pane shell into a shared
+      `op_pane(heading, body, file_picker?, action_button)`
+      helper so changes to "pane look" land in one place. Pairs
+      naturally with the smaller-buttons change.
+- [ ] **Window position + size persistence** — splitter height
+      already persists; the window's own bounds don't. Save on
+      `on_window_should_close`, restore on `open_window`. ~20 min.
+- [ ] **Diff view after failed verify** — when verify fails,
+      switch the Hex pane to highlight differing addresses and
+      let the user step between them with Cmd+G. Closes the loop
+      between Verify and Hex. ~30 min.
+
+## CLI / general polish
 
 - [ ] **`.deb` postinstall hook** — currently the udev rule is
       dropped at install time but `udevadm control --reload-rules`
@@ -138,16 +172,9 @@ unit-tested but haven't seen silicon yet:
       the `.deb` postinst step (see Baudrun's release.yml for the
       `dpkg-deb -R/postinst` pattern) would fix this transparently.
 - [ ] **`-V` / `-VV` verbosity levels** — today `-v` is binary
-      on/off. Multi-level verbose (debug bytes vs full transaction
-      hex) is the flashrom convention; useful when an `i2c scan`
-      verbose dump is overwhelming.
-- [ ] **Window position + size persistence** in the GUI — splitter
-      height already persists; window bounds don't. Save on
-      `on_window_should_close`, restore on `open_window`. ~20 min.
-- [ ] **Diff view after failed verify** in the GUI — when verify
-      fails, switch the Hex pane to highlight differing addresses
-      and let the user step between them with Cmd+G. Closes the
-      loop between Verify and Hex. ~30 min.
+      on/off. Multi-level verbose (header info → bus bytes → full
+      USB-packet hex) would let users dial detail to what they
+      need; the bare `-v i2c scan` dump can be overwhelming.
 - [ ] **CLI `--from-chip`** for `strings` / `search` — let them
       operate directly on the live chip instead of needing a `read`
       first. Just plumbing: open Ch341, run ops::read into a Vec,
