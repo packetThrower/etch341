@@ -1,0 +1,110 @@
+---
+title: etch341
+description: Cross-platform CLI + GUI flash programmer for the CH341A USB SPI/I²C interface. Read, erase, write, and verify SPI NOR and I²C EEPROM chips from macOS, Windows, and Linux.
+template: splash
+hero:
+  tagline: A flash programmer for the CH341A. Read, erase, write, and verify SPI NOR + I²C EEPROM chips from one cross-platform binary that's both a CLI and a GUI.
+  actions:
+    - text: Install for your platform
+      link: /etch341/install/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/packetThrower/etch341
+      icon: external
+      variant: secondary
+# JSON-LD SoftwareApplication schema — lets Google render rich
+# results on the homepage. Only attached to index because inner
+# pages aren't application surfaces in the schema.org sense.
+head:
+  - tag: script
+    attrs:
+      type: application/ld+json
+    content: |
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "etch341",
+        "applicationCategory": "DeveloperApplication",
+        "applicationSubCategory": "Flash programmer",
+        "operatingSystem": "macOS, Windows, Linux",
+        "description": "Cross-platform CLI + GUI flash programmer for the CH341A USB SPI/I²C interface.",
+        "url": "https://packetthrower.github.io/etch341/",
+        "downloadUrl": "https://github.com/packetThrower/etch341/releases/latest",
+        "license": "https://github.com/packetThrower/etch341/blob/main/LICENSE",
+        "image": "https://packetthrower.github.io/etch341/og-image.png",
+        "author": {
+          "@type": "Person",
+          "name": "Will Lehnertz",
+          "url": "https://github.com/packetThrower"
+        },
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "softwareHelp": {
+          "@type": "CreativeWork",
+          "url": "https://packetthrower.github.io/etch341/install/"
+        }
+      }
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## What it does
+
+etch341 talks to the **CH341A** USB programmer over libusb and reads,
+erases, writes, and verifies SPI NOR flash + I²C EEPROM chips.
+Auto-detects the chip by JEDEC ID, ships a database of 58 common
+parts, and handles both 3.3V and 1.8V silicon. One binary serves
+both the CLI and a GPUI-based desktop GUI — no subcommand opens the
+GUI, any subcommand runs in CLI mode.
+
+<CardGrid>
+  <Card title="SPI flash" icon="seti:default">
+    Read / erase / write / verify SPI NOR up to 32 MB+ on both 3.3V
+    and 1.8V chips. 4-byte addressing for parts above 16 MB.
+    Hardware-validated against Macronix MX25U4033E on a GTX 1060
+    VBIOS.
+  </Card>
+  <Card title="I²C EEPROM" icon="seti:powershell">
+    Scan the bus, read / write / verify 24Cxx EEPROMs from 128 B
+    (24C01) to 64 KB (24C512). Handles the bit-stuffing convention
+    for the 24C04 / 08 / 16 sub-families automatically.
+  </Card>
+  <Card title="Cross-platform" icon="setting">
+    macOS (arm64 + amd64), Windows (amd64 + arm64), Linux (amd64 +
+    arm64). Native installers per platform — `.dmg`, `.msi`, `.deb`,
+    `.AppImage`, `.rpm`, `.pkg.tar.zst`.
+  </Card>
+  <Card title="CLI + GUI" icon="laptop">
+    The same binary opens a GPUI desktop window when you double-click
+    it and runs as a CLI when you give it a subcommand. Hex viewer
+    with find / jump / byte selection / copy, live progress for long
+    ops, persistent prefs.
+  </Card>
+</CardGrid>
+
+## Get started
+
+<CardGrid>
+  <Card title="Install" icon="rocket">
+    Native installers for every supported platform, or
+    `cargo install --path .` from source.
+    [Install instructions](/etch341/install/).
+  </Card>
+  <Card title="SPI workflow" icon="document">
+    Detect a chip, read it to a file, verify the dump, then erase +
+    write a new image. [SPI workflow](/etch341/usage/spi/).
+  </Card>
+  <Card title="GUI tour" icon="seti:default">
+    What's in each pane, what the hex viewer's Find bar does, the
+    chip-detect flow. [GUI tour](/etch341/usage/gui/).
+  </Card>
+  <Card title="CLI reference" icon="seti:json">
+    Every subcommand + every global flag, with examples for
+    `detect` / `read` / `write` / `verify` / `chips` / `strings` /
+    `search`. [CLI reference](/etch341/usage/cli/).
+  </Card>
+</CardGrid>

@@ -18,8 +18,9 @@
 #                                    drops into .deb / .AppImage
 #   resources/icons/icon.icns      — macOS bundle icon, built via
 #                                    iconutil from a temp .iconset
-#   docs/favicon.svg               — flat SVG copy for the future
-#                                    website's <link rel="icon">
+#   docs/public/favicon.svg        — flat SVG copy served by the
+#                                    Astro+Starlight docs site as its
+#                                    <link rel="icon">
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -60,6 +61,8 @@ rm -rf "$(dirname "$ICONSET")"
 echo "Wrote $RES/icon.icns"
 
 # Website favicon — flat SVG so the browser renders it at any size.
-mkdir -p ../docs
-cp appicon.svg ../docs/favicon.svg
-echo "Wrote ../docs/favicon.svg"
+# Lives in the Astro `public/` dir so Starlight's `favicon: '/favicon.svg'`
+# config picks it up.
+mkdir -p ../docs/public
+cp appicon.svg ../docs/public/favicon.svg
+echo "Wrote ../docs/public/favicon.svg"

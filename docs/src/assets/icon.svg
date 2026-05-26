@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bgGrad" cx="30%" cy="25%" r="95%">
+      <stop offset="0%" stop-color="#152849"/>
+      <stop offset="100%" stop-color="#0A1426"/>
+    </radialGradient>
+
+    <radialGradient id="pinGrad" cx="35%" cy="28%" r="80%">
+      <stop offset="0%" stop-color="#FFF8D8"/>
+      <stop offset="22%" stop-color="#FFE066"/>
+      <stop offset="60%" stop-color="#D4AF37"/>
+      <stop offset="100%" stop-color="#8B6914"/>
+    </radialGradient>
+
+    <radialGradient id="pin1Dot" cx="35%" cy="28%" r="80%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="35%" stop-color="#E8ECF2"/>
+      <stop offset="75%" stop-color="#A8B0BF"/>
+      <stop offset="100%" stop-color="#5C6473"/>
+    </radialGradient>
+
+    <!-- Silver gradient for the outline stroke — same metallic
+         family as Baudrun's shell, gives the wireframe a sense of
+         light direction without filling the body. -->
+    <linearGradient id="outlineStroke" x1="0" y1="312" x2="0" y2="712" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#DCE0E9"/>
+      <stop offset="50%" stop-color="#99A1B2"/>
+      <stop offset="100%" stop-color="#676F80"/>
+    </linearGradient>
+
+    <filter id="chipShadow" x="-15%" y="-15%" width="130%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="14"/>
+      <feOffset dx="0" dy="22"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.45"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <clipPath id="squircleClip">
+      <rect x="0" y="0" width="1024" height="1024" rx="230" ry="230"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#squircleClip)">
+    <rect width="1024" height="1024" fill="url(#bgGrad)"/>
+
+    <g filter="url(#chipShadow)">
+      <!-- Gold leads first (same positions as the solid version) -->
+      <rect x="262" y="212" width="50" height="105" rx="8" ry="8" fill="url(#pinGrad)"/>
+      <rect x="412" y="212" width="50" height="105" rx="8" ry="8" fill="url(#pinGrad)"/>
+      <rect x="562" y="212" width="50" height="105" rx="8" ry="8" fill="url(#pinGrad)"/>
+      <rect x="712" y="212" width="50" height="105" rx="8" ry="8" fill="url(#pinGrad)"/>
+      <rect x="262" y="707" width="50" height="105" rx="8" ry="8" fill="url(#pinGrad)"/>
+      <rect x="412" y="707" width="50" height="105" rx="8" ry="8" fill="url(#pinGrad)"/>
+      <rect x="562" y="707" width="50" height="105" rx="8" ry="8" fill="url(#pinGrad)"/>
+      <rect x="712" y="707" width="50" height="105" rx="8" ry="8" fill="url(#pinGrad)"/>
+
+      <!-- Silver outline: 18px stroke so it survives downscaling
+           to 32×32 favicon. No fill — navy background shows
+           through. -->
+      <rect x="212" y="312" width="600" height="400" rx="12" ry="12"
+            fill="none"
+            stroke="url(#outlineStroke)"
+            stroke-width="18"/>
+
+      <!-- Pin-1 marker stays in the upper-left interior. Same
+           silver bead as the solid version. -->
+      <circle cx="262" cy="362" r="22" fill="url(#pin1Dot)"/>
+    </g>
+  </g>
+</svg>
