@@ -156,8 +156,24 @@ signing-identity = "-"
 
 # Windows NSIS installer config. cargo-packager produces a single
 # .exe installer that handles Add/Remove Programs integration and
-# proper uninstall. Skipping MSI for now — that path needs
-# cargo-wix + a hand-written .wxs and only ships on stable tags.
+# proper uninstall.
 [package.metadata.packager.nsis]
 # Per-user install (no UAC prompt for un-privileged installs).
 installer-mode = "currentUser"
+
+# cargo-wix config for the per-arch .msi installer. Used by
+# `cargo wix` (NOT cargo-packager's -f wix path) in release.yml on
+# the Windows runners; cargo-packager 0.11 vendors WiX 3.11 which
+# can't pass `-arch arm64` to candle.exe (that flag landed in WiX
+# 3.14). cargo-wix uses the system-installed WiX 3.14+ (release.yml
+# installs it via choco) and so handles both arches with one
+# toolchain. packaging/windows/wix/main.wxs carries the full WiX
+# source; this table sets the build-time constants cargo-wix would
+# otherwise auto-generate (the UpgradeCode in particular must stay
+# stable across versions or Apps & Features treats each install as
+# a brand-new product instead of an upgrade).
+[package.metadata.wix]
+# UPGRADECODE — generated once with uuidgen; must match the
+# UpgradeCode value in packaging/windows/wix/main.wxs and must
+# never change for the lifetime of this product.
+upgrade-guid = "A1FC4A94-D7CC-4E33-AED8-691272859196"

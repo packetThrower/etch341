@@ -154,6 +154,21 @@ jobs:
               exit 1
             fi
             mv "$dmg" "release-artifacts/etch341-${VERSION}-${arch}-macos.dmg"
+
+            # Also ship a bare .app bundle in a zip for users who'd
+            # rather skip the .dmg mount-and-drag. `ditto -c -k`
+            # preserves the macOS extended attributes a plain
+            # `zip -r` would strip — which would otherwise break
+            # the ad-hoc codesign + Gatekeeper verification when
+            # the user unzips the bundle.
+            app="${bundle}/etch341.app"
+            if [ -d "$app" ]; then
+              ditto -c -k --sequesterRsrc --keepParent \
+                "$app" \
+                "release-artifacts/etch341-macOS-${arch}-${VERSION}.zip"
+            else
+              echo "no .app bundle at ${app}"; exit 1
+            fi
           done
           echo "--- staged ---"
           ls -la release-artifacts/
@@ -175,9 +190,11 @@ jobs:
           - runner: ubuntu-latest
             arch: amd64
             triple: x86_64-unknown-linux-gnu
+            rpm_arch: x86_64
           - runner: ubuntu-24.04-arm
             arch: arm64
             triple: aarch64-unknown-linux-gnu
+            rpm_arch: aarch64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -200,7 +217,10 @@ jobs:
        # fontconfig / freetype are gpui_linux's pkg-config deps.
        # file + libfuse2 are AppImage tooling deps — cargo-packager
        # invokes AppImageTool which needs fuse2 to mount the
-       # squashfs image during packaging.
+       # squashfs image during packaging. ruby-dev + libarchive-tools
+       # are for fpm (the .rpm + .pkg.tar.zst build steps below);
+       # bsdtar from libarchive-tools is what fpm's pacman target
+       # shells out to for the mtree pass.
       - name: Install Linux build deps
         run: |
           sudo apt-get update
@@ -212,12 +232,23 @@ jobs:
             libxcb-xfixes0-dev libxcb-render0-dev \
             libfontconfig1-dev libfreetype-dev \
             pkg-config \
-            file libfuse2
+            file libfuse2 \
+            ruby-dev libarchive-tools
 
       - name: Install cargo-packager
         uses: taiki-e/install-action@65851e10cd6c377f11a60e600abc07cb08643468 # v2.79.3
         with:
           tool: cargo-packager
+
+      # fpm packages a directory tree into any of .rpm / .pkg.tar.zst /
+      # .deb / etc. We use it for the RPM-family + Arch outputs
+      # because cargo-packager's pacman target writes a PKGBUILD +
+      # source tarball intended for AUR submission, not the
+      # directly-installable .pkg.tar.zst users expect from
+      # `pacman -U`. fpm also gives us .rpm support that
+      # cargo-packager itself doesn't expose.
+      - name: Install fpm
+        run: sudo gem install --no-document fpm
 
       - name: Patch version
         run: |
@@ -234,10 +265,89 @@ jobs:
           CARGO_BUILD_TARGET: ${{ matrix.triple }}
         run: cargo packager --release -f deb -f appimage --target ${{ matrix.triple }}
 
+      # Stage the install tree once; fpm rpm + pacman both consume
+      # the same layout. Mirrors the same files cargo-packager's
+      # .deb metadata drops, so the three packagers install the
+      # binary, udev rule, .desktop entry, and icon at identical
+      # paths.
+      - name: Stage install tree for fpm
+        run: |
+          mkdir -p pkg/usr/bin
+          cp "target/${{ matrix.triple }}/release/etch341" pkg/usr/bin/etch341
+          chmod +x pkg/usr/bin/etch341
+
+          mkdir -p pkg/usr/share/applications
+          cp packaging/linux/etch341.desktop pkg/usr/share/applications/
+
+          mkdir -p pkg/usr/lib/udev/rules.d
+          cp platform/udev/99-ch341a.rules pkg/usr/lib/udev/rules.d/
+
+          mkdir -p pkg/usr/share/icons/hicolor/512x512/apps
+          cp resources/icons/icon.png pkg/usr/share/icons/hicolor/512x512/apps/etch341.png
+
+      # Runtime libs matching the wayland+x11+font-kit surface
+      # gpui_linux pulls in. The Cargo.toml deb metadata carries
+      # the equivalent list for apt — keep these two lists in
+      # lockstep when bumping.
+      #
+      # `()(64bit)` arch qualifier on every SONAME: RPM-based
+      # distros (Fedora / openSUSE / RHEL / Mageia / …) auto-
+      # generate library `Provides:` entries as
+      # `libfoo.so.N()(64bit)` on 64-bit arches — both aarch64
+      # and x86_64 use the same 64bit token. Without the suffix,
+      # dnf / zypper see our bare `libfoo.so.N` Requires and
+      # refuse to match against `libfoo.so.N()(64bit)` Provides,
+      # surfacing as "nothing provides libX11.so.6" at install
+      # time. Both arches we ship are 64-bit.
+      - name: Build .rpm via fpm
+        run: |
+          VERSION="${EFFECTIVE_VERSION#v}"
+          ARCH="${{ matrix.rpm_arch }}"
+          fpm -s dir -t rpm -C pkg \
+            --name etch341 --version "$VERSION" --architecture "$ARCH" \
+            --license GPL-3.0-or-later \
+            --description "Cross-platform CLI/GUI flash programmer for the CH341A USB SPI/I2C interface." \
+            --url "https://github.com/packetThrower/etch341" \
+            --vendor "packetThrower" --maintainer "packetThrower" \
+            --depends 'libxkbcommon.so.0()(64bit)' \
+            --depends 'libxkbcommon-x11.so.0()(64bit)' \
+            --depends 'libwayland-client.so.0()(64bit)' \
+            --depends 'libwayland-cursor.so.0()(64bit)' \
+            --depends 'libX11.so.6()(64bit)' \
+            --depends 'libxcb.so.1()(64bit)' \
+            --depends 'libxcb-cursor.so.0()(64bit)' \
+            --depends 'libxcb-randr.so.0()(64bit)' \
+            --depends 'libxcb-render.so.0()(64bit)' \
+            --depends 'libxcb-shape.so.0()(64bit)' \
+            --depends 'libxcb-xfixes.so.0()(64bit)' \
+            --depends 'libxcb-xkb.so.1()(64bit)' \
+            --depends 'libfontconfig.so.1()(64bit)' \
+            --depends 'libfreetype.so.6()(64bit)' \
+            --package "etch341-${VERSION}-1.${ARCH}.rpm"
+
+      # Pacman / Arch: same staging dir, fpm pacman target writes
+      # the .pkg.tar.zst directly. Leaving --depends empty here
+      # because the libudev / libxkbcommon package names on Arch
+      # vary (`libxkbcommon` vs `libxkbcommon-x11`); empty depends
+      # means pacman won't pre-resolve, but users with a desktop
+      # already have these libs installed.
+      - name: Build .pkg.tar.zst via fpm
+        run: |
+          VERSION="${EFFECTIVE_VERSION#v}"
+          ARCH="${{ matrix.rpm_arch }}"
+          fpm -s dir -t pacman -C pkg \
+            --name etch341 --version "$VERSION" --architecture "$ARCH" \
+            --license GPL-3.0-or-later \
+            --description "Cross-platform CLI/GUI flash programmer for the CH341A USB SPI/I2C interface." \
+            --url "https://github.com/packetThrower/etch341" \
+            --vendor "packetThrower" --maintainer "packetThrower" \
+            --package "etch341-${VERSION}-1-${ARCH}.pkg.tar.zst"
+
       - name: Stage artifact
         run: |
           VERSION="${EFFECTIVE_VERSION#v}"
           ARCH="${{ matrix.arch }}"
+          RPM_ARCH="${{ matrix.rpm_arch }}"
           BUNDLE="target/${{ matrix.triple }}/release"
           mkdir -p release-artifacts
 
@@ -258,6 +368,22 @@ jobs:
             echo "no .AppImage produced at ${BUNDLE}"; exit 1
           fi
           mv "$appimage" "release-artifacts/etch341-${VERSION}-${ARCH}-linux.AppImage"
+
+          # fpm writes the .rpm + .pkg.tar.zst to the current dir
+          # (not target/release/). Pick them up by glob.
+          rpm="etch341-${VERSION}-1.${RPM_ARCH}.rpm"
+          if [ -f "$rpm" ]; then
+            mv "$rpm" "release-artifacts/$rpm"
+          else
+            echo "no .rpm produced at $rpm"; exit 1
+          fi
+
+          pacman="etch341-${VERSION}-1-${RPM_ARCH}.pkg.tar.zst"
+          if [ -f "$pacman" ]; then
+            mv "$pacman" "release-artifacts/$pacman"
+          else
+            echo "no .pkg.tar.zst produced at $pacman"; exit 1
+          fi
 
           echo "--- staged ---"
           ls -la release-artifacts/
@@ -304,6 +430,42 @@ jobs:
         with:
           tool: cargo-packager
 
+      # cargo-wix replaces cargo-packager's `-f wix` MSI path. It
+      # uses a system-installed WiX (installed in the next step)
+      # rather than cargo-packager's vendored WiX 3.11 — that's
+      # what made arm64 MSI builds impossible (candle.exe 3.11
+      # predates `-arch arm64`, added in WiX 3.14). Only run on
+      # stable tags because MSI's ProductVersion field rejects
+      # alphanumeric prerelease identifiers like `0.3.0-beta.1`.
+      - name: Install cargo-wix
+        if: ${{ !contains(env.EFFECTIVE_VERSION, '-') }}
+        uses: taiki-e/install-action@65851e10cd6c377f11a60e600abc07cb08643468 # v2.79.3
+        with:
+          tool: cargo-wix
+
+      # WiX 3.14 (currently a pre-GA build under chocolatey's
+      # `--pre` gate) is the minimum that carries `-arch arm64`.
+      # choco's package sets the `WIX` env var and adds
+      # `<install>\bin` to the system PATH, but the current
+      # process's environment doesn't pick those up until we
+      # re-read them — hence the path write to GITHUB_PATH so
+      # the cargo-wix step below can find candle.exe / light.exe
+      # without a full session reload.
+      - name: Install WiX Toolset 3.14
+        if: ${{ !contains(env.EFFECTIVE_VERSION, '-') }}
+        shell: pwsh
+        run: |
+          choco install wixtoolset --pre -y --no-progress
+          $wixDir = (Get-ChildItem 'C:\Program Files (x86)\WiX Toolset *' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          if ($wixDir) {
+            "$wixDir\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+            "WIX=$wixDir\" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+            Write-Host "WiX installed at $wixDir"
+          } else {
+            Write-Error "WiX install directory not found after choco install"
+            exit 1
+          }
+
       # PowerShell because the runner is Windows. The shared awk
       # one-liner from the macOS/Linux jobs doesn't exist here, so
       # rebuild the version-patching in PS.
@@ -331,6 +493,17 @@ jobs:
           CARGO_BUILD_TARGET: ${{ matrix.triple }}
         run: cargo packager --release -f nsis --target ${{ matrix.triple }}
 
+      # cargo-wix runs after cargo-packager so the etch341.exe
+      # under target/${triple}/release/ already exists; --no-build
+      # skips re-compiling. --nocapture surfaces candle.exe /
+      # light.exe stderr inline rather than buffering it. Stable
+      # tags only — pre-release identifiers like `0.3.0-beta.1`
+      # break MSI's ProductVersion format.
+      - name: Build .msi (cargo-wix, stable tags only)
+        if: ${{ !contains(env.EFFECTIVE_VERSION, '-') }}
+        shell: cmd
+        run: cargo wix --no-build --nocapture --target ${{ matrix.triple }}
+
       - name: Stage artifacts
         shell: pwsh
         run: |
@@ -351,6 +524,23 @@ jobs:
             exit 1
           }
           Move-Item $setup.FullName "release-artifacts/etch341-${version}-${arch}-windows-setup.exe"
+
+          # MSI from cargo-wix lives under target/wix/. cargo-wix
+          # uses kebab-case `etch341-<version>-<arch>.msi` by
+          # default. Rename for consistency with the NSIS naming.
+          # On pre-release tags this directory doesn't exist (the
+          # cargo-wix step gated itself off) so the glob is just
+          # a no-op in that case.
+          $wixOut = "target/wix"
+          if (Test-Path $wixOut) {
+            Write-Host "--- contents of $wixOut ---"
+            Get-ChildItem -Path $wixOut -File | ForEach-Object { $_.FullName }
+            Get-ChildItem "$wixOut/*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
+              $dest = "release-artifacts/etch341-${version}-${arch}-windows.msi"
+              Move-Item $_.FullName -Destination $dest
+              Write-Host "moved $($_.Name) -> $(Split-Path -Leaf $dest)"
+            }
+          }
 
           # Portable .zip of the bare etch341.exe for users who'd
           # rather skip the installer (and for CI/automation use).

@@ -115,18 +115,22 @@ to the [Releases page](https://github.com/packetThrower/etch341/releases) —
 each release ships native installers for arm64 + amd64 on all three
 platforms:
 
-| Platform | Installer | Portable |
+| Platform | Installer / Package | Also |
 |---|---|---|
-| macOS | `etch341-<ver>-<arch>-macos.dmg` (drag-to-install) | — |
-| Windows | `etch341-<ver>-<arch>-windows-setup.exe` (NSIS) | `etch341-<ver>-<arch>-windows.zip` (bare .exe) |
-| Linux | `etch341-<ver>-<arch>-linux.deb` (Debian/Ubuntu) | — |
-| Linux | `etch341-<ver>-<arch>-linux.AppImage` (universal) | — |
+| macOS | `etch341-<ver>-<arch>-macos.dmg` (drag-to-install) | `etch341-macOS-<arch>-<ver>.zip` (bare `.app` bundle) |
+| Windows | `etch341-<ver>-<arch>-windows-setup.exe` (NSIS) | `etch341-<ver>-<arch>-windows.msi` (MSI, stable tags only) |
+| Windows | — | `etch341-<ver>-<arch>-windows.zip` (portable bare `.exe`) |
+| Linux (Debian/Ubuntu) | `etch341-<ver>-<arch>-linux.deb` | — |
+| Linux (Fedora/openSUSE/RHEL) | `etch341-<ver>-1.<rpm-arch>.rpm` | — |
+| Linux (Arch) | `etch341-<ver>-1-<rpm-arch>.pkg.tar.zst` | — |
+| Linux (any) | `etch341-<ver>-<arch>-linux.AppImage` (universal) | — |
 
-The Linux `.deb` install drops the udev rule into
-`/usr/lib/udev/rules.d/` automatically; the AppImage doesn't (run
-the manual `sudo cp` step from the Linux section below the first
-time). All artifacts also have a line in `SHA256SUMS` on the
-release page.
+That's 19 artifacts per release (6 macOS + 6 Windows + 8 Linux,
+plus a `SHA256SUMS` line for everything). The Linux `.deb` /
+`.rpm` / `.pkg.tar.zst` installs drop the udev rule into
+`/usr/lib/udev/rules.d/` automatically; the AppImage and bare
+binaries don't (run the manual `sudo cp` step from the Linux
+section below the first time).
 
 ### macOS
 
