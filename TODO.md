@@ -111,13 +111,21 @@ The mock test suite catches protocol-layer regressions but not
 hardware-protocol mismatches. These paths are implemented and
 unit-tested but haven't seen silicon yet:
 
-- [ ] **I²C / 24Cxx EEPROMs** — the CH341A I²C ACK-bit polarity
-      assumption in `src/ch341.rs::i2c_probe` is documented as
-      best-effort. First real-EEPROM run is also our bring-up.
-      If `i2c scan` returns either an empty list or every address
-      (rather than just the chip's address(es)), the polarity
-      needs flipping. The fix is a one-line change to `i2c_probe`;
-      the test work is the actual silicon contact.
+- [ ] **I²C write path — clean-chip silicon validation** — first
+      contact (AT24C02N on an old DVI graphics card) confirmed the
+      probe/scan ACK-polarity assumption and round-tripped 256-byte
+      reads with stable SHA-256 across two passes. The write path
+      uncovered a real race: `wait_ready` was timing out before the
+      chip's tWR cycle finished, garbling subsequent page writes.
+      The fix (sleep tWR first, then ACK-poll with a 50 ms window)
+      brings our protocol in line with what the standard embedded-
+      hal 24Cxx drivers do. Bring-up iteration on a clip-attached
+      20-year-old part corrupted the chip beyond clean retest, so
+      a final write-then-read-back integrity loop on a fresh chip
+      is still owed. The on-wire transaction shape is already
+      validated against the canonical 24Cxx page-write sequence
+      (slave|W → addr_bytes → data → STOP) — what's left is the
+      "do it once cleanly against a healthy chip" loop.
 - [ ] **SPI 4-byte addressing (>16 MB chips)** — the W25Q256JV
       and MX25L25635F + family entries use the 4-byte opcode
       variants (`0x13` / `0x12` / `0x21` / `0xDC`) but no chip in

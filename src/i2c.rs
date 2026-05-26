@@ -153,11 +153,23 @@ pub fn write(
         let slave = compute_slave(chip, addr, pin_straps);
         bus.i2c_transfer(slave, &tx, 0)?;
 
-        wait_ready(
-            bus,
-            slave,
-            Duration::from_millis(chip.write_cycle_ms as u64),
-        )?;
+        // The chip's internally-timed write cycle takes tWR
+        // milliseconds (5 ms typical for 24C02; can stretch to
+        // 10 ms under voltage/temp corners). Probe-via-USB has
+        // ~1-2 ms round-trip latency on macOS, so polling during
+        // the entire tWR window burns USB transactions on
+        // guaranteed NACKs and risks the next page-write
+        // starting while the chip is still committing. Two-stage
+        // approach: sleep through the datasheet tWR first
+        // (silicon is definitely busy), then ACK-poll the tail
+        // with a generous timeout window for any cycle-stretching.
+        // Without this, the v0.2.0 silicon test on an AT24C02
+        // wrote page 0 correctly then garbled pages 1-15: pages
+        // 1-6 hit the chip mid-cycle and were dropped; pages
+        // 7-15 landed during the messy ready-edge and produced
+        // shifted/zero'd data.
+        sleep(Duration::from_millis(chip.write_cycle_ms as u64));
+        wait_ready(bus, slave, Duration::from_millis(50))?;
         offset += chunk_size;
     }
     Ok(())
