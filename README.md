@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="resources/icons/128x128@2x.png" width="128" height="128" alt="etch341 icon — wireframe SOIC-8 chip with gold leads">
+</p>
+
 # etch341
 
 Cross-platform CLI + GUI flash programmer for the **CH341A** USB SPI/I²C
@@ -312,6 +316,13 @@ cargo test  --no-default-features
 cargo run                            # GUI
 cargo run   --no-default-features -- detect -v
 ```
+
+The app icon is `build/appicon.svg` (a top-down wireframe of a
+SOIC-8 in the family palette of Baudrun + PortFinder). The other
+icon files in `build/` and `resources/icons/` are generated from
+it by `build/make-icon.sh` — re-run that script after editing the
+SVG (requires `rsvg-convert`, ImageMagick's `magick`, and
+`iconutil` for the macOS `.icns`).
 
 ## License
 
