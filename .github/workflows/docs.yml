@@ -70,7 +70,14 @@ jobs:
           path: docs/dist
 
   deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Deploy on pushes to main AND on manual workflow_dispatch runs.
+    # The latter is the escape hatch for re-deploying after a failed
+    # initial run (e.g. before GitHub Pages was enabled on the repo).
+    # PR builds still gate-off because they target a fork-or-branch
+    # build that shouldn't replace the live site.
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      || github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
     permissions:
