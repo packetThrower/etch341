@@ -196,6 +196,33 @@ notes = "Winbond 256 Mbit, 1.8V (4-byte addressing)"
 # --- Macronix MX25L (manufacturer 0xC2) ---------------------------
 
 [[chip]]
+name = "MX25L1006E"
+jedec_id = "C22011"
+size_kb = 128
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "Macronix 1 Mbit — common on older PC graphics card BIOSes"
+
+[[chip]]
+name = "MX25L2006E"
+jedec_id = "C22012"
+size_kb = 256
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "Macronix 2 Mbit"
+
+[[chip]]
+name = "MX25L4006E"
+jedec_id = "C22013"
+size_kb = 512
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "Macronix 4 Mbit"
+
+[[chip]]
 name = "MX25L8005"
 jedec_id = "C22014"
 size_kb = 1024
