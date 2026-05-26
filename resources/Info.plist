@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS bundle metadata for etch341. cargo-packager's
+  `info-plist-path` config reads from here and writes the result
+  into etch341.app/Contents/Info.plist at bundle time. cargo-
+  packager merges these keys with its own defaults — anything
+  unspecified (CSResourcesFileMapped, CFBundleDevelopmentRegion,
+  ...) gets a sensible value from the bundler.
+
+  The CRITICAL reason this file exists: without an .app bundle
+  carrying NSPrincipalClass + CFBundlePackageType=APPL, macOS
+  treats a double-click on the binary as "run this in a terminal"
+  and spawns Terminal.app around it. Inside a .app bundle,
+  LaunchServices recognises the GUI app and launches it directly,
+  no terminal.
+
+  Versions are hard-coded to the placeholder 0.0.1 here; release.yml
+  patches both CFBundleShortVersionString and CFBundleVersion to
+  the tag value via `plutil -replace` before invoking cargo-
+  packager.
+-->
+<plist version="1.0">
+<dict>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleSupportedPlatforms</key>
+    <array>
+        <string>MacOSX</string>
+    </array>
+
+    <key>CFBundleName</key>
+    <string>etch341</string>
+    <key>CFBundleDisplayName</key>
+    <string>etch341</string>
+    <!--
+      Must match the file name of the binary inside
+      Contents/MacOS/. Cargo's [[bin]] name = "etch341" is what
+      cargo-packager writes there; LaunchServices uses this key
+      to identify which binary to spawn when the bundle is
+      activated.
+    -->
+    <key>CFBundleExecutable</key>
+    <string>etch341</string>
+    <key>CFBundleIdentifier</key>
+    <string>io.github.packetThrower.etch341</string>
+
+    <key>CFBundleShortVersionString</key>
+    <string>0.0.1</string>
+    <key>CFBundleVersion</key>
+    <string>0.0.1</string>
+
+    <key>CFBundleIconFile</key>
+    <string>icon</string>
+
+    <!--
+      11.0 (Big Sur) is the earliest macOS that supports the
+      universal-binary slices and modern GPUI rendering paths the
+      project relies on.
+    -->
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.developer-tools</string>
+
+    <!-- High-DPI / Retina support so the GPUI surface doesn't
+         render as a 1× bitmap and blur. -->
+    <key>NSHighResolutionCapable</key>
+    <true/>
+
+    <!-- Standard NSApplication class — the key that's actually
+         responsible for telling LaunchServices "this is a Cocoa
+         GUI app, no terminal needed". -->
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+
+    <key>NSHumanReadableCopyright</key>
+    <string>© 2026 packetThrower / etch341 contributors</string>
+</dict>
+</plist>

@@ -74,3 +74,90 @@ gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", 
 
 [dev-dependencies]
 mockall = "0.12"
+
+# cargo-packager metadata. Drives `cargo packager --release -f
+# <format>` invocations in .github/workflows/release.yml. Defines
+# the per-platform installer artifacts that ship on every tag.
+[package.metadata.packager]
+product-name = "etch341"
+identifier = "io.github.packetThrower.etch341"
+category = "DeveloperTool"
+copyright = "© 2026 packetThrower / etch341 contributors"
+homepage = "https://github.com/packetThrower/etch341"
+authors = ["packetThrower"]
+publisher = "packetThrower"
+description = "Cross-platform CLI/GUI flash programmer for the CH341A USB SPI/I²C interface."
+long-description = """\
+etch341 is a cross-platform (macOS + Windows + Linux) flash programmer \
+for SPI NOR + I²C EEPROM chips, driven over a CH341A USB programmer. \
+Auto-detects the chip via JEDEC ID, ships with a database of common \
+parts (W25Q, MX25L, MX25U, GD25Q, GD25LQ, SST25VF, AT25SF, EON, PUYA, \
+ISSI, and the 24Cxx I²C family). One binary serves both the CLI \
+(subcommand-driven) and a GPUI-based desktop GUI (launched when no \
+subcommand is given).\
+"""
+# cargo-packager's default `before-packaging-command` is `cargo
+# build --release`. The workflow sets CARGO_BUILD_TARGET so it
+# cross-compiles to whichever triple the matrix entry asks for.
+before-packaging-command = "cargo build --release"
+# Per-platform icon files. cargo-packager picks the right one for
+# each target (icns on macOS, ico on Windows, png on Linux).
+icons = [
+  "resources/icons/icon.icns",
+  "resources/icons/icon.png",
+  "resources/icons/icon.ico",
+]
+
+# .deb dependencies — runtime libs the GPUI Wayland + X11 surface
+# needs on a fresh Ubuntu install. Without an explicit `depends`,
+# users get "libxkbcommon-x11.so.0: cannot open shared object file"
+# on first launch. libusb is statically linked via rusb's vendored
+# feature so it's not in the list.
+[package.metadata.packager.deb]
+depends = [
+  "libxkbcommon0",
+  "libxkbcommon-x11-0",
+  "libwayland-client0",
+  "libwayland-cursor0",
+  "libx11-6",
+  "libxcb1",
+  "libxcb-cursor0",
+  "libxcb-randr0",
+  "libxcb-render0",
+  "libxcb-shape0",
+  "libxcb-xfixes0",
+  "libxcb-xkb1",
+  "libfontconfig1",
+  "libfreetype6",
+]
+# Files dropped into the install image: udev rule (so unprivileged
+# users can open /dev/bus/usb/... without sudo), .desktop entry
+# (launcher discovery), and the 512px icon at the freedesktop spec
+# path. udev rule needs `udevadm control --reload-rules` to take
+# effect on the running system — cargo-packager 0.11 doesn't expose
+# postinst hooks, so the udev rule lands but requires a USB
+# replug or a manual reload before first use.
+files = { "platform/udev/99-ch341a.rules" = "/usr/lib/udev/rules.d/99-ch341a.rules", "packaging/linux/etch341.desktop" = "/usr/share/applications/etch341.desktop", "resources/icons/icon.png" = "/usr/share/icons/hicolor/512x512/apps/etch341.png" }
+
+# macOS bundle config. The Info.plist is hand-curated (see
+# resources/Info.plist) so it carries the keys that fix the
+# terminal-window-on-double-click bug (NSPrincipalClass,
+# CFBundlePackageType=APPL).
+[package.metadata.packager.macos]
+info-plist-path = "resources/Info.plist"
+minimum-system-version = "11.0"
+# Ad-hoc codesign the bundle (`-` is the ad-hoc identity). On
+# arm64 the linker auto-signs the inner Mach-O; without bundle-
+# level signing, Gatekeeper rejects the .app as "damaged and
+# can't be opened". Not notarized — first launch is still the
+# "unidentified developer" right-click → Open path until an Apple
+# Developer cert lands.
+signing-identity = "-"
+
+# Windows NSIS installer config. cargo-packager produces a single
+# .exe installer that handles Add/Remove Programs integration and
+# proper uninstall. Skipping MSI for now — that path needs
+# cargo-wix + a hand-written .wxs and only ships on stable tags.
+[package.metadata.packager.nsis]
+# Per-user install (no UAC prompt for un-privileged installs).
+installer-mode = "currentUser"

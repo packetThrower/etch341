@@ -90,6 +90,11 @@ jobs:
       - name: Install macOS build deps
         run: brew install pkg-config
 
+      - name: Install cargo-packager
+        uses: taiki-e/install-action@65851e10cd6c377f11a60e600abc07cb08643468 # v2.79.3
+        with:
+          tool: cargo-packager
+
       - name: Patch version
         run: |
           VERSION="${EFFECTIVE_VERSION#v}"
@@ -102,33 +107,55 @@ jobs:
             in_pkg && /^version = / && !done { print "version = \"" v "\""; done=1; next }
             { print }
           ' Cargo.toml > Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
+          # Mirror to Info.plist so the .app bundle's marketing
+          # version + build number reflect the tag rather than the
+          # placeholder "0.0.1" sitting in the file.
+          plutil -replace CFBundleShortVersionString -string "$VERSION" resources/Info.plist
+          plutil -replace CFBundleVersion -string "$VERSION" resources/Info.plist
           echo "Building version: $VERSION"
 
-      - name: Build arm64
+      # Two cargo-packager invocations, one per target arch.
+      # CARGO_BUILD_TARGET is the env-var form of cargo's --target
+      # flag; setting it makes the inner `cargo build --release`
+      # from `before-packaging-command` compile for the cross
+      # target, and the --target flag on cargo-packager itself
+      # points it at the matching target/<triple>/release/ for
+      # the resulting binary. Both align under the same triple so
+      # cargo-packager's binary-discovery agrees with the inner
+      # build's output location.
+      - name: Build arm64 .app + .dmg
         env:
           CARGO_BUILD_TARGET: aarch64-apple-darwin
-        run: cargo build --release --target aarch64-apple-darwin
+        run: cargo packager --release -f app -f dmg --target aarch64-apple-darwin
 
-      - name: Build amd64 (cross-compile)
+      - name: Build amd64 .app + .dmg (cross-compile)
         env:
           CARGO_BUILD_TARGET: x86_64-apple-darwin
-        run: cargo build --release --target x86_64-apple-darwin
+        run: cargo packager --release -f app -f dmg --target x86_64-apple-darwin
 
       - name: Stage artifacts
         run: |
           VERSION="${EFFECTIVE_VERSION#v}"
           mkdir -p release-artifacts
+          # cargo-packager writes outputs to target/<triple>/release/
+          # with names like etch341_0.2.0_aarch64.dmg. Loop both
+          # arches, rename to the project's `arm64`/`amd64`
+          # convention so the release page reads consistently.
           for pair in "aarch64-apple-darwin:arm64" "x86_64-apple-darwin:amd64"; do
             triple="${pair%%:*}"
             arch="${pair##*:}"
-            staging="staging-${arch}"
-            mkdir -p "${staging}"
-            cp "target/${triple}/release/etch341" "${staging}/etch341"
-            strip "${staging}/etch341" || true
-            cp LICENSE README.md "${staging}/"
-            tar -czvf "release-artifacts/etch341-${VERSION}-${arch}-macos.tar.gz" \
-              -C "${staging}" .
+            bundle="target/${triple}/release"
+            echo "--- contents of ${bundle} ---"
+            ls -la "${bundle}" 2>/dev/null || true
+
+            dmg=$(find "${bundle}" -maxdepth 1 -name 'etch341_*.dmg' | head -1)
+            if [ -z "$dmg" ]; then
+              echo "no .dmg produced for ${arch} at ${bundle}"
+              exit 1
+            fi
+            mv "$dmg" "release-artifacts/etch341-${VERSION}-${arch}-macos.dmg"
           done
+          echo "--- staged ---"
           ls -la release-artifacts/
 
       - name: Upload artifacts
@@ -168,6 +195,12 @@ jobs:
           shared-key: release-${{ matrix.arch }}
           cache-on-failure: true
 
+      # libusb is statically linked via rusb's vendored feature so
+       # no libusb-1.0-0-dev here. xkbcommon / wayland / x11 / xcb /
+       # fontconfig / freetype are gpui_linux's pkg-config deps.
+       # file + libfuse2 are AppImage tooling deps — cargo-packager
+       # invokes AppImageTool which needs fuse2 to mount the
+       # squashfs image during packaging.
       - name: Install Linux build deps
         run: |
           sudo apt-get update
@@ -178,7 +211,13 @@ jobs:
             libxcb-xkb-dev libxcb-cursor-dev libxcb-shape0-dev \
             libxcb-xfixes0-dev libxcb-render0-dev \
             libfontconfig1-dev libfreetype-dev \
-            pkg-config
+            pkg-config \
+            file libfuse2
+
+      - name: Install cargo-packager
+        uses: taiki-e/install-action@65851e10cd6c377f11a60e600abc07cb08643468 # v2.79.3
+        with:
+          tool: cargo-packager
 
       - name: Patch version
         run: |
@@ -190,23 +229,37 @@ jobs:
           ' Cargo.toml > Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
           echo "Building version: $VERSION"
 
-      - name: Build
-        run: cargo build --release --target ${{ matrix.triple }}
+      - name: Build .deb + .AppImage
+        env:
+          CARGO_BUILD_TARGET: ${{ matrix.triple }}
+        run: cargo packager --release -f deb -f appimage --target ${{ matrix.triple }}
 
       - name: Stage artifact
         run: |
           VERSION="${EFFECTIVE_VERSION#v}"
-          mkdir -p release-artifacts staging
-          cp "target/${{ matrix.triple }}/release/etch341" staging/etch341
-          strip staging/etch341 || true
-          cp LICENSE README.md staging/
-          # Ship the udev rule alongside the binary so Linux users
-          # have it in the same archive. The README's install
-          # instructions already reference its install path.
-          mkdir -p staging/platform/udev
-          cp platform/udev/99-ch341a.rules staging/platform/udev/
-          tar -czvf "release-artifacts/etch341-${VERSION}-${{ matrix.arch }}-linux.tar.gz" \
-            -C staging .
+          ARCH="${{ matrix.arch }}"
+          BUNDLE="target/${{ matrix.triple }}/release"
+          mkdir -p release-artifacts
+
+          echo "--- contents of ${BUNDLE} ---"
+          ls -la "${BUNDLE}" 2>/dev/null || true
+
+          # cargo-packager produces etch341_<version>_<arch>.deb and
+          # etch341_<version>_<arch>.AppImage. Rename to the project's
+          # consistent format-suffix convention.
+          deb=$(find "${BUNDLE}" -maxdepth 1 -name 'etch341_*.deb' | head -1)
+          if [ -z "$deb" ]; then
+            echo "no .deb produced at ${BUNDLE}"; exit 1
+          fi
+          mv "$deb" "release-artifacts/etch341-${VERSION}-${ARCH}-linux.deb"
+
+          appimage=$(find "${BUNDLE}" -maxdepth 1 -name 'etch341_*.AppImage' | head -1)
+          if [ -z "$appimage" ]; then
+            echo "no .AppImage produced at ${BUNDLE}"; exit 1
+          fi
+          mv "$appimage" "release-artifacts/etch341-${VERSION}-${ARCH}-linux.AppImage"
+
+          echo "--- staged ---"
           ls -la release-artifacts/
 
       - name: Upload artifact
@@ -246,6 +299,11 @@ jobs:
           shared-key: release-${{ matrix.arch }}
           cache-on-failure: true
 
+      - name: Install cargo-packager
+        uses: taiki-e/install-action@65851e10cd6c377f11a60e600abc07cb08643468 # v2.79.3
+        with:
+          tool: cargo-packager
+
       # PowerShell because the runner is Windows. The shared awk
       # one-liner from the macOS/Linux jobs doesn't exist here, so
       # rebuild the version-patching in PS.
@@ -268,19 +326,43 @@ jobs:
           $out | Set-Content Cargo.toml
           Write-Host "Building version: $version"
 
-      - name: Build
-        run: cargo build --release --target ${{ matrix.triple }}
+      - name: Build NSIS installer
+        env:
+          CARGO_BUILD_TARGET: ${{ matrix.triple }}
+        run: cargo packager --release -f nsis --target ${{ matrix.triple }}
 
-      - name: Stage artifact
+      - name: Stage artifacts
         shell: pwsh
         run: |
           $version = $env:EFFECTIVE_VERSION -replace '^v', ''
+          $arch = "${{ matrix.arch }}"
+          $bundle = "target/${{ matrix.triple }}/release"
           New-Item -ItemType Directory -Force -Path release-artifacts | Out-Null
-          New-Item -ItemType Directory -Force -Path staging | Out-Null
-          Copy-Item "target/${{ matrix.triple }}/release/etch341.exe" "staging/etch341.exe"
-          Copy-Item LICENSE,README.md staging/
-          $zip = "release-artifacts/etch341-${version}-${{ matrix.arch }}-windows.zip"
-          Compress-Archive -Path staging/* -DestinationPath $zip
+
+          Write-Host "--- contents of $bundle ---"
+          Get-ChildItem -Path $bundle -File -Recurse | ForEach-Object { $_.FullName }
+
+          # NSIS .exe ships from cargo-packager's output dir as
+          # etch341_<version>_<arch>-setup.exe. Rename to the
+          # project's `<arch>-windows-setup.exe` convention.
+          $setup = Get-ChildItem "$bundle/*-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $setup) {
+            Write-Error "no NSIS installer produced at $bundle"
+            exit 1
+          }
+          Move-Item $setup.FullName "release-artifacts/etch341-${version}-${arch}-windows-setup.exe"
+
+          # Portable .zip of the bare etch341.exe for users who'd
+          # rather skip the installer (and for CI/automation use).
+          $portableStaging = "staging"
+          New-Item -ItemType Directory -Force -Path $portableStaging | Out-Null
+          Copy-Item "$bundle/etch341.exe" "$portableStaging/etch341.exe"
+          Copy-Item LICENSE,README.md $portableStaging/
+          Compress-Archive `
+            -Path "$portableStaging/*" `
+            -DestinationPath "release-artifacts/etch341-${version}-${arch}-windows.zip"
+
+          Write-Host "--- staged ---"
           Get-ChildItem release-artifacts/
 
       - name: Upload artifact

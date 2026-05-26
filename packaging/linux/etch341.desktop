@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=etch341
+GenericName=Flash Programmer
+Comment=Program SPI / I²C flash chips via the CH341A USB interface
+Exec=etch341
+Icon=etch341
+Terminal=false
+StartupWMClass=etch341
+Categories=Development;Electronics;
+Keywords=spi;i2c;eeprom;flash;ch341;ch341a;bios;programmer;

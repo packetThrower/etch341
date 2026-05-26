@@ -4,6 +4,34 @@
 
 # etch341
 
+[![CI](https://img.shields.io/github/actions/workflow/status/packetThrower/etch341/ci.yml?branch=main&style=flat-square&logo=github&label=CI)](https://github.com/packetThrower/etch341/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/packetThrower/etch341?style=flat-square&logo=github&label=release&include_prereleases)](https://github.com/packetThrower/etch341/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/packetThrower/etch341/total?style=flat-square&logo=github&label=downloads)](https://github.com/packetThrower/etch341/releases)
+[![Rust](https://img.shields.io/badge/Rust-stable-CE422B?style=flat-square&logo=rust&logoColor=white)](Cargo.toml)
+[![License: GPL v3+](https://img.shields.io/badge/license-GPLv3%2B-blue?style=flat-square)](LICENSE)
+
+## Minimum OS versions
+
+**macOS** (Apple Silicon and Intel)
+
+[![macOS 11+](https://img.shields.io/badge/macOS-11%2B-333?style=flat-square&logo=apple&logoColor=white)](#install)
+[![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-arm64-333?style=flat-square&logo=apple&logoColor=white)](#install)
+[![Intel](https://img.shields.io/badge/Intel-x86__64-333?style=flat-square&logo=apple&logoColor=white)](#install)
+
+**Windows** (x64 and ARM64)
+
+[![Windows 10 21H2+](https://img.shields.io/badge/Windows%2010%2021H2%2B-x64%20%2F%20arm64-0078D4?style=flat-square&logo=windows&logoColor=white)](#windows)
+
+**Linux** (amd64 and arm64)
+
+[![Ubuntu 22.04+](https://img.shields.io/badge/Ubuntu-22.04%2B-E95420?style=flat-square&logo=ubuntu&logoColor=white)](#linux)
+[![Debian 12+](https://img.shields.io/badge/Debian-12%2B-A81D33?style=flat-square&logo=debian&logoColor=white)](#linux)
+
+The GUI uses the GPUI rendering stack, which on Linux requires a
+Vulkan-capable GPU with current Mesa drivers. The headless CLI
+(`cargo install --no-default-features` or `etch341 <subcommand>` on
+the released binary) has no graphics requirements.
+
 Cross-platform CLI + GUI flash programmer for the **CH341A** USB SPI/I²C
 interface. Userspace USB on Linux + macOS (no driver to install).
 Windows uses the built-in **WinUSB** kernel driver, but it needs a
@@ -82,10 +110,23 @@ named entry, the rest of the operations are very likely to work
 - A CH341A USB programmer (the common "black module" or the "V1.3 mini" with
   on-board ZIF socket both work)
 
-If you'd rather grab a pre-built binary instead of compiling, head
+If you'd rather grab a pre-built artifact instead of compiling, head
 to the [Releases page](https://github.com/packetThrower/etch341/releases) —
-each release ships `.tar.gz` (Linux / macOS) and `.zip` (Windows)
-archives for arm64 + amd64 on all three platforms.
+each release ships native installers for arm64 + amd64 on all three
+platforms:
+
+| Platform | Installer | Portable |
+|---|---|---|
+| macOS | `etch341-<ver>-<arch>-macos.dmg` (drag-to-install) | — |
+| Windows | `etch341-<ver>-<arch>-windows-setup.exe` (NSIS) | `etch341-<ver>-<arch>-windows.zip` (bare .exe) |
+| Linux | `etch341-<ver>-<arch>-linux.deb` (Debian/Ubuntu) | — |
+| Linux | `etch341-<ver>-<arch>-linux.AppImage` (universal) | — |
+
+The Linux `.deb` install drops the udev rule into
+`/usr/lib/udev/rules.d/` automatically; the AppImage doesn't (run
+the manual `sudo cp` step from the Linux section below the first
+time). All artifacts also have a line in `SHA256SUMS` on the
+release page.
 
 ### macOS
 
