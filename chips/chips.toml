@@ -12,6 +12,73 @@
 # Values here are best-effort from public datasheets — verify
 # against the part you're actually programming.
 
+# --- Winbond W25X (older 3.3V, manufacturer 0xEF, family 0x30) ----
+# Predecessor to the W25Q line. Standard SPI NOR opcodes, smaller
+# capacities. Still ships in legacy embedded gear and dev boards.
+
+[[chip]]
+name = "W25X10"
+jedec_id = "EF3011"
+size_kb = 128
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 1 Mbit (legacy)"
+
+[[chip]]
+name = "W25X20"
+jedec_id = "EF3012"
+size_kb = 256
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 2 Mbit (legacy)"
+
+[[chip]]
+name = "W25X40"
+jedec_id = "EF3013"
+size_kb = 512
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 4 Mbit (legacy)"
+
+[[chip]]
+name = "W25X80"
+jedec_id = "EF3014"
+size_kb = 1024
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 8 Mbit (legacy)"
+
+[[chip]]
+name = "W25X16"
+jedec_id = "EF3015"
+size_kb = 2048
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 16 Mbit (legacy)"
+
+[[chip]]
+name = "W25X32"
+jedec_id = "EF3016"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 32 Mbit (legacy)"
+
+[[chip]]
+name = "W25X64"
+jedec_id = "EF3017"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 64 Mbit (legacy)"
+
 # --- Winbond W25Q (manufacturer 0xEF) -----------------------------
 
 [[chip]]
@@ -67,6 +134,64 @@ page_size = 256
 sector_size = 4096
 erase_time_ms = 50
 notes = "Winbond 256 Mbit (4-byte addressing required >16 MB)"
+
+[[chip]]
+name = "W25Q512JV"
+jedec_id = "EF4020"
+size_kb = 65536
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 512 Mbit, 3.3V (4-byte addressing)"
+
+# --- Winbond W25Q ..JW (1.8V variants, manufacturer 0xEF, family 0x60) ----
+# Same opcodes as the 3.3V W25Q series, just 1.8V silicon. Common
+# in newer Intel + AMD BIOS, and on M.2 modules.
+
+[[chip]]
+name = "W25Q16JW"
+jedec_id = "EF6015"
+size_kb = 2048
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 16 Mbit, 1.8V"
+
+[[chip]]
+name = "W25Q32JW"
+jedec_id = "EF6016"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 32 Mbit, 1.8V"
+
+[[chip]]
+name = "W25Q64JW"
+jedec_id = "EF6017"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 64 Mbit, 1.8V"
+
+[[chip]]
+name = "W25Q128JW"
+jedec_id = "EF6018"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 128 Mbit, 1.8V"
+
+[[chip]]
+name = "W25Q256JW"
+jedec_id = "EF6019"
+size_kb = 32768
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Winbond 256 Mbit, 1.8V (4-byte addressing)"
 
 # --- Macronix MX25L (manufacturer 0xC2) ---------------------------
 
@@ -138,6 +263,60 @@ sector_size = 4096
 erase_time_ms = 60
 notes = "Macronix 4 Mbit, 1.8V — common GPU VBIOS chip (e.g. GTX 1060)"
 
+[[chip]]
+name = "MX25U8035E"
+jedec_id = "C22534"
+size_kb = 1024
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "Macronix 8 Mbit, 1.8V"
+
+[[chip]]
+name = "MX25U1635F"
+jedec_id = "C22535"
+size_kb = 2048
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "Macronix 16 Mbit, 1.8V"
+
+[[chip]]
+name = "MX25U3235F"
+jedec_id = "C22536"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "Macronix 32 Mbit, 1.8V"
+
+[[chip]]
+name = "MX25U6435F"
+jedec_id = "C22537"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "Macronix 64 Mbit, 1.8V"
+
+[[chip]]
+name = "MX25U12835F"
+jedec_id = "C22538"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "Macronix 128 Mbit, 1.8V"
+
+[[chip]]
+name = "MX25U25645G"
+jedec_id = "C22539"
+size_kb = 32768
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "Macronix 256 Mbit, 1.8V (4-byte addressing)"
+
 # --- GigaDevice GD25Q (manufacturer 0xC8) -------------------------
 
 [[chip]]
@@ -184,6 +363,53 @@ page_size = 256
 sector_size = 4096
 erase_time_ms = 60
 notes = "GigaDevice 128 Mbit"
+
+[[chip]]
+name = "GD25Q256"
+jedec_id = "C84019"
+size_kb = 32768
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "GigaDevice 256 Mbit (4-byte addressing)"
+
+# --- GigaDevice GD25LQ (1.8V variants, manufacturer 0xC8, family 0x60) ----
+
+[[chip]]
+name = "GD25LQ16"
+jedec_id = "C86015"
+size_kb = 2048
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "GigaDevice 16 Mbit, 1.8V"
+
+[[chip]]
+name = "GD25LQ32"
+jedec_id = "C86016"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "GigaDevice 32 Mbit, 1.8V"
+
+[[chip]]
+name = "GD25LQ64"
+jedec_id = "C86017"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "GigaDevice 64 Mbit, 1.8V"
+
+[[chip]]
+name = "GD25LQ128"
+jedec_id = "C86018"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 60
+notes = "GigaDevice 128 Mbit, 1.8V"
 
 # --- SST25VF (manufacturer 0xBF) ----------------------------------
 
@@ -242,3 +468,107 @@ page_size = 256
 sector_size = 4096
 erase_time_ms = 50
 notes = "Adesto 16 Mbit"
+
+# --- EON EN25Q / EN25QH (manufacturer 0x1C) -----------------------
+# Eon Silicon Solution. The QH variant is Winbond-compatible —
+# same opcodes, same page/sector sizes; common in low-end routers
+# and IoT modules.
+
+[[chip]]
+name = "EN25QH32"
+jedec_id = "1C7016"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 100
+notes = "EON 32 Mbit"
+
+[[chip]]
+name = "EN25QH64"
+jedec_id = "1C7017"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 100
+notes = "EON 64 Mbit"
+
+[[chip]]
+name = "EN25QH128"
+jedec_id = "1C7018"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 100
+notes = "EON 128 Mbit"
+
+# --- PUYA P25Q (manufacturer 0x85) --------------------------------
+# Chinese low-cost SPI NOR. Common in cheap consumer electronics,
+# crypto mining gear, and white-label IoT. Standard W25Q-compatible
+# opcodes.
+
+[[chip]]
+name = "P25Q40H"
+jedec_id = "856013"
+size_kb = 512
+page_size = 256
+sector_size = 4096
+erase_time_ms = 80
+notes = "PUYA 4 Mbit"
+
+[[chip]]
+name = "P25Q80H"
+jedec_id = "856014"
+size_kb = 1024
+page_size = 256
+sector_size = 4096
+erase_time_ms = 80
+notes = "PUYA 8 Mbit"
+
+[[chip]]
+name = "P25Q16H"
+jedec_id = "856015"
+size_kb = 2048
+page_size = 256
+sector_size = 4096
+erase_time_ms = 80
+notes = "PUYA 16 Mbit"
+
+[[chip]]
+name = "P25Q32H"
+jedec_id = "856016"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 80
+notes = "PUYA 32 Mbit"
+
+[[chip]]
+name = "P25Q64H"
+jedec_id = "856017"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 80
+notes = "PUYA 64 Mbit"
+
+# --- ISSI IS25LP (manufacturer 0x9D) ------------------------------
+# Popular in FPGA dev boards (Lattice, Intel/Altera) where the SPI
+# flash holds the bitstream.
+
+[[chip]]
+name = "IS25LP064"
+jedec_id = "9D6017"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 70
+notes = "ISSI 64 Mbit"
+
+[[chip]]
+name = "IS25LP128"
+jedec_id = "9D6018"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 70
+notes = "ISSI 128 Mbit"

@@ -252,9 +252,14 @@ Remedies, in order of effort:
 
 ### Voltage
 
-The black-module CH341A has a 3.3V/5V jumper near the USB end. **3.3V is
-correct for every chip currently in `chips/chips.toml`** (W25Q, MX25L,
-GD25Q, AT25SF). 5V will damage 3.3V-only parts.
+The black-module CH341A has a 3.3V/5V jumper near the USB end. **3.3V
+is correct for every 3.3V family in `chips/chips.toml`** (W25Q, W25X,
+MX25L, GD25Q, SST25VF, AT25SF, EN25QH, P25Q, IS25LP). The 1.8V
+families (W25Q*JW, MX25U, GD25LQ) need a 1.8V-capable programmer —
+either the V1.7 module's separate 1.8V switch or a level-shifter
+adapter; running them at 3.3V will damage them. **5V will damage
+every chip in the DB** — don't flip the jumper to 5V unless you
+know exactly why.
 
 ### Pin 1
 
@@ -279,7 +284,10 @@ src/
 ├── prefs.rs      ~/.config/etch341/prefs.toml load/save (GUI settings)
 └── gui/          GPUI frontend; behind the `gui` cargo feature (default-on)
 
-chips/chips.toml      24 SPI NOR entries (W25Q, MX25L, GD25Q, SST25VF, AT25SF)
+chips/chips.toml      58 SPI NOR entries across Winbond (W25X, W25Q,
+                      W25Q*JW 1.8V), Macronix (MX25L, MX25U 1.8V),
+                      GigaDevice (GD25Q, GD25LQ 1.8V), SST25VF,
+                      AT25SF, EON EN25QH, PUYA P25Q, ISSI IS25LP
 chips/i2c_chips.toml  10 I²C EEPROM entries (24C01 .. 24C512)
 ```
 
