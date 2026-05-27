@@ -33,6 +33,7 @@ etch341 erase                               # full chip erase
 etch341 erase --range 0x10000:0x10000       # erase one 64 KB block
 etch341 verify -i bios.bin                  # readback compare
 etch341 blank-check                         # confirm all 0xFF
+etch341 sr                                  # dump SR1/SR2/SR3 with decoded bits
 ```
 
 Address parsing accepts decimal (`65536`) or `0x`-prefixed hex

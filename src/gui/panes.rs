@@ -1061,12 +1061,9 @@ fn status_pane(
 ) -> impl IntoElement {
     let mut col = op_pane(
         "Status registers",
-        "Dumps SR1 / SR2 / SR3 with decoded W25Q-family bit names. \
-         Diagnoses 'writes silently failing' (block-protect bits set) \
-         and 'quad mode not enabled' (QE clear) without needing to \
-         memorise the register layout. SR2 / SR3 are W25Q-family by \
-         convention — other vendors may differ; raw bytes are always \
-         shown so you can cross-check with the datasheet.",
+        "Reads SR1 / SR2 / SR3 and decodes the standard bits. Useful \
+         for diagnosing writes that silently fail (block-protect set) \
+         or quad-mode issues (QE clear).",
     );
     col = col.child(action_button_for(
         "Read status",

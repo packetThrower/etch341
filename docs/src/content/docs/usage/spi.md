@@ -121,6 +121,82 @@ etch341 blank-check
 This is cheaper than reading the whole chip — it short-circuits at
 the first non-`0xFF` byte and reports the offset.
 
+## 7. Status registers
+
+```sh
+etch341 sr
+```
+
+Reads the three SPI status registers (SR1 / SR2 / SR3) and decodes
+the standard bit fields. The two most common reasons you'd reach
+for this:
+
+- **Writes silently fail** — the chip is happily ACK-ing the write
+  but the data never lands. Almost always block-protect bits
+  (`BP[2:0]`, `SEC/BP3`) set in SR1. Clear them via WRSR before
+  programming. `etch341 sr` will surface the gotcha with a
+  follow-up note.
+- **Quad-mode opcodes NACK** — `QE` (Quad Enable) is clear in SR2.
+  Mostly only matters if you're trying to use the chip in QSPI
+  mode; standard `0x03` / `0x02` reads + writes work either way.
+
+### What's universal vs vendor-specific
+
+`SR1` (read via opcode `0x05`) is read by **every** SPI NOR chip,
+and the decoded bits (`WIP` / `WEL` / `BP[2:0]` / `TB` / `SRP0`)
+mean the same thing on Winbond, Macronix, GigaDevice, ISSI, EON,
+etc. The one wrinkle is bit 6 — Winbond calls it `SEC` (4 KB vs
+64 KB protect granularity), Macronix calls it `BP3` (extending the
+block-protect mask by one bit). Same position, different semantic;
+`etch341 sr` labels it `SEC/BP3` to hedge.
+
+`SR2` (opcode `0x35`) is on most chips made since ~2012 — W25Q,
+modern MX25L / MX25U, GD25Q. Older or simpler parts (some
+SST25VF, EN25, basic AT25) don't implement it; `etch341 sr` shows
+`0xFF (chip didn't respond — likely doesn't implement SR2)`
+rather than decoding garbage.
+
+`SR3` (opcode `0x15`) is the most vendor-specific — pure W25Q
+convention. On a Macronix or older chip you'll see the same
+"didn't respond" fallback.
+
+The decoded labels for SR2 / SR3 follow the W25Q-family convention.
+Raw hex + binary are always shown so you can cross-check against
+the chip's datasheet if the labels don't apply.
+
+### Example output
+
+```text
+$ etch341 sr
+JEDEC ID : 0xEF4018
+Chip     : W25Q128JV
+
+SR1 : 0x00  (0b00000000)
+        WIP=0 WEL=0 BP=0 TB=0 SEC/BP3=0 SRP0=0
+SR2 : 0x02  (0b00000010)
+        SRP1=0 QE=1 LB=0 CMP=0 SUS=0
+SR3 : 0x60  (0b01100000)
+        ADP=0 WPS=0 DRV=3 HOLD/RST=0
+```
+
+A chip without SR2 / SR3 (like a Macronix MX25U4033E pulled from a
+graphics card):
+
+```text
+$ etch341 sr
+JEDEC ID : 0xC22533
+Chip     : MX25U4033E
+
+SR1 : 0x00  (0b00000000)
+        WIP=0 WEL=0 BP=0 TB=0 SEC/BP3=0 SRP0=0
+SR2 : 0xFF    (chip didn't respond — likely doesn't implement SR2)
+SR3 : 0xFF    (chip didn't respond — likely doesn't implement SR3)
+```
+
+The GUI's **Status regs** pane (under the workflow divider in
+the sidebar) renders the same view — handy for keeping an eye on
+SR1 across multiple chips without flipping back to the terminal.
+
 ## Troubleshooting
 
 ### `JEDEC ID : 0xFFFFFF` (MISO floats high)
