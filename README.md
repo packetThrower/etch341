@@ -10,6 +10,10 @@
 [![Rust](https://img.shields.io/badge/Rust-stable-CE422B?style=flat-square&logo=rust&logoColor=white)](Cargo.toml)
 [![License: GPL v3+](https://img.shields.io/badge/license-GPLv3%2B-blue?style=flat-square)](LICENSE)
 
+<p align="center">
+  <img src="docs/public/etch341.png" alt="etch341 GUI showing the Detect pane with a chip identified, the workflow sidebar, and the activity log" width="900">
+</p>
+
 ## Minimum OS versions
 
 **macOS** (Apple Silicon and Intel)

@@ -4,6 +4,8 @@ description: A walkthrough of etch341's desktop GUI — what's in each pane, how
 editUrl: https://github.com/packetThrower/etch341/edit/main/docs/src/content/docs/usage/gui.md
 ---
 
+![etch341 GUI showing the Detect pane with a chip identified, the workflow sidebar, and the activity log](/etch341/etch341.png)
+
 Launching the binary with no subcommand opens the desktop GUI. On
 the released installers this is what double-clicking the app does
 (or running it from the Start menu / `gtk-launch etch341` on

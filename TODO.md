@@ -52,13 +52,6 @@ priority order.
       Read Device ID) and `0x90` (Read Manufacturer / Device ID,
       with address bytes) when `0x9F` returns garbage. Some older
       chips don't respond to `0x9F`. ~1-2 hr.
-- [ ] **SFDP support** (`0x5A`) — read the chip's
-      Serial Flash Discoverable Parameters table and derive
-      capabilities (page / sector / block sizes, supported erase
-      opcodes, address width) without needing the chip in the DB.
-      Modern chips (2010+) all support SFDP; would dramatically
-      reduce the "ChipNotRecognized" surface. ~3-4 hr.
-
 ### Big effort, big payoff (when there's a real need)
 
 - [ ] **Region / layout support** — `etch341 read --region BIOS`,
@@ -201,12 +194,6 @@ functionality.
       MX25U4033E in CI on a self-hosted runner with a CH341A
       attached. Out of scope until self-hosted runner infrastructure
       exists.
-- [ ] **GUI screenshots** for the docs site — `usage/gui.md`
-      describes the panes but doesn't show them. Render
-      dark+light variants of each pane; commit to
-      `docs/public/screenshots/`; reference in the page with a
-      `<picture>` so each user sees the screenshot matching their
-      OS theme.
 - [ ] **Google Search Console verification token** — add the
       `google-site-verification` meta tag to `docs/astro.config.mjs`
       after claiming the property at

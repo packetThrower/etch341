@@ -7,6 +7,87 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **SFDP support** (`etch341 sfdp` + folded into the Detect pane).
+  Reads JESD216 Serial Flash Discoverable Parameters from chips
+  that carry it (most SPI NOR since ~2011) and decodes the JEDEC
+  Basic Flash Parameter Table: total size, page size, address
+  width, 4K erase opcode, and up to four erase types. Detect now
+  always reads SFDP after JEDEC and shows both a chip-info card
+  (JEDEC + chip name + source + size) and an SFDP card (raw
+  decoded table) inline in the pane.
+- **SFDP fallback in `resolve_chip` + GUI ops** — when JEDEC isn't
+  in `chips.toml`, the read / write / erase / verify / blank-check
+  / Detect paths now synthesize a `Chip` from SFDP (name like
+  `"C22011 (SFDP)"`, derived size / page / sector) instead of
+  hard-failing with `ChipNotRecognized`. Explicit `--chip <NAME>`
+  still wins over both lookups. Silicon-validated against an
+  uncatalogued MX25L1006E: SFDP-synthesized parameters produced
+  the byte-identical read as the curated DB entry.
+- **Settings → Read save location** picker. Read pane dumps used
+  to land in `$HOME` unconditionally; now configurable via a
+  folder picker in Settings with a free-form display of the
+  current value. Persisted in `prefs.toml`.
+- **Status registers Copy button** and **SFDP Copy button** —
+  each card has a small "Copy" pill that puts the plain-text
+  decoded view on the clipboard for paste-into-bug-report / share
+  workflows. GPUI doesn't support cursor-based text selection in
+  rendered text, so copy-all is the practical substitute.
+- **Op-pane scrolling** — every pane's content now scrolls within
+  the resizable pane area instead of clipping at the bottom. The
+  Settings pane needed this for the WINDOW + READ SAVE LOCATION
+  + PREFERENCES FILE sections to stay reachable on shorter
+  windows; the SFDP card likewise can extend past one viewport.
+- **Output cards** in Status registers and Detect / SFDP panes
+  set "operation result" apart from the pane's heading + body +
+  button stack with a subtle glass background + hairline border.
+- **Screenshot of the GUI** in `docs/public/etch341.png`, embedded
+  in `usage/gui.md` and the project README so visitors landing on
+  either can see what the running app looks like before reaching
+  for the installer.
+
+### Changed
+
+- **Progress indicator** in the session header now renders as an
+  accent-blue pill (background tint + accent-blue text) while an
+  op is running instead of the previous near-invisible
+  tertiary-gray text. Easy to glance and tell whether a Read /
+  Write is in progress; falls back to the quiet "idle" treatment
+  when nothing's running.
+- **Em-dashes** removed from every user-visible string across the
+  GUI + CLI (panel bodies, armed warnings, log lines, error
+  messages, SPI speed labels, Find input placeholder). Replaced
+  with `:`, `.`, or `,` based on the role each em-dash was
+  playing. Code comments left alone.
+- **Detect pane** body rewritten in plainer language and now
+  clarifies that Detect is optional (every op auto-detects on
+  its own). "Other steps" matches the stepper sidebar's
+  vocabulary.
+- **Read pane** body trimmed of "runs in the background, watch
+  the log" filler. References Settings → Read save location.
+
+### Fixed
+
+- **SFDP parser**: `parse_bfpt` was reading "DWORD 11" (page size
+  + program/erase timings) regardless of the BFPT's actual
+  length. Older pre-JESD216A chips like the MX25L1006E ship a
+  9-DWORD BFPT; reading past it returned garbage that decoded
+  page_size as 32768 on this chip. Now gated on
+  `length_dwords >= 11` with a sanity cap to [256, 4096]. New
+  `nine_dword_bfpt_defaults_page_to_256` regression test
+  exercises the exact MX25L1006E pattern.
+- **Activity log** typed-text-invisible bug was fixed in v0.3.1;
+  this release adds the matching find-input-placeholder visibility
+  fix that slipped through then.
+
+### Documented
+
+- **Detect / SFDP consolidation** — the standalone "SFDP" sidebar
+  pane is gone; the Detect pane now does both jobs (JEDEC + DB
+  lookup + SFDP read + decoded table). Updated `usage/gui.md` to
+  describe the combined layout.
+
 ## [0.3.1] — 2026-05-26
 
 ### Fixed
