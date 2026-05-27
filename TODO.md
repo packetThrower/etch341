@@ -19,12 +19,6 @@ priority order.
 
 ### High value, low–medium effort
 
-- [ ] **Read to stdout** — accept `-o -` and write the chip dump to
-      stdout. Enables `etch341 read -o - | sha256sum`,
-      `etch341 read -o - | diff -`, and other UNIX-pipe idioms.
-      Need to suppress the chatty stderr "Read OK / SHA-256" lines
-      when stdout is the dump target so they don't end up
-      interleaved with the data. ~15 min.
 - [ ] **Force / skip-probe mode** (`--force`) — bypass JEDEC
       sanity-check for chips whose ID register is damaged or whose
       JEDEC ID is missing from the database. Today the `--chip`

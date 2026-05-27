@@ -50,6 +50,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
   vendors; SR2 / SR3 follow the W25Q-family convention and
   show "didn't respond" on chips that don't implement them.
   Silicon-validated on a Macronix MX25U4033E.
+- **`read -o -`** dumps the chip to stdout instead of a file —
+  enables `etch341 read -o - | sha256sum` and similar pipe
+  idioms. Success summary lines suppressed in stdout mode so
+  they don't interleave with the binary data; errors still
+  surface on stderr.
 
 ### Changed
 
