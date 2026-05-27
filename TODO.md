@@ -150,6 +150,23 @@ functionality.
       on/off. Multi-level verbose (header info → bus bytes → full
       USB-packet hex) would let users dial detail to what they
       need; the bare `-v i2c scan` dump can be overwhelming.
+- [ ] **Split `etch341-cli.exe` from `etch341.exe` on Windows** —
+      the GUI binary is marked `windows_subsystem = "windows"` so
+      Explorer launches don't pop a console, with an
+      `AttachConsole(ATTACH_PARENT_PROCESS)` fallback that grafts
+      onto the parent shell when invoked as a CLI. That fallback
+      works but the shell has already fire-and-forgotten the
+      process by the time the output prints, so `etch341 detect`
+      from PowerShell lands its lines *after* the next prompt has
+      redrawn — usable but ugly. PortFinder solved the same
+      problem by shipping a second binary
+      (`portfinder-cli.exe`, console subsystem). Mirror the
+      pattern: split `src/main.rs` into a lib + two
+      `src/bin/etch341*.rs` entry points, declare two `[[bin]]`
+      targets in `Cargo.toml`, and bundle both `.exe`s into the
+      NSIS / MSI / portable-zip artifacts. Update the Scoop
+      manifest's `bin` array to surface both shims on PATH.
+      ~1-2 hr. macOS / Linux unaffected (no subsystem distinction).
 - [ ] **CLI `--from-chip`** for `strings` / `search` — let them
       operate directly on the live chip instead of needing a `read`
       first. Just plumbing: open Ch341, run ops::read into a Vec,
