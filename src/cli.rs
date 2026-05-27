@@ -54,6 +54,11 @@ pub enum Command {
     /// not enabled" (QE clear) without needing to memorise the
     /// register layout.
     Sr,
+    /// Read + decode the chip's SFDP (Serial Flash Discoverable
+    /// Parameters) table. Surfaces size / page / erase opcodes /
+    /// addressing directly from the chip without a DB lookup, so
+    /// you can read a brand-new chip that isn't in chips.toml yet.
+    Sfdp,
     /// I²C EEPROM operations (24Cxx family).
     I2c {
         #[command(subcommand)]
@@ -289,6 +294,17 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 return Ok(());
             }
             Ok(ops::status(&global)?)
+        }
+
+        Command::Sfdp => {
+            if global.dry_run {
+                println!(
+                    "[dry-run] would open CH341A at {} kHz and read SFDP table",
+                    global.speed
+                );
+                return Ok(());
+            }
+            Ok(ops::sfdp(&global)?)
         }
 
         Command::Read(args) => {

@@ -49,6 +49,7 @@ mod i2c_ops;
 mod inspect;
 mod ops;
 mod prefs;
+mod sfdp;
 mod spi;
 
 #[cfg(feature = "gui")]

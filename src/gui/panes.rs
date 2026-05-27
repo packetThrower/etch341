@@ -46,6 +46,9 @@ pub struct PaneInputs<'a> {
     /// to set it; the Read pane body surfaces the current value
     /// so the user knows where the next dump will land.
     pub read_output_dir: Option<&'a Path>,
+    /// Last SFDP read (raw bytes + parsed decode) for the SFDP
+    /// pane. `None` until the user clicks Read on that pane.
+    pub sfdp_dump: Option<&'a (Vec<u8>, crate::sfdp::Sfdp)>,
 }
 
 pub fn render(
@@ -61,6 +64,7 @@ pub fn render(
         Pane::Verify => verify_pane(inputs.verify_path, cx).into_any_element(),
         Pane::Blank => blank_pane(cx).into_any_element(),
         Pane::Status => status_pane(inputs.status_regs, cx).into_any_element(),
+        Pane::Sfdp => sfdp_pane(inputs.sfdp_dump, cx).into_any_element(),
         Pane::Hex => hex_pane(
             inputs.hex_path,
             inputs.hex_bytes,
@@ -230,7 +234,17 @@ fn settings_pane(
         (750, "750 kHz, fastest reliable rate (recommended)"),
     ];
 
+    // Settings has its own outer container (not `op_pane`) because
+    // the section labels + speed rows have a different rhythm than
+    // an op pane's heading/body/button layout. Same scroll
+    // treatment though — the WINDOW + READ SAVE LOCATION sections
+    // can push the PREFERENCES FILE row off the bottom on shorter
+    // window heights.
     let mut col = div()
+        .id("settings-scroll")
+        .size_full()
+        .min_h(px(0.0))
+        .overflow_y_scroll()
         .flex()
         .flex_col()
         .gap_4()
@@ -1119,42 +1133,53 @@ fn status_pane(
         |this, cx| this.start_read_status(cx),
     ));
     if let Some(r) = regs {
-        col = col.child(status_register_block(
-            "SR1",
-            r.sr1,
-            true,
-            &[
-                ("WIP", r.wip().to_string()),
-                ("WEL", r.wel().to_string()),
-                ("BP", r.bp().to_string()),
-                ("TB", r.tb().to_string()),
-                ("SEC/BP3", r.sec_or_bp3().to_string()),
-                ("SRP0", r.srp0().to_string()),
-            ],
-        ));
-        col = col.child(status_register_block(
-            "SR2",
-            r.sr2,
-            r.sr2_present(),
-            &[
-                ("SRP1", r.srp1().to_string()),
-                ("QE", r.qe().to_string()),
-                ("LB", r.lb().to_string()),
-                ("CMP", r.cmp().to_string()),
-                ("SUS", r.sus().to_string()),
-            ],
-        ));
-        col = col.child(status_register_block(
-            "SR3",
-            r.sr3,
-            r.sr3_present(),
-            &[
-                ("ADP", r.adp().to_string()),
-                ("WPS", r.wps().to_string()),
-                ("DRV", r.drv().to_string()),
-                ("HOLD/RST", r.hold_rst().to_string()),
-            ],
-        ));
+        // Group the three register blocks inside a single card so
+        // "decoded result" is visually distinct from the pane's
+        // heading + body + button stack above. Each SR block keeps
+        // its own header (SR1 / SR2 / SR3) inside the card. The
+        // Copy button on the card writes a plain-text dump of all
+        // three registers to the clipboard for paste-into-issue
+        // / share-with-a-coworker workflows.
+        let copy_text = format_status_for_copy(&r);
+        col = col.child(
+            card_with_copy(copy_text, "copy-status", cx)
+                .child(status_register_block(
+                    "SR1",
+                    r.sr1,
+                    true,
+                    &[
+                        ("WIP", r.wip().to_string()),
+                        ("WEL", r.wel().to_string()),
+                        ("BP", r.bp().to_string()),
+                        ("TB", r.tb().to_string()),
+                        ("SEC/BP3", r.sec_or_bp3().to_string()),
+                        ("SRP0", r.srp0().to_string()),
+                    ],
+                ))
+                .child(status_register_block(
+                    "SR2",
+                    r.sr2,
+                    r.sr2_present(),
+                    &[
+                        ("SRP1", r.srp1().to_string()),
+                        ("QE", r.qe().to_string()),
+                        ("LB", r.lb().to_string()),
+                        ("CMP", r.cmp().to_string()),
+                        ("SUS", r.sus().to_string()),
+                    ],
+                ))
+                .child(status_register_block(
+                    "SR3",
+                    r.sr3,
+                    r.sr3_present(),
+                    &[
+                        ("ADP", r.adp().to_string()),
+                        ("WPS", r.wps().to_string()),
+                        ("DRV", r.drv().to_string()),
+                        ("HOLD/RST", r.hold_rst().to_string()),
+                    ],
+                )),
+        );
         // Same gotcha-surfacing note the CLI prints — most common
         // reason a user is on this pane is "writes silently failing"
         // due to BP bits, so call it out directly.
@@ -1167,6 +1192,51 @@ fn status_pane(
         }
     }
     col
+}
+
+/// Render the same SR1/SR2/SR3 decode the CLI's `etch341 sr` prints,
+/// as a plain-text block suitable for clipboard. Lives in panes.rs
+/// so the GUI Copy button doesn't need to round-trip through
+/// `ops::print_status` (which writes to stdout).
+fn format_status_for_copy(r: &crate::spi::StatusRegisters) -> String {
+    let bit = |b: bool| if b { '1' } else { '0' };
+    let mut s = String::new();
+    s.push_str(&format!("SR1 : 0x{:02X}  (0b{:08b})\n", r.sr1, r.sr1));
+    s.push_str(&format!(
+        "        WIP={} WEL={} BP={} TB={} SEC/BP3={} SRP0={}\n",
+        bit(r.wip()),
+        bit(r.wel()),
+        r.bp(),
+        bit(r.tb()),
+        bit(r.sec_or_bp3()),
+        bit(r.srp0()),
+    ));
+    if r.sr2_present() {
+        s.push_str(&format!("SR2 : 0x{:02X}  (0b{:08b})\n", r.sr2, r.sr2));
+        s.push_str(&format!(
+            "        SRP1={} QE={} LB={} CMP={} SUS={}\n",
+            bit(r.srp1()),
+            bit(r.qe()),
+            r.lb(),
+            bit(r.cmp()),
+            bit(r.sus()),
+        ));
+    } else {
+        s.push_str("SR2 : 0xFF    (chip didn't respond)\n");
+    }
+    if r.sr3_present() {
+        s.push_str(&format!("SR3 : 0x{:02X}  (0b{:08b})\n", r.sr3, r.sr3));
+        s.push_str(&format!(
+            "        ADP={} WPS={} DRV={} HOLD/RST={}\n",
+            bit(r.adp()),
+            bit(r.wps()),
+            r.drv(),
+            bit(r.hold_rst()),
+        ));
+    } else {
+        s.push_str("SR3 : 0xFF    (chip didn't respond)\n");
+    }
+    s
 }
 
 /// One register row inside `status_pane` — section label, raw hex
@@ -1229,6 +1299,246 @@ fn status_register_block(
     div().flex().flex_col().gap_1().child(header).child(grid)
 }
 
+fn sfdp_pane(
+    dump: Option<&(Vec<u8>, crate::sfdp::Sfdp)>,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
+    let mut col = op_pane(
+        "SFDP",
+        "Reads the chip's Serial Flash Discoverable Parameters table \
+         (JESD216, opcode 0x5A) and decodes the JEDEC Basic Flash \
+         Parameter Table out of it. Useful for chips that aren't in \
+         the bundled database: size, page size, sector erase opcodes, \
+         and address width come straight from the chip.",
+    );
+    col = col.child(action_button_for(
+        "Read SFDP",
+        "read-sfdp",
+        cx,
+        |this, cx| this.start_read_sfdp(cx),
+    ));
+    let Some((_, parsed)) = dump else {
+        return col;
+    };
+    if !parsed.header.valid {
+        col = col.child(armed_warning(
+            "Chip did not return the 'SFDP' magic. Probably predates JESD216 \
+             (~2011) or is a vendor part that omits SFDP. Use the Detect pane \
+             to confirm the chip is responding at all.",
+        ));
+        return col;
+    }
+    // Build the parameter-header list once so we can drop it
+    // straight into the card below.
+    let mut hdr_grid = mono_block();
+    for (i, ph) in parsed.parameter_headers.iter().enumerate() {
+        let tag = if ph.id == crate::sfdp::ParameterHeader::BFPT_ID {
+            "JEDEC BFPT"
+        } else {
+            "vendor"
+        };
+        hdr_grid = hdr_grid.child(div().child(format!(
+            "[{i}] id=0x{:04X} ({tag})  rev {}.{}  len={} dwords  @ 0x{:06X}",
+            ph.id, ph.major_rev, ph.minor_rev, ph.length_dwords, ph.ptr,
+        )));
+    }
+
+    // Group all decoded SFDP output inside one card so it reads as
+    // "this is the result of the SFDP read" instead of mixing in
+    // with the pane's heading + body + button stack. The Copy
+    // button on the card dumps a plain-text version of the same
+    // decoded view (handy for pasting into a bug report when
+    // ChipNotRecognized hits an unknown JEDEC).
+    let copy_text = format_sfdp_for_copy(parsed);
+    let mut output = card_with_copy(copy_text, "copy-sfdp", cx)
+        .child(section_block_with_text(
+            "HEADER",
+            format!(
+                "rev {}.{}  ·  {} parameter header(s)",
+                parsed.header.major_rev,
+                parsed.header.minor_rev,
+                parsed.parameter_headers.len(),
+            ),
+        ))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(section_label("PARAMETER HEADERS"))
+                .child(hdr_grid),
+        );
+
+    if let Some(bfpt) = &parsed.bfpt {
+        let addr = match bfpt.addressing {
+            crate::sfdp::Addressing::ThreeByteOnly => "3-byte only",
+            crate::sfdp::Addressing::Either => "3- or 4-byte (default 3)",
+            crate::sfdp::Addressing::FourByteOnly => "4-byte only",
+            crate::sfdp::Addressing::Reserved => "reserved encoding",
+        };
+        let mut grid = mono_block()
+            .child(div().child(format!(
+                "size      : {} bytes ({} KB, {} Mbit)",
+                bfpt.size_bytes,
+                bfpt.size_bytes / 1024,
+                bfpt.size_bytes * 8 / 1_000_000,
+            )))
+            .child(div().child(format!("page size : {} bytes", bfpt.page_size)))
+            .child(div().child(format!("address   : {addr}")));
+        if bfpt.erase_4k_opcode != 0xFF {
+            grid = grid
+                .child(div().child(format!("4K erase  : opcode 0x{:02X}", bfpt.erase_4k_opcode)));
+        } else {
+            grid = grid.child(div().child("4K erase  : not supported".to_string()));
+        }
+        output = output.child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(section_label("BFPT"))
+                .child(grid),
+        );
+
+        let mut etype_grid = mono_block();
+        let mut any = false;
+        for (i, e) in bfpt.erase_types.iter().enumerate() {
+            if e.size_bytes == 0 {
+                continue;
+            }
+            any = true;
+            let size = if e.size_bytes >= (1 << 20) {
+                format!("{} MB", e.size_bytes >> 20)
+            } else if e.size_bytes >= (1 << 10) {
+                format!("{} KB", e.size_bytes >> 10)
+            } else {
+                format!("{} B", e.size_bytes)
+            };
+            etype_grid = etype_grid.child(div().child(format!(
+                "[{i}] opcode 0x{:02X}  {} bytes ({size})",
+                e.opcode, e.size_bytes,
+            )));
+        }
+        if !any {
+            etype_grid = etype_grid.child(div().child("(none advertised)".to_string()));
+        }
+        output = output.child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(section_label("ERASE TYPES"))
+                .child(etype_grid),
+        );
+    } else {
+        output = output.child(
+            div()
+                .text_color(theme::text_tertiary())
+                .child("(BFPT body wasn't reachable inside the 256-byte read window)"),
+        );
+    }
+
+    col = col.child(output);
+    col
+}
+
+/// Plain-text rendering of the same decoded SFDP view the pane
+/// shows visually. Used by the card's Copy button to put the
+/// output on the clipboard.
+fn format_sfdp_for_copy(parsed: &crate::sfdp::Sfdp) -> String {
+    use crate::sfdp::{Addressing, ParameterHeader};
+    let mut s = String::new();
+    s.push_str(&format!(
+        "SFDP rev {}.{}, {} parameter header(s)\n",
+        parsed.header.major_rev,
+        parsed.header.minor_rev,
+        parsed.parameter_headers.len(),
+    ));
+    for (i, ph) in parsed.parameter_headers.iter().enumerate() {
+        let tag = if ph.id == ParameterHeader::BFPT_ID {
+            "JEDEC BFPT"
+        } else {
+            "vendor"
+        };
+        s.push_str(&format!(
+            "  [{i}] id=0x{:04X} ({tag}) rev {}.{} len={} dwords @ 0x{:06X}\n",
+            ph.id, ph.major_rev, ph.minor_rev, ph.length_dwords, ph.ptr,
+        ));
+    }
+    if let Some(b) = &parsed.bfpt {
+        let addr = match b.addressing {
+            Addressing::ThreeByteOnly => "3-byte only",
+            Addressing::Either => "3- or 4-byte (default 3)",
+            Addressing::FourByteOnly => "4-byte only",
+            Addressing::Reserved => "reserved encoding",
+        };
+        s.push_str("\nBFPT:\n");
+        s.push_str(&format!(
+            "  size      : {} bytes ({} KB, {} Mbit)\n",
+            b.size_bytes,
+            b.size_bytes / 1024,
+            b.size_bytes * 8 / 1_000_000,
+        ));
+        s.push_str(&format!("  page size : {} bytes\n", b.page_size));
+        s.push_str(&format!("  address   : {addr}\n"));
+        if b.erase_4k_opcode != 0xFF {
+            s.push_str(&format!(
+                "  4K erase  : opcode 0x{:02X}\n",
+                b.erase_4k_opcode
+            ));
+        } else {
+            s.push_str("  4K erase  : not supported\n");
+        }
+        s.push_str("  erase types:\n");
+        let mut any = false;
+        for (i, e) in b.erase_types.iter().enumerate() {
+            if e.size_bytes == 0 {
+                continue;
+            }
+            any = true;
+            s.push_str(&format!(
+                "    [{i}] opcode 0x{:02X}  {} bytes\n",
+                e.opcode, e.size_bytes,
+            ));
+        }
+        if !any {
+            s.push_str("    (none advertised)\n");
+        }
+    }
+    s
+}
+
+/// Mono-styled flex column used for fixed-width text blocks inside
+/// the SFDP card. Pulls font + color + spacing into one place so
+/// every section reads with the same rhythm.
+fn mono_block() -> gpui::Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .text_size(px(12.0))
+        .font_family(theme::MONO_FONT)
+        .text_color(theme::text_secondary())
+}
+
+/// Section label paired with a single line of mono-styled text.
+/// Used by the SFDP card's "HEADER" section where the content is
+/// a one-liner instead of a multi-row grid.
+fn section_block_with_text(label: &'static str, text: String) -> gpui::Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(section_label(label))
+        .child(
+            div()
+                .text_size(px(12.0))
+                .font_family(theme::MONO_FONT)
+                .text_color(theme::text_secondary())
+                .child(text),
+        )
+}
+
 fn blank_pane(cx: &mut Context<AppView>) -> impl IntoElement {
     op_pane(
         "Blank check",
@@ -1256,15 +1566,28 @@ fn detect_pane(cx: &mut Context<AppView>) -> impl IntoElement {
 }
 
 /// Shared outer shell for the operation panes (Detect / Read / Erase
-/// / Write / Verify / Blank). Returns a `flex_col` div with the
-/// standard pane padding + gap, the heading, and the body paragraph
-/// already added — callers chain on the per-pane extras (file
-/// picker, armed warning, action button) via `.child(...)`. Keeps
-/// "what a pane looks like" in one place so future tweaks (e.g.
-/// changing the body color or the gap between rows) land here
-/// instead of in six near-identical copies.
-fn op_pane(heading_text: &'static str, body_text: &'static str) -> gpui::Div {
+/// / Write / Verify / Blank / Status / SFDP). Returns a scrollable
+/// `flex_col` with the standard pane padding + gap, the heading,
+/// and the body paragraph already added — callers chain on the
+/// per-pane extras (file picker, armed warning, action button,
+/// output cards) via `.child(...)`. Keeps "what a pane looks like"
+/// in one place so future tweaks (e.g. changing the body color or
+/// the gap between rows) land here instead of in eight
+/// near-identical copies.
+///
+/// `id` is derived from the heading text so each pane gets a
+/// distinct scroll handle — gpui requires a stable identifier on
+/// any interactive (here, scrollable) element. The container is
+/// `size_full()` + `min_h(0)` so flex shrinks it to the resizable
+/// pane area rather than expanding to its content height, which
+/// is what lets `overflow_y_scroll` actually clip the content
+/// instead of growing the parent.
+fn op_pane(heading_text: &'static str, body_text: &'static str) -> gpui::Stateful<gpui::Div> {
     div()
+        .id(heading_text)
+        .size_full()
+        .min_h(px(0.0))
+        .overflow_y_scroll()
         .flex()
         .flex_col()
         .gap_4()
@@ -1272,6 +1595,72 @@ fn op_pane(heading_text: &'static str, body_text: &'static str) -> gpui::Div {
         .py_5()
         .child(heading(heading_text))
         .child(body(body_text))
+}
+
+/// Visually-distinct container for pane output (Status register
+/// blocks, SFDP decoded fields, etc). The slightly lighter glass
+/// background + hairline border sets "this is the result of an
+/// operation" apart from the surrounding pane chrome so the user's
+/// eye lands on it without having to track what's heading vs
+/// description vs output. Callers append the actual content
+/// children via `.child(...)`.
+fn card() -> gpui::Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap_4()
+        .p_4()
+        .rounded(px(8.0))
+        .bg(theme::workshop_glass())
+        .border_1()
+        .border_color(theme::workshop_glass_strong())
+}
+
+/// `card()` with a small "Copy" pill button anchored to the top
+/// right. Clicking the button writes `copy_text` to the system
+/// clipboard. Used by output panes (Status registers, SFDP) so
+/// users can share / paste the decoded output without retyping —
+/// GPUI's `div().child("text")` doesn't natively support
+/// cursor-based text selection, so a copy-all button is the
+/// pragmatic substitute. The first child of the returned div is
+/// the button row; callers chain the actual content below it
+/// via `.child(...)`.
+fn card_with_copy(
+    copy_text: String,
+    copy_id: &'static str,
+    cx: &mut Context<AppView>,
+) -> gpui::Div {
+    card().child(
+        div()
+            .flex()
+            .flex_row()
+            .justify_end()
+            .child(copy_button(copy_text, copy_id, cx)),
+    )
+}
+
+/// Small inline "Copy" pill button. Click writes `text` to the
+/// clipboard and pushes a brief confirmation to the activity log.
+fn copy_button(text: String, id: &'static str, cx: &mut Context<AppView>) -> impl IntoElement {
+    div()
+        .id(id)
+        .px_2()
+        .py_0p5()
+        .rounded(px(4.0))
+        .text_size(px(11.0))
+        .text_color(theme::text_secondary())
+        .bg(theme::workshop_glass_strong())
+        .cursor_pointer()
+        .hover(|d| d.text_color(theme::text_primary()))
+        .child("Copy")
+        .on_click(
+            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+                let payload = text.clone();
+                let len = payload.len();
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(payload));
+                this.push_log(format!("Copied {len} chars to clipboard"));
+            }),
+        )
 }
 
 fn heading(text: &'static str) -> impl IntoElement {

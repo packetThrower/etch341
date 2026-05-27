@@ -143,6 +143,7 @@ pub fn render(selected: Pane, cx: &mut Context<AppView>) -> impl IntoElement {
         )
         .child(item(Pane::Blank, "Blank check", selected, cx))
         .child(item(Pane::Status, "Status regs", selected, cx))
+        .child(item(Pane::Sfdp, "SFDP", selected, cx))
         .child(item(Pane::Hex, "Hex viewer", selected, cx))
         .child(div().flex_1())
         .child(item(Pane::Settings, "⚙ Settings", selected, cx))

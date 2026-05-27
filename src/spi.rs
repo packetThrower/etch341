@@ -19,6 +19,12 @@ pub mod opcode {
     /// than SR2 — only the Winbond W25Q\* line uses this convention.
     /// Same "treat 0xFF as not-present" caveat applies.
     pub const READ_STATUS_3: u8 = 0x15;
+    /// Read Serial Flash Discoverable Parameters table (JESD216).
+    /// Modern SPI NOR (2011+) carries a self-describing block of
+    /// metadata that lets us derive size / page / sector / opcode
+    /// info without a DB lookup. Wire format is opcode + 3-byte
+    /// big-endian SFDP address + 1 dummy byte, then read N bytes.
+    pub const READ_SFDP: u8 = 0x5A;
     pub const WRITE_ENABLE: u8 = 0x06;
     pub const CHIP_ERASE: u8 = 0xC7;
     // Standard 3-byte addressing opcodes (chips ≤ 16 MB).
@@ -221,6 +227,30 @@ pub fn read_status_2(spi: &mut dyn SpiTransport) -> Result<u8> {
 pub fn read_status_3(spi: &mut dyn SpiTransport) -> Result<u8> {
     let rx = spi.spi_transfer(&[opcode::READ_STATUS_3, 0])?;
     Ok(rx[1])
+}
+
+/// Read `len` bytes from the chip's SFDP space starting at the
+/// 24-bit `offset`. SFDP is a separate address space from main
+/// flash; the wire sequence is `0x5A`, three big-endian address
+/// bytes, one dummy byte (clocked while the chip aligns its
+/// internal pointer), then the payload bytes. Returns the payload
+/// only (the leading 5 command/dummy bytes are stripped).
+///
+/// Chips made before JESD216 was widespread (pre-2011) typically
+/// return `0xFF` for every byte — the caller should treat the
+/// leading bytes as "missing SFDP" if they don't decode as the
+/// "SFDP" magic.
+pub fn read_sfdp(spi: &mut dyn SpiTransport, offset: u32, len: usize) -> Result<Vec<u8>> {
+    let mut cmd = Vec::with_capacity(5 + len);
+    cmd.push(opcode::READ_SFDP);
+    cmd.push((offset >> 16) as u8);
+    cmd.push((offset >> 8) as u8);
+    cmd.push(offset as u8);
+    cmd.push(0); // dummy
+    cmd.resize(5 + len, 0);
+    let mut rx = spi.spi_transfer(&cmd)?;
+    rx.drain(..5);
+    Ok(rx)
 }
 
 /// Read all three status registers in a single op. SR2/SR3 reads

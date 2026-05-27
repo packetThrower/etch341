@@ -193,6 +193,7 @@ pub enum Pane {
     Verify,
     Blank,
     Status,
+    Sfdp,
     Hex,
     Settings,
 }
@@ -261,6 +262,10 @@ pub struct AppView {
     /// shares the same decoded view (`StatusRegisters::wip` etc.)
     /// the CLI's `ops::status` uses.
     pub status_regs: Option<crate::spi::StatusRegisters>,
+    /// Last SFDP dump + parsed result from the SFDP pane's "Read"
+    /// button. Both the raw bytes (for the hex preview) and the
+    /// decoded `Sfdp` are kept; the pane render formats both.
+    pub sfdp_dump: Option<(Vec<u8>, crate::sfdp::Sfdp)>,
     pub log_lines: Vec<LogLine>,
     /// Persists scroll position across re-renders; required by
     /// `track_scroll(...)` to keep the log from jumping back to the
@@ -373,6 +378,7 @@ impl AppView {
             selected: Pane::Detect,
             connection: Connection::Disconnected,
             status_regs: None,
+            sfdp_dump: None,
             log_lines: vec![LogLine {
                 timestamp: now_hms(),
                 text: "etch341 ready. Plug in a CH341A and click Detect chip.".into(),
@@ -1274,6 +1280,72 @@ impl AppView {
         .detach();
     }
 
+    /// Read 256 bytes of SFDP off the chip and stash the parsed
+    /// result in `self.sfdp_dump` for the SFDP pane to render.
+    /// Mirrors the `etch341 sfdp` CLI. Same JEDEC-first guard as
+    /// the Status read so an MISO-stuck-low / floats-high path
+    /// gets a friendly log message instead of a 256-byte all-FF
+    /// "decoded" dump.
+    pub fn start_read_sfdp(&mut self, cx: &mut Context<Self>) {
+        self.push_log("→ sfdp".into());
+        cx.notify();
+        let speed = self.prefs.spi_speed_khz;
+        cx.spawn(async move |weak, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
+                    let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
+                    match detect.diagnosis {
+                        Diagnosis::MisoStuckLow => {
+                            return Err("MISO stuck low (target board contention)".into());
+                        }
+                        Diagnosis::MisoFloatsHigh => {
+                            return Err("MISO floats high (no chip / HOLD# grounded)".into());
+                        }
+                        _ => {}
+                    }
+                    let data =
+                        crate::spi::read_sfdp(&mut ch, 0, 256).map_err(|e| format!("{e}"))?;
+                    let parsed = crate::sfdp::parse(&data);
+                    Ok::<_, String>((data, parsed))
+                })
+                .await;
+
+            weak.update(cx, |this, cx| {
+                match outcome {
+                    Ok((data, parsed)) => {
+                        let summary = if let Some(b) = &parsed.bfpt {
+                            format!(
+                                "SFDP OK: rev {}.{}, {} bytes, page {}",
+                                parsed.header.major_rev,
+                                parsed.header.minor_rev,
+                                b.size_bytes,
+                                b.page_size
+                            )
+                        } else if parsed.header.valid {
+                            format!(
+                                "SFDP OK: rev {}.{} (BFPT missing)",
+                                parsed.header.major_rev, parsed.header.minor_rev,
+                            )
+                        } else {
+                            "SFDP: chip didn't return 'SFDP' magic (no JESD216 support)".to_string()
+                        };
+                        this.sfdp_dump = Some((data, parsed));
+                        this.push_log(summary);
+                    }
+                    Err(err) => {
+                        this.push_log(format!("SFDP FAIL: {err}"));
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     pub fn start_blank_check(&mut self, cx: &mut Context<Self>) {
         self.push_log("→ blank check".into());
         cx.notify();
@@ -1446,6 +1518,7 @@ impl Render for AppView {
                                     prefs_path: prefs_path_buf.as_deref(),
                                     status_regs: self.status_regs,
                                     read_output_dir: self.prefs.read_output_dir.as_deref(),
+                                    sfdp_dump: self.sfdp_dump.as_ref(),
                                 };
                                 let outer = div().flex_1().min_h(px(0.0)).min_w(px(0.0));
                                 if self.selected == Pane::Settings {

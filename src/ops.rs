@@ -232,6 +232,124 @@ fn bit(b: bool) -> char {
     if b { '1' } else { '0' }
 }
 
+/// Read the chip's SFDP table, parse the JEDEC Basic Flash
+/// Parameter Table out of it, and print both the raw header walk
+/// and the decoded BFPT. Same JEDEC-first guard as `status` so
+/// the "no chip" case surfaces a clean message instead of an
+/// all-`0xFF` SFDP dump that decodes as garbage.
+pub fn sfdp(global: &GlobalOpts) -> Result<()> {
+    let mut ch = Ch341::open(global.verbose)?;
+    let detect = run_detect(&mut ch)?;
+    println!("JEDEC ID : 0x{}", detect.jedec_string());
+    match &detect.diagnosis {
+        Diagnosis::MisoStuckLow => {
+            println!("Chip     : MISO stuck low: target board likely fighting us.");
+            println!("           Lift pin 8 (VCC) or remove the chip from the board.");
+            return Ok(());
+        }
+        Diagnosis::MisoFloatsHigh => {
+            println!("Chip     : MISO floats high: no chip detected.");
+            println!("           Check clip orientation, VCC jumper (3.3V), and chip power.");
+            return Ok(());
+        }
+        Diagnosis::Known(c) => println!("Chip     : {}", c.name),
+        Diagnosis::UnknownChip => {
+            println!("Chip     : (unknown JEDEC; SFDP gives us the parameters anyway)")
+        }
+    }
+    println!();
+    // 256 bytes is enough to cover the header walk (8 + 8N for
+    // typical N ≤ 5) plus the BFPT body for every published
+    // JESD216 revision through F. Larger SFDP regions exist on
+    // some chips (extra vendor tables, multi-KB security
+    // descriptors) but the BFPT is always reachable inside the
+    // first 256 bytes in practice.
+    let data = spi::read_sfdp(&mut ch, 0, 256)?;
+    print_sfdp(&data, &crate::sfdp::parse(&data));
+    Ok(())
+}
+
+fn print_sfdp(raw: &[u8], parsed: &crate::sfdp::Sfdp) {
+    use crate::sfdp::{Addressing, ParameterHeader};
+    if !parsed.header.valid {
+        println!("SFDP     : (chip didn't return the 'SFDP' magic; this chip");
+        println!("           probably predates JESD216, or is the rare modern");
+        println!("           part that omits SFDP. First 16 bytes:)");
+        println!("  {}", hex::encode(&raw[..16.min(raw.len())]));
+        return;
+    }
+    println!(
+        "SFDP     : rev {}.{}, {} parameter header(s)",
+        parsed.header.major_rev,
+        parsed.header.minor_rev,
+        parsed.parameter_headers.len(),
+    );
+    for (i, ph) in parsed.parameter_headers.iter().enumerate() {
+        let tag = if ph.id == ParameterHeader::BFPT_ID {
+            "JEDEC BFPT"
+        } else {
+            "vendor"
+        };
+        println!(
+            "  [{i}] id=0x{:04X} ({tag}) rev {}.{} len={} dwords @ 0x{:06X}",
+            ph.id, ph.major_rev, ph.minor_rev, ph.length_dwords, ph.ptr,
+        );
+    }
+    let Some(bfpt) = &parsed.bfpt else {
+        println!();
+        println!("BFPT     : (not present or body outside the 256-byte read window)");
+        return;
+    };
+    println!();
+    println!("BFPT     :");
+    println!(
+        "  size      : {} bytes ({} KB, {} Mbit)",
+        bfpt.size_bytes,
+        bfpt.size_bytes / 1024,
+        bfpt.size_bytes * 8 / 1_000_000,
+    );
+    println!("  page size : {} bytes", bfpt.page_size);
+    let addr = match bfpt.addressing {
+        Addressing::ThreeByteOnly => "3-byte only",
+        Addressing::Either => "3- or 4-byte (default 3)",
+        Addressing::FourByteOnly => "4-byte only",
+        Addressing::Reserved => "reserved encoding",
+    };
+    println!("  address   : {addr}");
+    if bfpt.erase_4k_opcode != 0xFF {
+        println!("  4K erase  : opcode 0x{:02X}", bfpt.erase_4k_opcode);
+    } else {
+        println!("  4K erase  : not supported");
+    }
+    println!("  erase types:");
+    let mut any = false;
+    for (i, e) in bfpt.erase_types.iter().enumerate() {
+        if e.size_bytes == 0 {
+            continue;
+        }
+        any = true;
+        println!(
+            "    [{i}] 0x{:02X}  {} bytes ({})",
+            e.opcode,
+            e.size_bytes,
+            human_size(e.size_bytes as u64),
+        );
+    }
+    if !any {
+        println!("    (none advertised)");
+    }
+}
+
+fn human_size(n: u64) -> String {
+    if n >= 1 << 20 {
+        format!("{} MB", n >> 20)
+    } else if n >= 1 << 10 {
+        format!("{} KB", n >> 10)
+    } else {
+        format!("{n} B")
+    }
+}
+
 /// Pick a chip via `--chip <NAME>` if given, else by reading JEDEC ID.
 pub fn resolve_chip(spi: &mut dyn SpiTransport, global: &GlobalOpts) -> Result<Chip> {
     let db = ChipDb::load_embedded();
