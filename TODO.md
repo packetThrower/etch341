@@ -170,14 +170,6 @@ functionality.
       MSI both trigger SmartScreen warnings on first run on a
       fresh machine. A real cert removes that. ~$300/yr+; same
       add-as-secrets workflow change.
-- [ ] **Homebrew tap** — `packetThrower/tap`-style with an
-      `etch341` cask that auto-updates on `brew upgrade`. Mirror
-      Baudrun's setup; the tap repo already exists for
-      `packetThrower/homebrew-tap`.
-- [ ] **Scoop bucket** — same idea for Windows users; the
-      `packetThrower/scoop-bucket` repo exists. Both
-      Homebrew and Scoop save users from manually re-downloading
-      installers on every release.
 - [ ] **winget manifest submission** — once the MSI is shipping
       reliably, submit to `microsoft/winget-pkgs` so
       `winget install packetThrower.etch341` works. Needs the
