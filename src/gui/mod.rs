@@ -345,7 +345,7 @@ impl AppView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let hex_search_state = cx.new(|cx| {
             InputState::new(window, cx).placeholder(
-                "Find: text or hex bytes (e.g. NVIDIA, 55 AA) — or 0xOFFSET, Enter to jump",
+                "Find: text or hex bytes (e.g. NVIDIA, 55 AA), or 0xOFFSET, Enter to jump",
             )
         });
         // Bridge the Input's Change events into our own `hex_search_term`
@@ -375,7 +375,7 @@ impl AppView {
             status_regs: None,
             log_lines: vec![LogLine {
                 timestamp: now_hms(),
-                text: "etch341 ready — plug in a CH341A and click Refresh".into(),
+                text: "etch341 ready. Plug in a CH341A and click Detect chip.".into(),
             }],
             log_scroll: ScrollHandle::new(),
             erase_armed: false,
@@ -501,6 +501,34 @@ impl AppView {
                     break;
                 }
             }
+        })
+        .detach();
+    }
+
+    /// Open the OS folder picker to choose where Read pane dumps
+    /// should land. Saved to `prefs.read_output_dir`; cleared back
+    /// to `None` (use `$HOME` fallback) by passing nothing the
+    /// picker rejects. Deferred via `cx.spawn` so the dialog
+    /// doesn't block the foreground render — same panic-avoidance
+    /// reason as `pick_hex_file`.
+    pub fn pick_read_output_dir(&mut self, cx: &mut Context<Self>) {
+        let start_dir = self.prefs.read_output_dir.clone();
+        cx.spawn(async move |weak, cx| {
+            let mut dialog = rfd::AsyncFileDialog::new();
+            if let Some(dir) = start_dir {
+                dialog = dialog.set_directory(dir);
+            }
+            let Some(handle) = dialog.pick_folder().await else {
+                return;
+            };
+            let path = handle.path().to_path_buf();
+            weak.update(cx, |this, cx| {
+                this.push_log(format!("Read save location: {}", path.display()));
+                this.prefs.read_output_dir = Some(path);
+                let _ = this.prefs.save();
+                cx.notify();
+            })
+            .ok();
         })
         .detach();
     }
@@ -874,7 +902,7 @@ impl AppView {
             self.start_write(cx);
         } else {
             self.write_armed = true;
-            self.push_log("⚠ Write armed — click again to confirm".into());
+            self.push_log("⚠ Write armed: click again to confirm".into());
             cx.notify();
         }
     }
@@ -909,7 +937,7 @@ impl AppView {
                         Diagnosis::Known(c) => c,
                         Diagnosis::UnknownChip => {
                             return Err(format!(
-                                "unknown JEDEC 0x{} — add to chips.toml",
+                                "unknown JEDEC 0x{}: add to chips.toml",
                                 detect.jedec_string()
                             ));
                         }
@@ -966,7 +994,7 @@ impl AppView {
                         Diagnosis::Known(c) => c,
                         Diagnosis::UnknownChip => {
                             return Err(format!(
-                                "unknown JEDEC 0x{} — add to chips.toml",
+                                "unknown JEDEC 0x{}: add to chips.toml",
                                 detect.jedec_string()
                             ));
                         }
@@ -1017,20 +1045,20 @@ impl AppView {
                     }
                     Diagnosis::UnknownChip => {
                         self.push_log(format!(
-                            "Unknown JEDEC 0x{} — add an entry to chips.toml",
+                            "Unknown JEDEC 0x{}: add an entry to chips.toml",
                             result.jedec_string()
                         ));
                         self.connection = Connection::NoChip;
                     }
                     Diagnosis::MisoStuckLow => {
                         self.push_log(
-                            "MISO stuck low — target board contention (lift chip or pin 8)".into(),
+                            "MISO stuck low: target board contention (lift chip or pin 8)".into(),
                         );
                         self.connection = Connection::NoChip;
                     }
                     Diagnosis::MisoFloatsHigh => {
                         self.push_log(
-                            "MISO floats high — no chip detected (check clip, VCC, pin 1)".into(),
+                            "MISO floats high: no chip detected (check clip, VCC, pin 1)".into(),
                         );
                         self.connection = Connection::NoChip;
                     }
@@ -1063,7 +1091,7 @@ impl AppView {
     /// `cx.background_executor()` so the GUI stays responsive; on
     /// completion the foreground updates the log + connection state.
     pub fn start_read(&mut self, cx: &mut Context<Self>) {
-        let path = read_output_path();
+        let path = read_output_path(&self.prefs);
         self.push_log(format!("→ read → {}", path.display()));
         cx.notify();
         self.spawn_progress_poller(cx);
@@ -1083,7 +1111,7 @@ impl AppView {
                         Diagnosis::Known(c) => c,
                         Diagnosis::UnknownChip => {
                             return Err(format!(
-                                "unknown JEDEC 0x{} — add to chips.toml",
+                                "unknown JEDEC 0x{}: add to chips.toml",
                                 detect.jedec_string()
                             ));
                         }
@@ -1129,7 +1157,7 @@ impl AppView {
             self.start_erase(cx);
         } else {
             self.erase_armed = true;
-            self.push_log("⚠ Erase armed — click again to confirm".into());
+            self.push_log("⚠ Erase armed: click again to confirm".into());
             cx.notify();
         }
     }
@@ -1157,7 +1185,7 @@ impl AppView {
                         Diagnosis::Known(c) => c,
                         Diagnosis::UnknownChip => {
                             return Err(format!(
-                                "unknown JEDEC 0x{} — add to chips.toml",
+                                "unknown JEDEC 0x{}: add to chips.toml",
                                 detect.jedec_string()
                             ));
                         }
@@ -1265,7 +1293,7 @@ impl AppView {
                         Diagnosis::Known(c) => c,
                         Diagnosis::UnknownChip => {
                             return Err(format!(
-                                "unknown JEDEC 0x{} — add to chips.toml",
+                                "unknown JEDEC 0x{}: add to chips.toml",
                                 detect.jedec_string()
                             ));
                         }
@@ -1299,16 +1327,19 @@ impl AppView {
     }
 }
 
-/// Pick a filename for the next read dump. Lives in $HOME so it persists
-/// past reboots; the seconds-since-epoch suffix makes consecutive reads
-/// land in distinct files.
-fn read_output_path() -> std::path::PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+/// Pick a filename for the next read dump. Uses the directory the
+/// user set in Settings (`prefs.read_output_dir`) if any, otherwise
+/// `$HOME` so the dump persists past reboots. The seconds-since-epoch
+/// suffix makes consecutive reads land in distinct files.
+fn read_output_path(prefs: &Prefs) -> std::path::PathBuf {
+    let dir = prefs.read_output_dir.clone().unwrap_or_else(|| {
+        std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()))
+    });
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    std::path::PathBuf::from(home).join(format!("etch341-read-{secs}.bin"))
+    dir.join(format!("etch341-read-{secs}.bin"))
 }
 
 impl Render for AppView {
@@ -1414,6 +1445,7 @@ impl Render for AppView {
                                     restore_window_bounds: self.prefs.restore_window_bounds,
                                     prefs_path: prefs_path_buf.as_deref(),
                                     status_regs: self.status_regs,
+                                    read_output_dir: self.prefs.read_output_dir.as_deref(),
                                 };
                                 let outer = div().flex_1().min_h(px(0.0)).min_w(px(0.0));
                                 if self.selected == Pane::Settings {

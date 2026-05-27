@@ -41,6 +41,11 @@ pub struct PaneInputs<'a> {
     /// before the user clicks "Read"; populated by
     /// `AppView::start_read_status` once the chip has responded.
     pub status_regs: Option<crate::spi::StatusRegisters>,
+    /// Save directory for Read pane dumps. `None` means "$HOME"
+    /// (the original fallback). Settings exposes a Browse button
+    /// to set it; the Read pane body surfaces the current value
+    /// so the user knows where the next dump will land.
+    pub read_output_dir: Option<&'a Path>,
 }
 
 pub fn render(
@@ -76,6 +81,7 @@ pub fn render(
         Pane::Settings => settings_pane(
             inputs.spi_speed_khz,
             inputs.restore_window_bounds,
+            inputs.read_output_dir,
             inputs.prefs_path,
             cx,
         )
@@ -86,9 +92,8 @@ pub fn render(
 fn read_pane(cx: &mut Context<AppView>) -> impl IntoElement {
     op_pane(
         "Read",
-        "Auto-detects the chip and dumps its entire contents to a \
-         timestamped file in your home directory. Runs on a background \
-         thread so the GUI stays responsive — watch the log for progress.",
+        "Dumps the chip to a timestamped file. Pick the save directory \
+         in Settings → Read save location.",
     )
     .child(action_button_for(
         "Start read",
@@ -102,13 +107,13 @@ fn erase_pane(armed: bool, cx: &mut Context<AppView>) -> impl IntoElement {
     op_pane(
         "Erase",
         "Erases the entire chip back to 0xFF. DESTRUCTIVE and not \
-         undoable — make sure you have a Read backup first. Click \
+         undoable. Make sure you have a Read backup first. Click \
          the button to arm, then click again to actually erase. \
          Switching panes resets the arm state.",
     )
     .when(armed, |this| {
         this.child(armed_warning(
-            "Armed — next click will erase the entire chip.",
+            "Armed: next click will erase the entire chip.",
         ))
     })
     .child(armable_button(
@@ -125,7 +130,7 @@ fn write_pane(path: Option<&Path>, armed: bool, cx: &mut Context<AppView>) -> im
     op_pane(
         "Write",
         "Programs the chip from a file. Erases first, then writes \
-         page-by-page, then verifies. DESTRUCTIVE — same arm/confirm \
+         page-by-page, then verifies. DESTRUCTIVE: same arm/confirm \
          protection as Erase. Switching panes resets the arm state.",
     )
     .child(file_picker_row(
@@ -137,7 +142,7 @@ fn write_pane(path: Option<&Path>, armed: bool, cx: &mut Context<AppView>) -> im
     ))
     .when(armed && path.is_some(), |this| {
         this.child(armed_warning(
-            "Armed — next click will erase and overwrite the chip.",
+            "Armed: next click will erase and overwrite the chip.",
         ))
     })
     .child(armable_button(
@@ -212,16 +217,17 @@ where
 fn settings_pane(
     current_khz: u32,
     restore_window_bounds: bool,
+    read_output_dir: Option<&Path>,
     prefs_path: Option<&Path>,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     // Matches `ch341::SUPPORTED_SPEEDS_KHZ` — the set the CH341A
     // accepts via the standard I²C-stream set-speed command.
     let speeds: &[(u32, &str)] = &[
-        (20, "20 kHz — slowest, most signal-tolerant"),
-        (100, "100 kHz — conservative default"),
+        (20, "20 kHz, slowest, most signal-tolerant"),
+        (100, "100 kHz, conservative default"),
         (400, "400 kHz"),
-        (750, "750 kHz — fastest reliable rate (recommended)"),
+        (750, "750 kHz, fastest reliable rate (recommended)"),
     ];
 
     let mut col = div()
@@ -242,12 +248,47 @@ fn settings_pane(
         col = col.child(speed_row(khz, label, current_khz == khz, cx));
     }
 
+    col = col.child(section_label("READ SAVE LOCATION")).child(body(
+        "Where the Read pane saves chip dumps. Defaults to your home \
+             directory; pick a folder to override.",
+    ));
+    let read_dir_text = read_output_dir
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| {
+            std::env::var("HOME")
+                .map(|h| format!("{h} (default)"))
+                .unwrap_or_else(|_| "(default: $HOME, not set)".to_string())
+        });
+    col = col.child(
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_3()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .text_size(px(12.0))
+                    .font_family(theme::MONO_FONT)
+                    .text_color(theme::text_secondary())
+                    .whitespace_normal()
+                    .child(read_dir_text),
+            )
+            .child(action_button_for(
+                "Browse…",
+                "pick-read-output",
+                cx,
+                |this, cx| this.pick_read_output_dir(cx),
+            )),
+    );
+
     col = col
         .child(section_label("WINDOW"))
         .child(body(
             "When enabled, the window's last position and size are saved \
              on close and restored the next time you launch etch341. Off by \
-             default — the window opens centered at 1200 × 800.",
+             default; the window opens centered at 1200 × 800.",
         ))
         .child(toggle_row(
             "Restore window position on startup",
@@ -260,7 +301,7 @@ fn settings_pane(
     col = col.child(section_label("PREFERENCES FILE"));
     let path_text = prefs_path
         .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "(unable to determine — $HOME not set)".to_string());
+        .unwrap_or_else(|| "(unable to determine; $HOME not set)".to_string());
     // Path text + "Open folder" button on the same row, matching
     // the `file_picker_row` shape so the settings pane reads as a
     // consistent family. Button hidden when there's no real path —
@@ -600,7 +641,7 @@ fn hex_pane(
             div()
                 .text_color(theme::text_tertiary())
                 .text_size(px(12.0))
-                .child("(no file loaded — click Browse to pick one)"),
+                .child("(no file loaded, click Browse to pick one)"),
         );
     }
     col
@@ -1119,7 +1160,7 @@ fn status_pane(
         // due to BP bits, so call it out directly.
         if r.bp() != 0 || r.sec_or_bp3() {
             col = col.child(armed_warning(
-                "SR1 has block-protect bits set — writes/erases to the protected range \
+                "SR1 has block-protect bits set: writes and erases to the protected range \
                  will silently fail. Clear BP[2:0] (and SEC/BP3 if set) via WRSR before \
                  programming.",
             ));
@@ -1167,7 +1208,7 @@ fn status_register_block(
                 .text_color(theme::text_tertiary())
                 .whitespace_normal()
                 .child(format!(
-                    "(chip didn't respond — likely doesn't implement {name})"
+                    "(chip didn't respond, likely doesn't implement {name})"
                 )),
         );
     }
@@ -1207,8 +1248,9 @@ fn blank_pane(cx: &mut Context<AppView>) -> impl IntoElement {
 fn detect_pane(cx: &mut Context<AppView>) -> impl IntoElement {
     op_pane(
         "Detect",
-        "Reads the chip's JEDEC ID, looks it up in the bundled chip database, \
-         and updates the session header above.",
+        "Reads the JEDEC ID and identifies the chip. The other steps detect \
+         internally too, so this is optional. Useful as a sanity check \
+         before anything destructive.",
     )
     .child(action_button("Detect chip", cx))
 }

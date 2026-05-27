@@ -27,6 +27,10 @@ pub struct Prefs {
     /// Last-known window geometry. Only honoured when
     /// `restore_window_bounds` is true. `None` until the first save.
     pub window_bounds: Option<WindowGeometry>,
+    /// Directory the Read pane writes its `etch341-read-<unix>.bin`
+    /// dump into. `None` falls back to `$HOME` (the original
+    /// behaviour). Set via Settings → Read save location.
+    pub read_output_dir: Option<PathBuf>,
 }
 
 /// On-disk snapshot of the window's position + size. Stored as
@@ -50,6 +54,7 @@ impl Default for Prefs {
             log_panel_height: None,
             restore_window_bounds: false,
             window_bounds: None,
+            read_output_dir: None,
         }
     }
 }

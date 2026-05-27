@@ -109,11 +109,11 @@ pub fn detect(global: &GlobalOpts) -> Result<()> {
     println!("JEDEC ID : 0x{}", result.jedec_string());
     match &result.diagnosis {
         Diagnosis::MisoStuckLow => {
-            println!("Chip     : MISO stuck low — target board likely fighting us.");
+            println!("Chip     : MISO stuck low: target board likely fighting us.");
             println!("           Lift pin 8 (VCC) or remove the chip from the board.");
         }
         Diagnosis::MisoFloatsHigh => {
-            println!("Chip     : MISO floats high — no chip detected.");
+            println!("Chip     : MISO floats high: no chip detected.");
             println!("           Check clip orientation, VCC jumper (3.3V), and chip power.");
         }
         Diagnosis::Known(c) => {
@@ -158,12 +158,12 @@ pub fn status(global: &GlobalOpts) -> Result<()> {
     println!("JEDEC ID : 0x{}", detect.jedec_string());
     match &detect.diagnosis {
         Diagnosis::MisoStuckLow => {
-            println!("Chip     : MISO stuck low — target board likely fighting us.");
+            println!("Chip     : MISO stuck low: target board likely fighting us.");
             println!("           Lift pin 8 (VCC) or remove the chip from the board.");
             return Ok(());
         }
         Diagnosis::MisoFloatsHigh => {
-            println!("Chip     : MISO floats high — no chip detected.");
+            println!("Chip     : MISO floats high: no chip detected.");
             println!("           Check clip orientation, VCC jumper (3.3V), and chip power.");
             return Ok(());
         }
@@ -202,7 +202,7 @@ fn print_status(regs: &spi::StatusRegisters) {
             bit(regs.sus()),
         );
     } else {
-        println!("SR2 : 0xFF    (chip didn't respond — likely doesn't implement SR2)");
+        println!("SR2 : 0xFF    (chip didn't respond, likely doesn't implement SR2)");
     }
     if regs.sr3_present() {
         println!("SR3 : 0x{:02X}  (0b{:08b})", regs.sr3, regs.sr3);
@@ -214,7 +214,7 @@ fn print_status(regs: &spi::StatusRegisters) {
             bit(regs.hold_rst()),
         );
     } else {
-        println!("SR3 : 0xFF    (chip didn't respond — likely doesn't implement SR3)");
+        println!("SR3 : 0xFF    (chip didn't respond, likely doesn't implement SR3)");
     }
     // Two common gotchas worth surfacing without forcing the user
     // to know the bit semantics: a non-zero BP mask silently fails
@@ -222,7 +222,7 @@ fn print_status(regs: &spi::StatusRegisters) {
     // it. Anything else is left to the decoded view above.
     if regs.bp() != 0 || regs.sec_or_bp3() {
         println!();
-        println!("note   : SR1 has block-protect bits set — writes/erases to the protected");
+        println!("note   : SR1 has block-protect bits set: writes and erases to the protected");
         println!("         range will silently fail. Clear BP[2:0] (and SEC/BP3 if set) via");
         println!("         WRSR before programming.");
     }

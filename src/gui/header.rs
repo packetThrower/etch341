@@ -14,7 +14,8 @@ pub fn render(conn: &Connection, progress: &SharedProgress) -> impl IntoElement 
 
     // Right-hand activity tag: "idle" when nothing's running, otherwise
     // "<label> 27% (140 KB / 512 KB)" updated by the polling task.
-    let activity = if progress.active.load(Ordering::Relaxed) {
+    let active = progress.active.load(Ordering::Relaxed);
+    let activity = if active {
         let current = progress.current.load(Ordering::Relaxed);
         let total = progress.total.load(Ordering::Relaxed);
         let label = progress.label.lock().unwrap().clone();
@@ -30,6 +31,22 @@ pub fn render(conn: &Connection, progress: &SharedProgress) -> impl IntoElement 
     } else {
         "idle".to_string()
     };
+    // While an op is running, render the activity tag as an
+    // accent-blue pill so it stands out instead of fading into the
+    // header's text-tertiary "idle" treatment. The user reported
+    // the previous gray-on-dark progress was barely noticeable
+    // — easy to miss whether a Read/Write was running at all.
+    let activity_div = if active {
+        div()
+            .px_2()
+            .py_0p5()
+            .rounded(px(4.0))
+            .bg(theme::accent_blue_tint())
+            .text_color(theme::accent_blue())
+            .child(activity)
+    } else {
+        div().text_color(theme::text_tertiary()).child(activity)
+    };
 
     div()
         .flex()
@@ -43,7 +60,7 @@ pub fn render(conn: &Connection, progress: &SharedProgress) -> impl IntoElement 
         .child(div().w(px(8.0)).h(px(8.0)).rounded_full().bg(dot))
         .child(div().text_color(theme::text_primary()).child(label))
         .child(div().flex_1())
-        .child(div().text_color(theme::text_tertiary()).child(activity))
+        .child(activity_div)
 }
 
 fn fmt_bytes(n: u64) -> String {
