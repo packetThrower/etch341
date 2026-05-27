@@ -171,7 +171,10 @@ pub struct I2cBlankArgs {
 
 #[derive(Args)]
 pub struct ReadArgs {
-    /// Output file.
+    /// Output file. Pass `-` to write the dump to stdout (useful for
+    /// `etch341 read -o - | sha256sum` and similar pipe idioms);
+    /// the "Read OK / SHA-256" summary lines are suppressed in that
+    /// mode so they don't interleave with the binary data.
     #[arg(short = 'o', long, default_value = "flash_dump.bin")]
     pub output: PathBuf,
     /// Start address (decimal or 0x-prefixed hex).

@@ -268,7 +268,18 @@ pub fn read(
             chip_size,
         });
     }
-    let mut out = File::create(output)?;
+    // `-o -` (the standard UNIX-pipe idiom) writes the chip dump
+    // to stdout instead of a file. Suppresses the success summary
+    // lines so they don't interleave with binary data going to
+    // `sha256sum` / `diff -` / etc. on the consumer side. Errors
+    // still surface — they're returned from this function and
+    // printed by the dispatcher to stderr.
+    let stdout_mode = output == std::path::Path::new("-");
+    let mut out: Box<dyn Write> = if stdout_mode {
+        Box::new(std::io::stdout())
+    } else {
+        Box::new(File::create(output)?)
+    };
     let mut hasher = Sha256::new();
     let addressing = addressing_for(chip);
     progress.start(len as u64);
@@ -284,8 +295,15 @@ pub fn read(
         progress.update((addr - start) as u64);
     }
     progress.finish();
-    println!("Read OK  : {} bytes → {}", len, output.display());
-    println!("SHA-256  : {}", hex::encode(hasher.finalize()));
+    out.flush()?;
+    if !stdout_mode {
+        // To stderr (`eprintln!`) so the dump file can be redirected
+        // (`etch341 read -o foo.bin > log.txt`) without losing the
+        // SHA confirmation. On a normal interactive run the
+        // terminal sees both anyway.
+        eprintln!("Read OK  : {} bytes → {}", len, output.display());
+        eprintln!("SHA-256  : {}", hex::encode(hasher.finalize()));
+    }
     Ok(())
 }
 

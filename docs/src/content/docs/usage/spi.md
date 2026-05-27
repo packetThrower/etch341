@@ -42,6 +42,20 @@ override`. You can either add an entry to `chips/chips.toml` (see
 [Chip database](/etch341/reference/chips/)) or override the chip
 identity for one-off operations: `etch341 --chip W25Q128JV ...`
 
+### Pipe-friendly dumps
+
+`-o -` writes the chip's bytes to stdout instead of a file —
+useful for hashing or diffing without a temp file in between:
+
+```sh
+etch341 read -o - | sha256sum             # fingerprint a chip
+etch341 read -o - | diff - bios.bin       # has it changed?
+```
+
+The "Read OK / SHA-256" summary lines are suppressed in stdout
+mode so they don't interleave with the binary data on the
+consumer side. Errors still surface on stderr.
+
 ## 2. Back up the original contents
 
 Before anything destructive:

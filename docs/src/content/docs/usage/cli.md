@@ -25,6 +25,9 @@ These apply to every subcommand that touches hardware:
 ```sh
 etch341 detect                              # JEDEC ID + chip lookup
 etch341 read -o bios.bin                    # dump entire chip
+etch341 read -o -                           # dump to stdout — pipe to anything
+etch341 read -o - | sha256sum               # hash a chip without a temp file
+etch341 read -o - | diff - bios.bin         # quick "did anything change"
 etch341 read -o head.bin --length 0x1000    # first 4 KB only
 etch341 read -o tail.bin --start 0x10000 --length 0x10000   # 64 KB block
 etch341 write -i bios.bin                   # erase + write + verify
