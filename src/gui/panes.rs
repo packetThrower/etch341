@@ -32,6 +32,10 @@ pub struct PaneInputs<'a> {
     pub hex_search_term: &'a str,
     pub hex_search_state: &'a Entity<InputState>,
     pub spi_speed_khz: u32,
+    /// Current value of the "restore window position on startup"
+    /// toggle in Settings. The actual save/restore plumbing lives
+    /// in `gui::run` / `on_window_should_close`.
+    pub restore_window_bounds: bool,
     pub prefs_path: Option<&'a Path>,
 }
 
@@ -65,7 +69,13 @@ pub fn render(
         )
         .into_any_element(),
         Pane::Settings => {
-            settings_pane(inputs.spi_speed_khz, inputs.prefs_path, cx).into_any_element()
+            settings_pane(
+                inputs.spi_speed_khz,
+                inputs.restore_window_bounds,
+                inputs.prefs_path,
+                cx,
+            )
+            .into_any_element()
         }
     }
 }
@@ -198,6 +208,7 @@ where
 
 fn settings_pane(
     current_khz: u32,
+    restore_window_bounds: bool,
     prefs_path: Option<&Path>,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
@@ -217,29 +228,33 @@ fn settings_pane(
         .px_5()
         .py_5()
         .child(heading("Settings"))
+        .child(section_label("SPI CLOCK SPEED"))
         .child(body(
-            "SPI clock speed for every op below. Saved immediately to your \
-             preferences file; the next op picks up the new value when it \
-             opens the CH341A.",
-        ))
-        .child(
-            div()
-                .text_size(px(11.0))
-                .text_color(theme::text_tertiary())
-                .child("SPI CLOCK SPEED"),
-        );
+            "Clock rate for every SPI op (Detect / Read / Erase / Write / \
+             Verify / Blank-check). Saved immediately; the next op picks \
+             up the new value when it opens the CH341A.",
+        ));
 
     for &(khz, label) in speeds {
         col = col.child(speed_row(khz, label, current_khz == khz, cx));
     }
 
-    col = col.child(
-        div()
-            .pt_3()
-            .text_size(px(11.0))
-            .text_color(theme::text_tertiary())
-            .child("PREFERENCES FILE"),
-    );
+    col = col
+        .child(section_label("WINDOW"))
+        .child(body(
+            "When enabled, the window's last position and size are saved \
+             on close and restored the next time you launch etch341. Off by \
+             default — the window opens centered at 1200 × 800.",
+        ))
+        .child(toggle_row(
+            "Restore window position on startup",
+            "toggle-restore-bounds",
+            restore_window_bounds,
+            cx,
+            |this, cx| this.toggle_restore_window_bounds(cx),
+        ));
+
+    col = col.child(section_label("PREFERENCES FILE"));
     let path_text = prefs_path
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "(unable to determine — $HOME not set)".to_string());
@@ -253,6 +268,83 @@ fn settings_pane(
     );
 
     col
+}
+
+/// Small-caps section header inside the settings pane. Matches the
+/// existing visual treatment used for "SPI CLOCK SPEED" /
+/// "PREFERENCES FILE"; factored out to keep the new "WINDOW"
+/// header consistent with the rest by construction.
+fn section_label(text: &'static str) -> impl IntoElement {
+    div()
+        .pt_3()
+        .text_size(px(11.0))
+        .text_color(theme::text_tertiary())
+        .child(text)
+}
+
+/// Switch-style row: label on the left, a small pill on the right
+/// that fills when `active`. Mirrors `speed_row`'s shape (clickable
+/// the whole way across, hover tint, accent-blue when on) so the
+/// settings pane looks consistent. Used for boolean prefs.
+fn toggle_row<F>(
+    label: &'static str,
+    id: &'static str,
+    active: bool,
+    cx: &mut Context<AppView>,
+    on_click: F,
+) -> impl IntoElement
+where
+    F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
+{
+    let knob_x = if active { px(18.0) } else { px(2.0) };
+    let track_bg = if active {
+        theme::accent_blue()
+    } else {
+        theme::workshop_glass_strong()
+    };
+    div()
+        .id(id)
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .px_3()
+        .py_2()
+        .rounded(px(6.0))
+        .cursor_pointer()
+        .hover(|d| d.bg(theme::workshop_glass()))
+        .child(
+            div()
+                .flex_1()
+                .text_color(theme::text_primary())
+                .child(label),
+        )
+        .child(
+            // Track + thumb. Fixed pixel sizes so the switch reads
+            // crisp at any window scale; absolute-positioned thumb
+            // slides with `left` between the on/off positions.
+            div()
+                .relative()
+                .w(px(36.0))
+                .h(px(20.0))
+                .rounded(px(10.0))
+                .bg(track_bg)
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(2.0))
+                        .left(knob_x)
+                        .w(px(16.0))
+                        .h(px(16.0))
+                        .rounded(px(8.0))
+                        .bg(theme::text_primary()),
+                ),
+        )
+        .on_click(
+            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+                on_click(this, cx);
+            }),
+        )
 }
 
 fn speed_row(

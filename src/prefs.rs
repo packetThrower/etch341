@@ -19,6 +19,25 @@ pub struct Prefs {
     /// Pixel height of the activity-log resizable panel. Saved on
     /// drag, restored on launch.
     pub log_panel_height: Option<f32>,
+    /// Opt-in: when true, the window's last bounds are saved on
+    /// close and restored on next launch. Off by default — pinning
+    /// the window state changes a behavior most fresh-install users
+    /// don't expect, so we require an explicit toggle in Settings.
+    pub restore_window_bounds: bool,
+    /// Last-known window geometry. Only honoured when
+    /// `restore_window_bounds` is true. `None` until the first save.
+    pub window_bounds: Option<WindowGeometry>,
+}
+
+/// On-disk snapshot of the window's position + size. Stored as
+/// plain `f32`s so the `Bounds<Pixels>` <-> toml conversion is
+/// trivial — `gpui::Pixels` doesn't `Serialize` directly.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct WindowGeometry {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
 }
 
 impl Default for Prefs {
@@ -29,6 +48,8 @@ impl Default for Prefs {
             last_write_dir: None,
             last_verify_dir: None,
             log_panel_height: None,
+            restore_window_bounds: false,
+            window_bounds: None,
         }
     }
 }

@@ -75,7 +75,21 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             KeyBinding::new("cmd-c", CopyHexSelection, None),
         ]);
 
-        let bounds = Bounds::centered(None, gpui::size(px(1200.0), px(800.0)), cx);
+        // Load prefs once up front so we can honour
+        // `restore_window_bounds` at open time. Loaded again inside
+        // the `on_window_should_close` handler to avoid persisting a
+        // stale snapshot if the user toggled the pref mid-session.
+        let prefs_at_open = Prefs::load();
+        let bounds = prefs_at_open
+            .restore_window_bounds
+            .then(|| {
+                prefs_at_open.window_bounds.map(|g| Bounds {
+                    origin: gpui::point(px(g.x), px(g.y)),
+                    size: gpui::size(px(g.width), px(g.height)),
+                })
+            })
+            .flatten()
+            .unwrap_or_else(|| Bounds::centered(None, gpui::size(px(1200.0), px(800.0)), cx));
         if let Err(err) = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -118,6 +132,28 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 // unreachably-thin one-pixel strip on GNOME-Wayland.
                 // No-op on macOS / Windows / X11.
                 window.set_client_inset(px(10.0));
+                // Persist window bounds on close iff the user opted
+                // in via Settings → "Restore window position on
+                // startup". Reloads from disk so a fresh toggle
+                // (or a SPI-speed change made earlier in the session
+                // and saved through `Prefs::save`) survives without
+                // us holding a stale clone here.
+                window.on_window_should_close(cx, |window, _cx| {
+                    let mut prefs = Prefs::load();
+                    if prefs.restore_window_bounds {
+                        let b = window.bounds();
+                        prefs.window_bounds = Some(crate::prefs::WindowGeometry {
+                            x: f32::from(b.origin.x),
+                            y: f32::from(b.origin.y),
+                            width: f32::from(b.size.width),
+                            height: f32::from(b.size.height),
+                        });
+                        if let Err(err) = prefs.save() {
+                            eprintln!("etch341: save window bounds: {err}");
+                        }
+                    }
+                    true
+                });
                 let view = cx.new(|cx| AppView::new(window, cx));
                 // Give the root view focus so window-scoped key
                 // bindings (None context) have a dispatch path. Without
@@ -352,6 +388,28 @@ impl AppView {
         match self.prefs.save() {
             Ok(()) => self.push_log(format!("SPI clock set to {khz} kHz (saved)")),
             Err(e) => self.push_log(format!("SPI clock set to {khz} kHz (save failed: {e})")),
+        }
+        cx.notify();
+    }
+
+    /// Flip the "restore window position on startup" toggle. The
+    /// actual save happens inside the window-close handler in
+    /// `gui::run` — turning it off here simply means the next close
+    /// won't snapshot bounds (and any previously-saved
+    /// `window_bounds` is left in the file but ignored on next
+    /// launch).
+    pub fn toggle_restore_window_bounds(&mut self, cx: &mut Context<Self>) {
+        self.prefs.restore_window_bounds = !self.prefs.restore_window_bounds;
+        let state = if self.prefs.restore_window_bounds {
+            "on"
+        } else {
+            "off"
+        };
+        match self.prefs.save() {
+            Ok(()) => self.push_log(format!("Restore window position: {state} (saved)")),
+            Err(e) => self.push_log(format!(
+                "Restore window position: {state} (save failed: {e})"
+            )),
         }
         cx.notify();
     }
@@ -1203,13 +1261,16 @@ impl Render for AppView {
                     .flex_col()
                     .child(header::render(&self.connection, &self.progress))
                     .child({
-                        // Pane area + log live inside a `v_resizable`
-                        // from gpui-component, giving a draggable
-                        // splitter between them. The wrapper div
-                        // absorbs the main column's remaining vertical
-                        // space; the v_resizable inside `size_full`s
-                        // and distributes that height between two
-                        // resizable_panels.
+                        // Settings is a configuration pane, not an
+                        // op — there's no progress / pass / fail
+                        // log activity to watch while editing it, so
+                        // the activity log pane just steals screen
+                        // real estate. Render the settings full-
+                        // height without the splitter when it's
+                        // selected; restore the pane / log split for
+                        // every other pane. The hex pane keeps the
+                        // log too — file-load events still surface
+                        // useful timing / size info there.
                         let pane_inputs = panes::PaneInputs {
                             erase_armed: self.erase_armed,
                             write_armed: self.write_armed,
@@ -1229,41 +1290,61 @@ impl Render for AppView {
                             hex_search_term: self.hex_search_term.as_str(),
                             hex_search_state: &self.hex_search_state,
                             spi_speed_khz: self.prefs.spi_speed_khz,
+                            restore_window_bounds: self.prefs.restore_window_bounds,
                             prefs_path: prefs_path_buf.as_deref(),
                         };
-                        let log_h = self.prefs.log_panel_height.unwrap_or(180.0);
-                        let weak = cx.entity().downgrade();
-                        div().flex_1().min_h(px(0.0)).min_w(px(0.0)).child(
-                            v_resizable("pane-log-split")
-                                .on_resize(move |state, _, cx| {
-                                    let sizes = state.read(cx).sizes().clone();
-                                    let Some(log_size) = sizes.get(1).copied() else {
-                                        return;
-                                    };
-                                    let new_h = f32::from(log_size);
-                                    let _ = weak.update(cx, |this, _| {
-                                        if this.prefs.log_panel_height != Some(new_h) {
-                                            this.prefs.log_panel_height = Some(new_h);
-                                            let _ = this.prefs.save();
-                                        }
-                                    });
-                                })
-                                .child(
-                                    resizable_panel().child(
-                                        div()
-                                            .overflow_hidden()
-                                            .flex()
-                                            .flex_col()
-                                            .child(panes::render(self.selected, pane_inputs, cx)),
+                        let outer = div().flex_1().min_h(px(0.0)).min_w(px(0.0));
+                        if self.selected == Pane::Settings {
+                            outer.child(
+                                div()
+                                    .size_full()
+                                    .overflow_hidden()
+                                    .flex()
+                                    .flex_col()
+                                    .child(panes::render(self.selected, pane_inputs, cx)),
+                            )
+                        } else {
+                            let log_h = self.prefs.log_panel_height.unwrap_or(180.0);
+                            let weak = cx.entity().downgrade();
+                            outer.child(
+                                v_resizable("pane-log-split")
+                                    .on_resize(move |state, _, cx| {
+                                        let sizes = state.read(cx).sizes().clone();
+                                        let Some(log_size) = sizes.get(1).copied() else {
+                                            return;
+                                        };
+                                        let new_h = f32::from(log_size);
+                                        let _ = weak.update(cx, |this, _| {
+                                            if this.prefs.log_panel_height != Some(new_h) {
+                                                this.prefs.log_panel_height = Some(new_h);
+                                                let _ = this.prefs.save();
+                                            }
+                                        });
+                                    })
+                                    .child(
+                                        resizable_panel().child(
+                                            div()
+                                                .overflow_hidden()
+                                                .flex()
+                                                .flex_col()
+                                                .child(panes::render(
+                                                    self.selected,
+                                                    pane_inputs,
+                                                    cx,
+                                                )),
+                                        ),
+                                    )
+                                    .child(
+                                        resizable_panel()
+                                            .size(px(log_h))
+                                            .size_range(px(80.0)..px(500.0))
+                                            .child(log::render(
+                                                &self.log_lines,
+                                                &self.log_scroll,
+                                            )),
                                     ),
-                                )
-                                .child(
-                                    resizable_panel()
-                                        .size(px(log_h))
-                                        .size_range(px(80.0)..px(500.0))
-                                        .child(log::render(&self.log_lines, &self.log_scroll)),
-                                ),
-                        )
+                            )
+                        }
                     }),
             ),
             )
