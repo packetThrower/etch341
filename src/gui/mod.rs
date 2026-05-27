@@ -1026,12 +1026,13 @@ impl AppView {
             timestamp: now_hms(),
             text,
         });
-        // Snap the scroll to the bottom so newly-appended lines are
-        // always visible. A large negative y is clamped to the
-        // post-render max during the next paint — no need to know
-        // the actual content height.
-        self.log_scroll
-            .set_offset(gpui::point(px(0.0), px(-100_000.0)));
+        // Auto-scroll so the newest line is visible. `scroll_to_bottom`
+        // sets a paint-time flag the scroll element honours *after*
+        // the new line has been laid out — the previous approach
+        // (`set_offset(point(0, -100_000))`) clamped against the
+        // *current* (pre-new-line) content height, so the viewport
+        // could land one line short on rapid append.
+        self.log_scroll.scroll_to_bottom();
     }
 
     /// Fire a background read of the whole chip to a timestamped file
@@ -1380,9 +1381,19 @@ impl Render for AppView {
                                         ),
                                     )
                                     .child(
+                                        // Min was `80.0` originally — under
+                                        // ~6 lines of log it stops being
+                                        // useful (the top edge clips into
+                                        // the most recent activity and the
+                                        // user can't even read one full
+                                        // message). 120px gives ~9 lines
+                                        // of comfortable margin and still
+                                        // lets the user shrink it well
+                                        // below the default 180px when
+                                        // they want more pane real estate.
                                         resizable_panel()
                                             .size(px(log_h))
-                                            .size_range(px(80.0)..px(500.0))
+                                            .size_range(px(120.0)..px(500.0))
                                             .child(log::render(
                                                 &self.log_lines,
                                                 &self.log_scroll,
