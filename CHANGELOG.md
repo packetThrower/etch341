@@ -7,6 +7,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-05-26
+
 ### Added
 
 - **Cross-platform window titlebar** — `gpui_component::TitleBar`
