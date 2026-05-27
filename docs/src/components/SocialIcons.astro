@@ -1,11 +1,17 @@
 ---
-// Override of Starlight's SocialIcons component. Renders a "Docs"
-// quick-access pill on the left, then defers to Starlight's default
-// rendering (the GitHub icon, etc.) for the rest. Wraps rather than
-// re-implements so future Starlight versions that change the social-
-// icon pipeline still work — we only own the `.bd-docs-link` extra.
+// Override of Starlight's SocialIcons component. Renders two pills
+// on the left — "packetThrower" linking up to the parent project
+// index, then "Docs" linking to /install/ — and defers to Starlight's
+// default rendering (the GitHub icon, etc.) for the rest. Wraps
+// rather than re-implements so future Starlight versions that change
+// the social-icon pipeline still work; we only own the two
+// `.bd-*-link` extras.
 import Default from '@astrojs/starlight/components/SocialIcons.astro';
 ---
+
+<a class="bd-home-link sl-flex" href="https://packetthrower.github.io/">
+	← packetThrower
+</a>
 
 <a class="bd-docs-link sl-flex" href="/etch341/install/">
 	Docs
@@ -14,7 +20,8 @@ import Default from '@astrojs/starlight/components/SocialIcons.astro';
 <Default {...Astro.props}><slot /></Default>
 
 <style>
-	.bd-docs-link {
+	.bd-docs-link,
+	.bd-home-link {
 		align-items: center;
 		gap: 0.4em;
 		padding: 0.35em 0.85em;
@@ -28,7 +35,8 @@ import Default from '@astrojs/starlight/components/SocialIcons.astro';
 			color 140ms ease,
 			box-shadow 140ms ease;
 	}
-	.bd-docs-link:hover {
+	.bd-docs-link:hover,
+	.bd-home-link:hover {
 		color: var(--sl-color-text-accent);
 		box-shadow: inset 0 0 0 1px var(--sl-color-text-accent);
 	}
