@@ -6,6 +6,21 @@ Build a cross-platform CLI tool for programming SPI/I²C flash chips using the C
 
 ---
 
+## Feature parity (CLI ↔ GUI)
+
+CLI and GUI should expose the same operations where it makes
+sense. Every CLI subcommand has a matching GUI pane (detect /
+read / erase / write / verify / blank-check), and every
+persistent GUI setting has a CLI flag or env knob that does the
+same thing (e.g. `--speed` ↔ Settings → SPI Clock Speed). Drift
+is fine where the medium genuinely changes the affordance — the
+GUI's Hex viewer pane vs. the CLI's `strings` / `search`
+subcommands — but the default expectation when adding a feature
+is parity, and a one-side-only feature gets called out in the
+CHANGELOG entry so it doesn't quietly become permanent skew.
+
+---
+
 ## Project Name
 
 Choose a name. Suggested: `ch3aser`, `flashwave`, or `pinflash` — or propose something better.
