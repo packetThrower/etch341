@@ -126,11 +126,7 @@ pub fn render(selected: Pane, cx: &mut Context<AppView>) -> impl IntoElement {
         // so it reads as a reference rather than a progress
         // indicator. Click-through still works at full opacity —
         // GPUI's `opacity` is paint-only.
-        .child(
-            div()
-                .when(!on_workflow, |d| d.opacity(0.4))
-                .child(stepper),
-        )
+        .child(div().when(!on_workflow, |d| d.opacity(0.4)).child(stepper))
         // Diagnostic / inspection tools live below the stepper —
         // a thin divider sets them apart from the workflow rail.
         // Blank check belongs here (not in the stepper) because

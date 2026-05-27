@@ -3,9 +3,8 @@
 use gpui::{
     App, AppContext, Bounds, ClipboardItem, Context, Entity, FocusHandle, InteractiveElement,
     IntoElement, KeyBinding, ParentElement, Render, ScrollHandle, ScrollStrategy, Styled,
-    Subscription, TitlebarOptions, UniformListScrollHandle, Window, WindowBounds, WindowDecorations,
-    WindowOptions,
-    actions, div, px,
+    Subscription, TitlebarOptions, UniformListScrollHandle, Window, WindowBounds,
+    WindowDecorations, WindowOptions, actions, div, px,
 };
 use gpui_component::{
     Root, Theme, ThemeMode, TitleBar,
@@ -1352,118 +1351,110 @@ impl Render for AppView {
                     .min_h(px(0.0))
                     .child(sidebar::render(self.selected, cx))
                     .child(
-                div()
-                    .flex_1()
-                    // `min_w(0)` overrides flex's default `min-width: auto`
-                    // — without it, intrinsic widths of deeply-nested
-                    // children (long paragraphs, log lines) push this
-                    // column wider than the available viewport, and the
-                    // right edge runs off-window. With `min_w(0)`, flex
-                    // shrink obeys the parent's calculated width and
-                    // wrapping kicks in for descendants that have
-                    // `whitespace_normal`.
-                    .min_w(px(0.0))
-                    .flex()
-                    .flex_col()
-                    .child(header::render(&self.connection, &self.progress))
-                    .child({
-                        // Settings is a configuration pane, not an
-                        // op — there's no progress / pass / fail
-                        // log activity to watch while editing it, so
-                        // the activity log pane just steals screen
-                        // real estate. Render the settings full-
-                        // height without the splitter when it's
-                        // selected; restore the pane / log split for
-                        // every other pane. The hex pane keeps the
-                        // log too — file-load events still surface
-                        // useful timing / size info there.
-                        let pane_inputs = panes::PaneInputs {
-                            erase_armed: self.erase_armed,
-                            write_armed: self.write_armed,
-                            write_path: self.write_input_path.as_deref(),
-                            verify_path: self.verify_input_path.as_deref(),
-                            hex_path: self.hex_input_path.as_deref(),
-                            hex_bytes: self.hex_bytes.clone(),
-                            hex_strings: self.hex_strings.clone(),
-                            hex_byte_matches: self.hex_byte_matches.clone(),
-                            hex_match_total: self.hex_match_starts.len(),
-                            hex_current_match: self.hex_current_match,
-                            hex_scroll: self.hex_scroll.clone(),
-                            strings_scroll: self.strings_scroll.clone(),
-                            hex_highlight_line: self.hex_highlight_line,
-                            hex_show_strings: self.hex_show_strings,
-                            hex_selection: self.selection_range(),
-                            hex_search_term: self.hex_search_term.as_str(),
-                            hex_search_state: &self.hex_search_state,
-                            spi_speed_khz: self.prefs.spi_speed_khz,
-                            restore_window_bounds: self.prefs.restore_window_bounds,
-                            prefs_path: prefs_path_buf.as_deref(),
-                            status_regs: self.status_regs,
-                        };
-                        let outer = div().flex_1().min_h(px(0.0)).min_w(px(0.0));
-                        if self.selected == Pane::Settings {
-                            outer.child(
-                                div()
-                                    .size_full()
-                                    .overflow_hidden()
-                                    .flex()
-                                    .flex_col()
-                                    .child(panes::render(self.selected, pane_inputs, cx)),
-                            )
-                        } else {
-                            let log_h = self.prefs.log_panel_height.unwrap_or(180.0);
-                            let weak = cx.entity().downgrade();
-                            outer.child(
-                                v_resizable("pane-log-split")
-                                    .on_resize(move |state, _, cx| {
-                                        let sizes = state.read(cx).sizes().clone();
-                                        let Some(log_size) = sizes.get(1).copied() else {
-                                            return;
-                                        };
-                                        let new_h = f32::from(log_size);
-                                        let _ = weak.update(cx, |this, _| {
-                                            if this.prefs.log_panel_height != Some(new_h) {
-                                                this.prefs.log_panel_height = Some(new_h);
-                                                let _ = this.prefs.save();
-                                            }
-                                        });
-                                    })
-                                    .child(
-                                        resizable_panel().child(
-                                            div()
-                                                .overflow_hidden()
-                                                .flex()
-                                                .flex_col()
-                                                .child(panes::render(
-                                                    self.selected,
-                                                    pane_inputs,
-                                                    cx,
-                                                )),
-                                        ),
+                        div()
+                            .flex_1()
+                            // `min_w(0)` overrides flex's default `min-width: auto`
+                            // — without it, intrinsic widths of deeply-nested
+                            // children (long paragraphs, log lines) push this
+                            // column wider than the available viewport, and the
+                            // right edge runs off-window. With `min_w(0)`, flex
+                            // shrink obeys the parent's calculated width and
+                            // wrapping kicks in for descendants that have
+                            // `whitespace_normal`.
+                            .min_w(px(0.0))
+                            .flex()
+                            .flex_col()
+                            .child(header::render(&self.connection, &self.progress))
+                            .child({
+                                // Settings is a configuration pane, not an
+                                // op — there's no progress / pass / fail
+                                // log activity to watch while editing it, so
+                                // the activity log pane just steals screen
+                                // real estate. Render the settings full-
+                                // height without the splitter when it's
+                                // selected; restore the pane / log split for
+                                // every other pane. The hex pane keeps the
+                                // log too — file-load events still surface
+                                // useful timing / size info there.
+                                let pane_inputs = panes::PaneInputs {
+                                    erase_armed: self.erase_armed,
+                                    write_armed: self.write_armed,
+                                    write_path: self.write_input_path.as_deref(),
+                                    verify_path: self.verify_input_path.as_deref(),
+                                    hex_path: self.hex_input_path.as_deref(),
+                                    hex_bytes: self.hex_bytes.clone(),
+                                    hex_strings: self.hex_strings.clone(),
+                                    hex_byte_matches: self.hex_byte_matches.clone(),
+                                    hex_match_total: self.hex_match_starts.len(),
+                                    hex_current_match: self.hex_current_match,
+                                    hex_scroll: self.hex_scroll.clone(),
+                                    strings_scroll: self.strings_scroll.clone(),
+                                    hex_highlight_line: self.hex_highlight_line,
+                                    hex_show_strings: self.hex_show_strings,
+                                    hex_selection: self.selection_range(),
+                                    hex_search_term: self.hex_search_term.as_str(),
+                                    hex_search_state: &self.hex_search_state,
+                                    spi_speed_khz: self.prefs.spi_speed_khz,
+                                    restore_window_bounds: self.prefs.restore_window_bounds,
+                                    prefs_path: prefs_path_buf.as_deref(),
+                                    status_regs: self.status_regs,
+                                };
+                                let outer = div().flex_1().min_h(px(0.0)).min_w(px(0.0));
+                                if self.selected == Pane::Settings {
+                                    outer.child(
+                                        div()
+                                            .size_full()
+                                            .overflow_hidden()
+                                            .flex()
+                                            .flex_col()
+                                            .child(panes::render(self.selected, pane_inputs, cx)),
                                     )
-                                    .child(
-                                        // Min was `80.0` originally — under
-                                        // ~6 lines of log it stops being
-                                        // useful (the top edge clips into
-                                        // the most recent activity and the
-                                        // user can't even read one full
-                                        // message). 120px gives ~9 lines
-                                        // of comfortable margin and still
-                                        // lets the user shrink it well
-                                        // below the default 180px when
-                                        // they want more pane real estate.
-                                        resizable_panel()
-                                            .size(px(log_h))
-                                            .size_range(px(120.0)..px(500.0))
-                                            .child(log::render(
-                                                &self.log_lines,
-                                                &self.log_scroll,
-                                            )),
-                                    ),
-                            )
-                        }
-                    }),
-            ),
+                                } else {
+                                    let log_h = self.prefs.log_panel_height.unwrap_or(180.0);
+                                    let weak = cx.entity().downgrade();
+                                    outer.child(
+                                        v_resizable("pane-log-split")
+                                            .on_resize(move |state, _, cx| {
+                                                let sizes = state.read(cx).sizes().clone();
+                                                let Some(log_size) = sizes.get(1).copied() else {
+                                                    return;
+                                                };
+                                                let new_h = f32::from(log_size);
+                                                let _ = weak.update(cx, |this, _| {
+                                                    if this.prefs.log_panel_height != Some(new_h) {
+                                                        this.prefs.log_panel_height = Some(new_h);
+                                                        let _ = this.prefs.save();
+                                                    }
+                                                });
+                                            })
+                                            .child(resizable_panel().child(
+                                                div().overflow_hidden().flex().flex_col().child(
+                                                    panes::render(self.selected, pane_inputs, cx),
+                                                ),
+                                            ))
+                                            .child(
+                                                // Min was `80.0` originally — under
+                                                // ~6 lines of log it stops being
+                                                // useful (the top edge clips into
+                                                // the most recent activity and the
+                                                // user can't even read one full
+                                                // message). 120px gives ~9 lines
+                                                // of comfortable margin and still
+                                                // lets the user shrink it well
+                                                // below the default 180px when
+                                                // they want more pane real estate.
+                                                resizable_panel()
+                                                    .size(px(log_h))
+                                                    .size_range(px(120.0)..px(500.0))
+                                                    .child(log::render(
+                                                        &self.log_lines,
+                                                        &self.log_scroll,
+                                                    )),
+                                            ),
+                                    )
+                                }
+                            }),
+                    ),
             )
     }
 }

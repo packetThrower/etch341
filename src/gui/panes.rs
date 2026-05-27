@@ -73,15 +73,13 @@ pub fn render(
             cx,
         )
         .into_any_element(),
-        Pane::Settings => {
-            settings_pane(
-                inputs.spi_speed_khz,
-                inputs.restore_window_bounds,
-                inputs.prefs_path,
-                cx,
-            )
-            .into_any_element()
-        }
+        Pane::Settings => settings_pane(
+            inputs.spi_speed_khz,
+            inputs.restore_window_bounds,
+            inputs.prefs_path,
+            cx,
+        )
+        .into_any_element(),
     }
 }
 
@@ -1155,18 +1153,15 @@ fn status_register_block(
                 .child(format!("0x{value:02X}  0b{value:08b}")),
         );
     if !present {
-        return div()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(header)
-            .child(
-                div()
-                    .text_size(px(12.0))
-                    .text_color(theme::text_tertiary())
-                    .whitespace_normal()
-                    .child(format!("(chip didn't respond — likely doesn't implement {name})")),
-            );
+        return div().flex().flex_col().gap_1().child(header).child(
+            div()
+                .text_size(px(12.0))
+                .text_color(theme::text_tertiary())
+                .whitespace_normal()
+                .child(format!(
+                    "(chip didn't respond — likely doesn't implement {name})"
+                )),
+        );
     }
     // Bit-grid: each entry is "NAME: value" in Menlo at 12px, laid
     // out as flex-wrap so narrow windows wrap rather than overflow.
@@ -1180,10 +1175,7 @@ fn status_register_block(
         .font_family("Menlo")
         .text_color(theme::text_secondary());
     for (label, v) in bits {
-        grid = grid.child(
-            div()
-                .child(format!("{label}={v}")),
-        );
+        grid = grid.child(div().child(format!("{label}={v}")));
     }
     div().flex().flex_col().gap_1().child(header).child(grid)
 }
@@ -1312,14 +1304,11 @@ where
     } else {
         (idle_label, theme::accent_blue())
     };
-    styled_button(id)
-        .bg(bg)
-        .child(label)
-        .on_click(
-            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
-                on_click(this, cx);
-            }),
-        )
+    styled_button(id).bg(bg).child(label).on_click(cx.listener(
+        move |this: &mut AppView, _: &ClickEvent, _, cx| {
+            on_click(this, cx);
+        },
+    ))
 }
 
 /// Shared button skeleton (sizing, rounding, text color, layout).

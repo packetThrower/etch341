@@ -222,12 +222,8 @@ fn print_status(regs: &spi::StatusRegisters) {
     // it. Anything else is left to the decoded view above.
     if regs.bp() != 0 || regs.sec_or_bp3() {
         println!();
-        println!(
-            "note   : SR1 has block-protect bits set — writes/erases to the protected"
-        );
-        println!(
-            "         range will silently fail. Clear BP[2:0] (and SEC/BP3 if set) via"
-        );
+        println!("note   : SR1 has block-protect bits set — writes/erases to the protected");
+        println!("         range will silently fail. Clear BP[2:0] (and SEC/BP3 if set) via");
         println!("         WRSR before programming.");
     }
 }
