@@ -350,7 +350,13 @@ fn human_size(n: u64) -> String {
     }
 }
 
-/// Pick a chip via `--chip <NAME>` if given, else by reading JEDEC ID.
+/// Pick a chip via `--chip <NAME>` if given, else by reading JEDEC
+/// ID and falling back to SFDP when JEDEC isn't in the bundled DB.
+/// The SFDP path lets etch341 read/write a brand-new chip that we
+/// haven't catalogued yet, as long as the chip supports JESD216
+/// (most parts made since ~2011). Hand-named overrides (`--chip`)
+/// always win — that's the escape hatch for chips with damaged or
+/// uncatalogued JEDEC IDs.
 pub fn resolve_chip(spi: &mut dyn SpiTransport, global: &GlobalOpts) -> Result<Chip> {
     let db = ChipDb::load_embedded();
     if let Some(name) = &global.chip {
@@ -361,9 +367,56 @@ pub fn resolve_chip(spi: &mut dyn SpiTransport, global: &GlobalOpts) -> Result<C
     }
     let id = spi::jedec_read(spi)?;
     let jedec = format!("{:02X}{:02X}{:02X}", id[0], id[1], id[2]);
-    db.find_by_jedec(&jedec)
-        .cloned()
-        .ok_or(Error::ChipNotRecognized(jedec))
+    if let Some(c) = db.find_by_jedec(&jedec) {
+        return Ok(c.clone());
+    }
+    if let Some(chip) = synthesize_from_sfdp(spi, &jedec)? {
+        return Ok(chip);
+    }
+    Err(Error::ChipNotRecognized(jedec))
+}
+
+/// Try to build a `Chip` from the chip's SFDP table when the JEDEC
+/// ID isn't in the bundled DB. Returns `Ok(None)` for chips that
+/// don't carry SFDP at all (pre-JESD216 silicon — all-`0xFF`
+/// response, or a magic-mismatch) so the caller can surface a
+/// "ChipNotRecognized" error instead of pretending we identified
+/// it. Errors only propagate when the SPI transfer itself fails.
+///
+/// The synthesised `Chip` carries a name like "EF4018 (SFDP)" so a
+/// quick glance at the header / log makes the source obvious.
+/// `erase_time_ms` defaults to 60ms (the typical 4K-sector erase
+/// time for the W25Q / MX25L families); future versions could
+/// derive this from BFPT DWORD 10's erase timing fields.
+pub fn synthesize_from_sfdp(spi: &mut dyn SpiTransport, jedec: &str) -> Result<Option<Chip>> {
+    let data = spi::read_sfdp(spi, 0, 256)?;
+    let parsed = crate::sfdp::parse(&data);
+    if !parsed.header.valid {
+        return Ok(None);
+    }
+    let Some(b) = parsed.bfpt else {
+        return Ok(None);
+    };
+    // Pick the smallest advertised erase type as the sector size
+    // — that's the one our sector-by-sector write path will use.
+    // Falls back to the universal 4 KB when the chip doesn't
+    // advertise erase types at all (rare).
+    let sector_size = b
+        .erase_types
+        .iter()
+        .filter(|e| e.size_bytes > 0)
+        .map(|e| e.size_bytes)
+        .min()
+        .unwrap_or(4096);
+    Ok(Some(Chip {
+        name: format!("{jedec} (SFDP)"),
+        jedec_id: jedec.to_string(),
+        size_kb: (b.size_bytes / 1024) as u32,
+        page_size: b.page_size,
+        sector_size,
+        erase_time_ms: 60,
+        notes: "Auto-derived from SFDP; add an entry to chips.toml for a friendlier name + accurate erase timing.".to_string(),
+    }))
 }
 
 pub fn read(

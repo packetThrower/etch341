@@ -942,10 +942,22 @@ impl AppView {
                     let chip = match detect.diagnosis {
                         Diagnosis::Known(c) => c,
                         Diagnosis::UnknownChip => {
-                            return Err(format!(
-                                "unknown JEDEC 0x{}: add to chips.toml",
-                                detect.jedec_string()
-                            ));
+                            // JEDEC isn't in the bundled DB; fall back to
+                            // SFDP so a brand-new chip can still be
+                            // read/written/erased/verified using its
+                            // self-described parameters. If SFDP isn't
+                            // available either, surface the
+                            // ChipNotRecognized condition with both
+                            // escape hatches in the message.
+                            let jedec = detect.jedec_string();
+                            match ops::synthesize_from_sfdp(&mut ch, &jedec) {
+                                Ok(Some(c)) => c,
+                                _ => {
+                                    return Err(format!(
+                                        "unknown JEDEC 0x{jedec} and chip has no SFDP; add to chips.toml or pass --chip"
+                                    ));
+                                }
+                            }
                         }
                         Diagnosis::MisoStuckLow => {
                             return Err("MISO stuck low (target board contention)".into());
@@ -999,10 +1011,22 @@ impl AppView {
                     let chip = match detect.diagnosis {
                         Diagnosis::Known(c) => c,
                         Diagnosis::UnknownChip => {
-                            return Err(format!(
-                                "unknown JEDEC 0x{}: add to chips.toml",
-                                detect.jedec_string()
-                            ));
+                            // JEDEC isn't in the bundled DB; fall back to
+                            // SFDP so a brand-new chip can still be
+                            // read/written/erased/verified using its
+                            // self-described parameters. If SFDP isn't
+                            // available either, surface the
+                            // ChipNotRecognized condition with both
+                            // escape hatches in the message.
+                            let jedec = detect.jedec_string();
+                            match ops::synthesize_from_sfdp(&mut ch, &jedec) {
+                                Ok(Some(c)) => c,
+                                _ => {
+                                    return Err(format!(
+                                        "unknown JEDEC 0x{jedec} and chip has no SFDP; add to chips.toml or pass --chip"
+                                    ));
+                                }
+                            }
                         }
                         Diagnosis::MisoStuckLow => return Err("MISO stuck low".into()),
                         Diagnosis::MisoFloatsHigh => return Err("MISO floats high".into()),
@@ -1116,10 +1140,22 @@ impl AppView {
                     let chip = match detect.diagnosis {
                         Diagnosis::Known(c) => c,
                         Diagnosis::UnknownChip => {
-                            return Err(format!(
-                                "unknown JEDEC 0x{}: add to chips.toml",
-                                detect.jedec_string()
-                            ));
+                            // JEDEC isn't in the bundled DB; fall back to
+                            // SFDP so a brand-new chip can still be
+                            // read/written/erased/verified using its
+                            // self-described parameters. If SFDP isn't
+                            // available either, surface the
+                            // ChipNotRecognized condition with both
+                            // escape hatches in the message.
+                            let jedec = detect.jedec_string();
+                            match ops::synthesize_from_sfdp(&mut ch, &jedec) {
+                                Ok(Some(c)) => c,
+                                _ => {
+                                    return Err(format!(
+                                        "unknown JEDEC 0x{jedec} and chip has no SFDP; add to chips.toml or pass --chip"
+                                    ));
+                                }
+                            }
                         }
                         Diagnosis::MisoStuckLow => {
                             return Err("MISO stuck low (target board contention)".into());
@@ -1190,10 +1226,22 @@ impl AppView {
                     let chip = match detect.diagnosis {
                         Diagnosis::Known(c) => c,
                         Diagnosis::UnknownChip => {
-                            return Err(format!(
-                                "unknown JEDEC 0x{}: add to chips.toml",
-                                detect.jedec_string()
-                            ));
+                            // JEDEC isn't in the bundled DB; fall back to
+                            // SFDP so a brand-new chip can still be
+                            // read/written/erased/verified using its
+                            // self-described parameters. If SFDP isn't
+                            // available either, surface the
+                            // ChipNotRecognized condition with both
+                            // escape hatches in the message.
+                            let jedec = detect.jedec_string();
+                            match ops::synthesize_from_sfdp(&mut ch, &jedec) {
+                                Ok(Some(c)) => c,
+                                _ => {
+                                    return Err(format!(
+                                        "unknown JEDEC 0x{jedec} and chip has no SFDP; add to chips.toml or pass --chip"
+                                    ));
+                                }
+                            }
                         }
                         Diagnosis::MisoStuckLow => {
                             return Err("MISO stuck low (target board contention)".into());
@@ -1364,10 +1412,22 @@ impl AppView {
                     let chip = match detect.diagnosis {
                         Diagnosis::Known(c) => c,
                         Diagnosis::UnknownChip => {
-                            return Err(format!(
-                                "unknown JEDEC 0x{}: add to chips.toml",
-                                detect.jedec_string()
-                            ));
+                            // JEDEC isn't in the bundled DB; fall back to
+                            // SFDP so a brand-new chip can still be
+                            // read/written/erased/verified using its
+                            // self-described parameters. If SFDP isn't
+                            // available either, surface the
+                            // ChipNotRecognized condition with both
+                            // escape hatches in the message.
+                            let jedec = detect.jedec_string();
+                            match ops::synthesize_from_sfdp(&mut ch, &jedec) {
+                                Ok(Some(c)) => c,
+                                _ => {
+                                    return Err(format!(
+                                        "unknown JEDEC 0x{jedec} and chip has no SFDP; add to chips.toml or pass --chip"
+                                    ));
+                                }
+                            }
                         }
                         Diagnosis::MisoStuckLow => {
                             return Err("MISO stuck low (target board contention)".into());
