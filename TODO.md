@@ -185,6 +185,18 @@ functionality.
       switch the Hex pane to highlight differing addresses and
       let the user step between them with Cmd+G. Closes the loop
       between Verify and Hex. ~30 min.
+- [ ] **Hex pane editor mode** — promote the Hex pane from
+      read-only viewer to byte editor. Minimum-viable cut:
+      click-to-edit a byte (hex or ASCII column), undo/redo
+      stack, dirty-state indicator on the pane header,
+      Save-to-file, and Fill-range (most-used: blank a region to
+      0xFF). The natural "commit" path is a "Flash changes"
+      button that runs the existing erase + write flow against
+      only the sectors covering modified pages — same page-
+      aligned compare logic as the skip-equal write mode above,
+      so the two should share code. GUI-only; CLI editing of
+      individual bytes is worse ergonomics than just opening the
+      dump in any external hex editor. ~3-4 hr.
 
 ## CLI / general polish
 
