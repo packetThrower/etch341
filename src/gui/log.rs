@@ -12,9 +12,14 @@ pub fn render(lines: &[LogLine], scroll: &ScrollHandle) -> impl IntoElement {
     // is a child of the scrolling element, it scrolls along with
     // the content and the thumb stays near the visual top of the
     // content rather than the viewport, which looks "backwards".
+    // `size_full()` (not just `h(px(180.0))`) — the resizable_panel
+    // parent already drives the height, but without an explicit
+    // width the outer div shrinks to fit its longest log line and
+    // the black background ends short of the window's right edge.
+    // `size_full` fills both axes inside the panel.
     div()
         .relative()
-        .h(px(180.0))
+        .size_full()
         .border_t_1()
         .border_color(theme::workshop_glass_strong())
         .bg(theme::bench_black())
