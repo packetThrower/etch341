@@ -7,6 +7,52 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-05-26
+
+### Fixed
+
+- **Windows GUI launched a console window** alongside the GUI on
+  every double-click. Rust's default `console` subsystem
+  allocates a fresh console for any binary launched from Explorer;
+  release `gui` builds on Windows now set
+  `windows_subsystem = "windows"` so no console appears. CLI
+  subcommands invoked from `cmd` / PowerShell still surface
+  stdout via an `AttachConsole(ATTACH_PARENT_PROCESS)` fallback
+  (output prints after the next prompt redraws, which is usable
+  but ugly — a dedicated `etch341-cli.exe` console-subsystem
+  sibling is the cleaner fix and remains deferred until Windows
+  CLI usage justifies it).
+- **Hex pane rendered "ghostly" on Windows + Linux** because
+  every fixed-width region called `font_family("Menlo")`
+  directly. Menlo is macOS-only; the Windows / Linux fallback
+  was a thin substitute that read poorly against the dark
+  theme. New `theme::MONO_FONT` constant picks `Menlo` on
+  macOS, `Consolas` on Windows, `monospace` on Linux; every
+  callsite in `log.rs` + `panes.rs` reads from it.
+- **Find input text was invisible** (typed characters didn't
+  appear) — the wrapper div carried
+  `text_color(theme::bench_black())` from when gpui-component's
+  Input had a white background, but after we forced
+  `Theme::change(ThemeMode::Dark)` in v0.3.0 the Input went
+  dark-on-dark. Drop the override; let the theme drive both
+  sides.
+- **`Ctrl+C` / `Ctrl+F` / `Ctrl+G` silently no-op'd on
+  Windows + Linux**. GPUI treats `cmd-` and `ctrl-` as distinct
+  chords; the existing bindings were `cmd-` only. Both forms
+  now bind, each gated to its native platform — `cmd-*` on
+  macOS only, `ctrl-*` on Windows + Linux only — so neither OS
+  shadows the other's convention.
+
+### Documentation
+
+- **Docs header** gains a "← packetThrower" pill linking back to
+  https://packetthrower.github.io/ for visitors who want to
+  bounce out to the rest of the project index. Sits next to the
+  existing "Docs" pill in the header.
+- `chipdb.rs` module-level comment said the chip database is
+  read at runtime; it's actually compiled in via `include_str!`
+  at build time. Comment-only fix.
+
 ## [0.3.0] — 2026-05-26
 
 ### Added
