@@ -157,33 +157,6 @@ The GUI works but feels heavier than it needs to. Items in this
 section are about visual + interaction polish rather than new
 functionality.
 
-- [ ] **Try a stepper-style sidebar** —
-      `gpui_component::stepper::Stepper` is a vertical/horizontal
-      progress-step component that better matches the implicit
-      workflow (Detect → Read → Erase → Write → Verify is a
-      natural sequence). Today's sidebar is a flat pane-list with
-      no sense of progression. A vertical stepper with each op as
-      a step, plus the inspection panes (Hex, Settings) below the
-      stepper as flat items, would surface the canonical flow.
-      Investigate the look first before committing — might not
-      fit the freeform "jump to any pane" usage that already
-      works.
-- [ ] **Smaller buttons** — primary action buttons in the
-      operation panes are sized for prominent CTAs but read as
-      bulky against the tighter chrome around them. Drop padding +
-      font size one notch (e.g. `py_2` → `py_1`, `text-sm` →
-      `text-xs`) and re-check the arm/confirm two-stage flow still
-      reads.
-- [ ] **Unify pane layout** — each operation pane (Detect / Read /
-      Erase / Write / Verify / Blank) has slightly different
-      spacing, heading sizes, and CTA placement because they grew
-      organically. Factor the per-pane shell into a shared
-      `op_pane(heading, body, file_picker?, action_button)`
-      helper so changes to "pane look" land in one place. Pairs
-      naturally with the smaller-buttons change.
-- [ ] **Window position + size persistence** — splitter height
-      already persists; the window's own bounds don't. Save on
-      `on_window_should_close`, restore on `open_window`. ~20 min.
 - [ ] **Diff view after failed verify** — when verify fails,
       switch the Hex pane to highlight differing addresses and
       let the user step between them with Cmd+G. Closes the loop
