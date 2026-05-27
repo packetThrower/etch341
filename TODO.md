@@ -36,6 +36,39 @@ priority order.
       drift = bus noise, clustered runs = bad sector). Could be
       part of `etch341 search` as a sibling mode, or its own
       subcommand. ~1 hr.
+- [ ] **Skip-equal / patch write mode** (`etch341 write --patch`)
+      — read the chip first, compare to the input file, and only
+      issue page-programs for sectors that actually differ. Huge
+      time + chip-wear win on incremental updates (e.g.
+      reflashing a BIOS where 95% of the image is unchanged from
+      what's already on the chip). The compare-and-write loop is
+      page-aligned so erase semantics stay clean: erase only the
+      sectors that hold a differing page, not the whole chip.
+      ~1-2 hr. Pairs naturally with the `etch341 diff` work above
+      since both walk the same page-by-page comparison.
+- [ ] **Auto-backup before destructive ops** — snapshot the chip
+      to `<read-output-dir>/etch341-backup-<unix>.bin` before any
+      `erase` or `write` op runs, controlled by a Settings toggle
+      (and an `--auto-backup` / `--no-backup` CLI flag). Cheap
+      insurance against the "I forgot to Read first" foot-gun;
+      especially valuable for the GUI two-stage arm flow where
+      the user might click through quickly. ~30 min.
+- [ ] **`--verify-read <N>`** for `read` — do N full reads, only
+      accept the dump when all N SHA-256s match. Pairs with the
+      stuck-high MISO TODO in the hardware-validation section
+      so the standard workflow is "the tool is the workaround"
+      instead of "dump twice and `cmp` manually". Default `N=1`
+      preserves current behaviour. ~30 min.
+- [ ] **`etch341 uid`** — read the 64-bit factory-unique ID via
+      opcode `0x4B`. Per-chip serial number useful for inventory
+      / fingerprinting / per-chip key derivation. Surface as an
+      8-byte hex string. ~15 min. GUI surfaces it in the Detect
+      pane's chip-info card next to the JEDEC + chip name fields.
+- [ ] **`etch341 reset`** — send the standard SPI reset sequence
+      (`0x66` Enable Reset + `0x99` Reset). Recovers chips stuck
+      in 4-byte address mode, suspended-erase state, or
+      mid-program limbo after a botched op without the user
+      having to power-cycle the CH341A. ~15 min.
 
 ### Medium value, medium effort
 
@@ -52,6 +85,15 @@ priority order.
       Read Device ID) and `0x90` (Read Manufacturer / Device ID,
       with address bytes) when `0x9F` returns garbage. Some older
       chips don't respond to `0x9F`. ~1-2 hr.
+- [ ] **OTP / security register access** — most modern SPI NOR
+      chips carry a separate 256-3072 byte one-time-programmable
+      region behind dedicated opcodes (`0x48` read security
+      register, `0x42` program, `0x44` erase on W25Q-family).
+      Common uses: per-board serial numbers, MAC addresses,
+      vendor keys. Start with read-only access (`etch341 otp
+      read`) since the program/erase paths are genuinely
+      one-time-only and warrant their own arm/confirm flow.
+      ~2-3 hr.
 ### Big effort, big payoff (when there's a real need)
 
 - [ ] **Region / layout support** — `etch341 read --region BIOS`,
@@ -167,6 +209,13 @@ functionality.
       NSIS / MSI / portable-zip artifacts. Update the Scoop
       manifest's `bin` array to surface both shims on PATH.
       ~1-2 hr. macOS / Linux unaffected (no subsystem distinction).
+- [ ] **Fast hash alternative** (`--hash xxh3` or `--hash crc32`)
+      for `read` / `fingerprint` — SHA-256 over a 16 MB dump
+      runs ~80 ms; xxh3 over the same data runs ~3 ms. Default
+      stays SHA-256 (cryptographic confidence on shared / pasted
+      hashes), but a fast option helps with "did anything
+      change?" round-trips during dev. The output line just
+      switches algorithm label. ~30 min.
 - [ ] **CLI `--from-chip`** for `strings` / `search` — let them
       operate directly on the live chip instead of needing a `read`
       first. Just plumbing: open Ch341, run ops::read into a Vec,
