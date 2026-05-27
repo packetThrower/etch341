@@ -265,6 +265,47 @@ jobs:
           CARGO_BUILD_TARGET: ${{ matrix.triple }}
         run: cargo packager --release -f deb -f appimage --target ${{ matrix.triple }}
 
+      # cargo-packager 0.11 doesn't expose .deb postinst hooks, so
+      # we patch the freshly-built .deb to inject one that reloads
+      # udev rules + retriggers attached USB devices. Without this,
+      # users install the .deb, plug in the CH341A, hit
+      # `PermissionDenied` because the 99-ch341a.rules file we
+      # dropped at /usr/lib/udev/rules.d/ hasn't been re-read by
+      # the running udevd. The script handles chroots/containers
+      # (no /run/udev) safely so this also doesn't break docker
+      # image builds that install the .deb.
+      - name: Inject .deb postinst (udev reload)
+        run: |
+          set -e
+          DEB=$(find "target/${{ matrix.triple }}/release" -maxdepth 1 -name '*.deb' | head -1)
+          if [ -z "$DEB" ]; then
+            echo "no .deb produced by cargo-packager — nothing to patch"
+            exit 0
+          fi
+          echo "Patching $DEB with postinst hook"
+
+          WORK=$(mktemp -d)
+          dpkg-deb -R "$DEB" "$WORK"
+          mkdir -p "$WORK/DEBIAN"
+
+          # Same script the .rpm + .pacman builds use via fpm's
+          # --after-install, so all three formats activate the
+          # udev rule the same way.
+          cp packaging/linux/etch341-postinstall.sh "$WORK/DEBIAN/postinst"
+          chmod 0755 "$WORK/DEBIAN/postinst"
+
+          # postrm fires the same reload on uninstall so the rule
+          # going away (or being replaced on upgrade) re-triggers
+          # USB permission resolution.
+          cp packaging/linux/etch341-postinstall.sh "$WORK/DEBIAN/postrm"
+          chmod 0755 "$WORK/DEBIAN/postrm"
+
+          # Rebuild in place. xz matches cargo-packager's own
+          # default; specifying it explicitly avoids dpkg-deb
+          # behavior drift between Ubuntu releases.
+          dpkg-deb -Z xz -b "$WORK" "$DEB"
+          rm -rf "$WORK"
+
       # Stage the install tree once; fpm rpm + pacman both consume
       # the same layout. Mirrors the same files cargo-packager's
       # .deb metadata drops, so the three packagers install the
@@ -323,6 +364,8 @@ jobs:
             --depends 'libxcb-xkb.so.1()(64bit)' \
             --depends 'libfontconfig.so.1()(64bit)' \
             --depends 'libfreetype.so.6()(64bit)' \
+            --after-install packaging/linux/etch341-postinstall.sh \
+            --after-remove packaging/linux/etch341-postinstall.sh \
             --package "etch341-${VERSION}-1.${ARCH}.rpm"
 
       # Pacman / Arch: same staging dir, fpm pacman target writes
@@ -341,6 +384,8 @@ jobs:
             --description "Cross-platform CLI/GUI flash programmer for the CH341A USB SPI/I2C interface." \
             --url "https://github.com/packetThrower/etch341" \
             --vendor "packetThrower" --maintainer "packetThrower" \
+            --after-install packaging/linux/etch341-postinstall.sh \
+            --after-remove packaging/linux/etch341-postinstall.sh \
             --package "etch341-${VERSION}-1-${ARCH}.pkg.tar.zst"
 
       - name: Stage artifact

@@ -153,12 +153,6 @@ functionality.
 
 ## CLI / general polish
 
-- [ ] **`.deb` postinstall hook** — currently the udev rule is
-      dropped at install time but `udevadm control --reload-rules`
-      isn't fired automatically. Users hit `PermissionDenied` on
-      the first run and have to unplug-replug the CH341A. Patching
-      the `.deb` postinst step (see Baudrun's release.yml for the
-      `dpkg-deb -R/postinst` pattern) would fix this transparently.
 - [ ] **`-V` / `-VV` verbosity levels** — today `-v` is binary
       on/off. Multi-level verbose (header info → bus bytes → full
       USB-packet hex) would let users dial detail to what they

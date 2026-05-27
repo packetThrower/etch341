@@ -55,6 +55,15 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
   idioms. Success summary lines suppressed in stdout mode so
   they don't interleave with the binary data; errors still
   surface on stderr.
+- **Linux `.deb` / `.rpm` / `.pkg.tar.zst` postinstall hook** —
+  reloads `udev` rules and re-triggers attached USB devices
+  immediately on install so the bundled `99-ch341a.rules` takes
+  effect without an unplug-replug or manual `udevadm control
+  --reload`. The single
+  `packaging/linux/etch341-postinstall.sh` script is wired into
+  all three formats (dpkg-deb `-R`/`-b` injection for `.deb`;
+  fpm's `--after-install` for `.rpm` + `.pacman`). Chroot /
+  container installs no-op cleanly when `/run/udev` is absent.
 
 ### Changed
 
