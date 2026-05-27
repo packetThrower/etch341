@@ -138,6 +138,15 @@ section below the first time).
 
 ### macOS
 
+The easiest path is the Homebrew tap, which always tracks the
+latest stable release and auto-updates with `brew upgrade`:
+
+```sh
+brew install packetThrower/tap/etch341
+```
+
+Or build from source:
+
 ```sh
 cargo install --path .
 ```
@@ -168,7 +177,14 @@ fix is to bind the **WinUSB** generic driver to the device:
 3. In Zadig's `Options` menu, enable `List All Devices`.
 4. Select the entry with VID `0x1A86` / PID `0x5512`, choose **WinUSB**
    from the driver dropdown, and click `Install Driver`.
-5. `cargo install --path .`
+5. Install etch341 from the Scoop bucket (auto-updates via `scoop update`):
+
+   ```powershell
+   scoop bucket add packetThrower https://github.com/packetThrower/scoop-bucket
+   scoop install etch341
+   ```
+
+   Or build from source: `cargo install --path .`.
 
 You only need to do steps 1–4 once per machine. If `etch341 detect`
 reports `DeviceNotFound` on Windows after running it once, the driver

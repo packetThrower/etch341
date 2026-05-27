@@ -15,6 +15,20 @@ source is covered there too.
 
 ## macOS
 
+The path of least friction is the project's Homebrew tap:
+
+```sh
+brew install packetThrower/tap/etch341
+```
+
+The cask drag-installs the same `.dmg` as the manual flow below
+and strips the Gatekeeper quarantine attribute during install so
+the first launch doesn't need a right-click → Open dance. Future
+releases land via `brew upgrade` on the next 6-hour bump cron, no
+re-clicking installers.
+
+Or, the manual flow:
+
 1. Download `etch341-<ver>-arm64-macos.dmg` (Apple Silicon) or
    `etch341-<ver>-amd64-macos.dmg` (Intel) from the Releases page.
 2. Open the `.dmg`, drag etch341 to Applications.
@@ -42,13 +56,24 @@ way etch341 sees `DeviceNotFound`.
 3. In Zadig's `Options` menu, enable `List All Devices`.
 4. Select the entry with VID `0x1A86` / PID `0x5512`, choose **WinUSB**
    in the driver dropdown, and click `Install Driver`.
-5. Download `etch341-<ver>-amd64-windows-setup.exe` (or
-   `-arm64-windows-setup.exe`) from the Releases page and run it.
+5. Install etch341 itself. Easiest path is the project's Scoop bucket:
 
-Steps 1–4 are needed once per machine. Stable tags also ship a
-proper `.msi` (`etch341-<ver>-<arch>-windows.msi`) that integrates
-with Apps & Features. If you prefer a portable bare-`.exe`, the
-`etch341-<ver>-<arch>-windows.zip` artifact has it.
+   ```powershell
+   scoop bucket add packetThrower https://github.com/packetThrower/scoop-bucket
+   scoop install etch341
+   ```
+
+   `scoop update` picks up new releases on the bucket's 6-hour
+   bump cron — no clicking through installers. If you'd rather
+   click, download `etch341-<ver>-amd64-windows-setup.exe` (or
+   `-arm64-windows-setup.exe`) from the Releases page and run
+   it. Stable tags also ship a proper `.msi`
+   (`etch341-<ver>-<arch>-windows.msi`) that integrates with
+   Apps & Features. The portable bare-`.exe` lives in
+   `etch341-<ver>-<arch>-windows.zip` for users who want zero
+   installer.
+
+Steps 1–4 are needed once per machine.
 
 If `etch341 detect` reports `DeviceNotFound` on Windows after
 running it once, the driver binding is usually the cause — re-check
