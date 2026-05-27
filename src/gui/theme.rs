@@ -14,20 +14,25 @@ use gpui::{Hsla, Rgba};
 /// - Windows: `Consolas` (shipped with Vista+; Cascadia Mono is the
 ///   newer Microsoft default but only present on Windows 10 21H2+
 ///   — Consolas is the safer floor)
-/// - Linux:   `monospace` (freedesktop generic; resolves via
-///   fontconfig to the user's preferred monospace, usually DejaVu
-///   Sans Mono on Debian/Ubuntu/Fedora)
+/// - Linux:   `DejaVu Sans Mono` (preinstalled on Debian, Ubuntu,
+///   Fedora, openSUSE, Arch's `ttf-dejavu` group, and most
+///   freedesktop-conforming distros). The freedesktop generic
+///   `"monospace"` would also have been correct but gpui's font
+///   loader doesn't resolve fontconfig aliases — it wants a real
+///   family name, and `"monospace"` fell back to a thin sans-serif
+///   that mis-aligned the Hex pane columns the same way Windows
+///   did with the Menlo fallback.
 ///
-/// Without this, `font_family("Menlo")` on Windows fell back to a
-/// thin substitute that rendered the Hex pane bytes faintly /
-/// "ghostly" against the dark background — the user-visible bug
-/// this constant fixes.
+/// Without this constant, `font_family("Menlo")` on Windows + Linux
+/// fell back to a thin substitute that rendered the Hex pane bytes
+/// faintly / mis-aligned against the dark background — the
+/// user-visible bug this constant fixes.
 pub const MONO_FONT: &str = if cfg!(target_os = "macos") {
     "Menlo"
 } else if cfg!(target_os = "windows") {
     "Consolas"
 } else {
-    "monospace"
+    "DejaVu Sans Mono"
 };
 
 fn from_rgb(hex: u32, alpha: f32) -> Hsla {

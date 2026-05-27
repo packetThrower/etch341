@@ -99,9 +99,46 @@ impl Ch341 {
             .open_device_with_vid_pid(VID, PID)
             .ok_or(Error::DeviceNotFound)?;
 
-        // Linux only; macOS / Windows are no-ops or unsupported and we
-        // don't care about the result either way.
-        let _ = handle.set_auto_detach_kernel_driver(true);
+        // On Linux the kernel `ch341` driver auto-binds to the
+        // CH341A on plug-in (presenting it as /dev/ttyUSB*); for
+        // us to claim interface 0 for raw bulk transfers we have
+        // to dislodge that driver first. We try two layers:
+        //
+        //   1. `set_auto_detach_kernel_driver(true)` asks libusb
+        //      to detach implicitly on claim. Works on bare
+        //      hardware Linux but the underlying USBDEVFS ioctl
+        //      sometimes returns InvalidParam through
+        //      virtualised USB stacks (UTM / VMware / qemu's
+        //      virtio-usb), so the implicit detach silently
+        //      fails and `claim_interface` then errors with
+        //      "Invalid parameter".
+        //   2. `detach_kernel_driver(INTERFACE)` does the same
+        //      thing explicitly. We ignore NotFound (no driver
+        //      was attached — fine) and Access (we'll see the
+        //      same error from claim_interface in a moment with
+        //      a friendlier mapping).
+        //
+        // No-op on macOS / Windows.
+        #[cfg(target_os = "linux")]
+        {
+            let _ = handle.set_auto_detach_kernel_driver(true);
+            let _ = handle.detach_kernel_driver(INTERFACE);
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = handle.set_auto_detach_kernel_driver(true);
+        }
+
+        // Virtualised USB stacks sometimes leave the device with
+        // no active configuration after enumeration — `lsusb`
+        // shows the device fine but the descriptor read for
+        // claim_interface returns InvalidParam because the
+        // interface descriptor isn't reachable from the empty
+        // config. Force config 1 (the only one CH341A defines)
+        // before claim. Best-effort: failures here aren't fatal —
+        // bare-metal Linux already has the config selected and
+        // returns Busy from this call, which we ignore.
+        let _ = handle.set_active_configuration(1);
 
         handle.claim_interface(INTERFACE).map_err(|e| match e {
             rusb::Error::Access => Error::PermissionDenied,
