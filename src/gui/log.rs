@@ -36,7 +36,7 @@ pub fn render(lines: &[LogLine], scroll: &ScrollHandle) -> impl IntoElement {
                         .gap_1()
                         .px_5()
                         .py_3()
-                        .font_family("Menlo")
+                        .font_family(theme::MONO_FONT)
                         .text_size(px(12.0))
                         .text_color(theme::text_secondary())
                         .children(lines.iter().map(|line| {

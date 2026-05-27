@@ -203,7 +203,7 @@ where
                 .whitespace_normal()
                 .text_color(path_color)
                 .text_size(px(12.0))
-                .font_family("Menlo")
+                .font_family(theme::MONO_FONT)
                 .child(display),
         )
         .child(action_button_for(button_label, button_id, cx, on_click))
@@ -276,7 +276,7 @@ fn settings_pane(
                     .flex_1()
                     .min_w(px(0.0))
                     .text_size(px(12.0))
-                    .font_family("Menlo")
+                    .font_family(theme::MONO_FONT)
                     .text_color(theme::text_secondary())
                     .whitespace_normal()
                     .child(path_text),
@@ -499,10 +499,18 @@ fn hex_pane(
                 .items_center()
                 .gap_3()
                 .child(
-                    div()
-                        .flex_1()
-                        .text_color(theme::bench_black())
-                        .child(Input::new(search_state)),
+                    // Wrapper used to set `text_color(bench_black())`
+                    // back when gpui-component's Input rendered with a
+                    // white background — dark text was needed for
+                    // contrast. After `Theme::change(ThemeMode::Dark)`
+                    // landed in `gui::run`, the Input picks a dark
+                    // background and a light text colour from the theme;
+                    // the forced bench-black wrapper here re-darkened
+                    // the inherited text colour, producing the
+                    // dark-on-dark "typed characters are invisible"
+                    // bug. Drop the override — let the Input use the
+                    // theme's `text` slot.
+                    div().flex_1().child(Input::new(search_state)),
                 )
                 .when(match_total > 0, |row| {
                     row.child(find_nav(current_match, match_total, cx))
@@ -775,7 +783,7 @@ fn strings_view(
     .bg(theme::bench_black())
     .px_3()
     .py_2()
-    .font_family("Menlo")
+    .font_family(theme::MONO_FONT)
     .text_size(px(11.0))
     .text_color(theme::text_secondary())
     .track_scroll(&scroll)
@@ -880,7 +888,7 @@ fn hex_view(
     .bg(theme::bench_black())
     .px_3()
     .py_2()
-    .font_family("Menlo")
+    .font_family(theme::MONO_FONT)
     .text_size(px(11.0))
     .text_color(theme::text_secondary())
     .track_scroll(&scroll)
@@ -1144,7 +1152,7 @@ fn status_register_block(
         .child(
             div()
                 .text_size(px(12.0))
-                .font_family("Menlo")
+                .font_family(theme::MONO_FONT)
                 .text_color(if present {
                     theme::text_primary()
                 } else {
@@ -1172,7 +1180,7 @@ fn status_register_block(
         .gap_x_4()
         .gap_y_1()
         .text_size(px(12.0))
-        .font_family("Menlo")
+        .font_family(theme::MONO_FONT)
         .text_color(theme::text_secondary());
     for (label, v) in bits {
         grid = grid.child(div().child(format!("{label}={v}")));

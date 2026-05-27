@@ -1,6 +1,34 @@
-//! Color palette for etch341. Dark theme only.
+//! Color palette + cross-platform font choices for etch341. Dark
+//! theme only.
 
 use gpui::{Hsla, Rgba};
+
+/// Cross-platform monospace family for hex / address columns / log
+/// timestamps / preferences path display / anywhere we want
+/// fixed-width text. GPUI's `font_family` takes a single name (no
+/// CSS-style fallback chain), so we pick a face that ships
+/// pre-installed on each target OS rather than relying on the
+/// platform's "monospace" alias:
+///
+/// - macOS:   `Menlo` (default Terminal.app font since 10.6)
+/// - Windows: `Consolas` (shipped with Vista+; Cascadia Mono is the
+///   newer Microsoft default but only present on Windows 10 21H2+
+///   — Consolas is the safer floor)
+/// - Linux:   `monospace` (freedesktop generic; resolves via
+///   fontconfig to the user's preferred monospace, usually DejaVu
+///   Sans Mono on Debian/Ubuntu/Fedora)
+///
+/// Without this, `font_family("Menlo")` on Windows fell back to a
+/// thin substitute that rendered the Hex pane bytes faintly /
+/// "ghostly" against the dark background — the user-visible bug
+/// this constant fixes.
+pub const MONO_FONT: &str = if cfg!(target_os = "macos") {
+    "Menlo"
+} else if cfg!(target_os = "windows") {
+    "Consolas"
+} else {
+    "monospace"
+};
 
 fn from_rgb(hex: u32, alpha: f32) -> Hsla {
     Rgba {

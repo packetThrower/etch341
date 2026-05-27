@@ -56,22 +56,38 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         // switch into.
         Theme::change(ThemeMode::Dark, None, cx);
 
-        // Standard hex-editor shortcuts: Cmd+F focuses Find, Cmd+G
-        // steps to the next match, Cmd+Shift+G steps back.
+        // Standard hex-editor shortcuts. GPUI treats `cmd-` and
+        // `ctrl-` as distinct chords — `cmd-` only fires for the
+        // macOS Command key, `ctrl-` for the Control key. We gate
+        // each set to its native platform: `cmd-*` on macOS only,
+        // `ctrl-*` on Windows + Linux only. Without this gating,
+        // Ctrl+C on macOS would intercept the Hex-copy action even
+        // though Mac users expect Cmd+C — and Ctrl+C in any GUI
+        // app on macOS is non-idiomatic enough that hijacking it
+        // would shadow whatever else the user had in mind.
         //
-        // The second `cmd-f` binding (scoped to "Input") overrides
-        // gpui-component's in-Input Search action so Cmd+F still
-        // jumps to our Find field even when another Input has focus.
+        // The `Some("Input")` scope overrides gpui-component's
+        // in-Input Search action so the Find shortcut still jumps
+        // to our Find field even when another Input has focus.
+        // Cmd+C / Ctrl+C in the Hex pane copies the selected
+        // bytes; the handler early-returns when an Input has
+        // focus, so the gpui-component Input's own
+        // copy-to-clipboard still works inside the search field.
+        #[cfg(target_os = "macos")]
         cx.bind_keys([
             KeyBinding::new("cmd-f", FocusFind, None),
             KeyBinding::new("cmd-f", FocusFind, Some("Input")),
             KeyBinding::new("cmd-g", FindNextAction, None),
             KeyBinding::new("cmd-shift-g", FindPrevAction, None),
-            // Cmd+C in the Hex pane copies the selected bytes. The
-            // handler early-returns when an Input has focus, so the
-            // gpui-component Input's own copy-to-clipboard still
-            // works inside the search field.
             KeyBinding::new("cmd-c", CopyHexSelection, None),
+        ]);
+        #[cfg(not(target_os = "macos"))]
+        cx.bind_keys([
+            KeyBinding::new("ctrl-f", FocusFind, None),
+            KeyBinding::new("ctrl-f", FocusFind, Some("Input")),
+            KeyBinding::new("ctrl-g", FindNextAction, None),
+            KeyBinding::new("ctrl-shift-g", FindPrevAction, None),
+            KeyBinding::new("ctrl-c", CopyHexSelection, None),
         ]);
 
         // Load prefs once up front so we can honour
