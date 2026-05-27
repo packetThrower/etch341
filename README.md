@@ -179,6 +179,8 @@ an update.
 ```sh
 etch341 detect                       # identify the chip
 etch341 read -o bios.bin             # dump entire chip to file
+etch341 read -o -                    # dump to stdout (pipe to anything)
+etch341 read -o - | sha256sum        # hash a chip without a temp file
 etch341 read -o head.bin --length 0x1000   # first 4 KB only
 etch341 write -i bios.bin            # erase + program + verify
 etch341 write -i bios.bin --no-erase --no-verify   # raw program
@@ -186,6 +188,7 @@ etch341 erase                        # full chip erase
 etch341 erase --range 0x10000:0x10000   # erase one 64 KB block
 etch341 verify -i bios.bin           # compare without writing
 etch341 blank-check                  # confirm all 0xFF
+etch341 sr                           # dump SR1/SR2/SR3 with decoded bits
 ```
 
 I²C EEPROMs (24Cxx family) use the nested `i2c` subcommand.

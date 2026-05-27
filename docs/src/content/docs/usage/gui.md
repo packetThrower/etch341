@@ -13,9 +13,12 @@ Linux). From a source build, `cargo run` does the same.
 
 The window is split into three regions:
 
-- **Sidebar** (left) — vertical pane selector. Click an item to
-  switch the main view between Detect / Read / Erase / Write /
-  Verify / Hex / Blank / Settings.
+- **Sidebar** (left) — vertical pane selector. The top half is a
+  **stepper** showing the canonical SPI workflow (Detect → Read →
+  Erase → Write → Verify); click any step at any time, no
+  enforced ordering. Below a thin divider sit the inspection /
+  diagnostic tools (**Blank check**, **Status regs**, **Hex
+  viewer**), and **⚙ Settings** is pinned to the bottom.
 - **Main pane** (top right) — the current pane's controls and
   content.
 - **Activity log** (bottom) — chronological log of operations,
@@ -34,7 +37,7 @@ restarting.
 
 ## Detect
 
-The simplest pane. Clicks the "Refresh" button → reads the JEDEC
+The simplest pane. Click the "Detect chip" button → reads the JEDEC
 ID via opcode `0x9F` → looks up the chip in the embedded database.
 The log shows the raw JEDEC bytes; the header shows the friendly
 chip name + capacity once a match lands.
@@ -102,13 +105,33 @@ clipboard. Cmd+C only fires when the Hex pane is the visible pane
 | **Cmd+G** / **Cmd+Shift+G** | Next / previous match |
 | **Cmd+C** | Copy hex selection (Hex pane only) |
 
+## Status regs
+
+Reads SR1 / SR2 / SR3 and decodes the standard bit fields. Same
+view (and same logic) as the [`etch341 sr` CLI command](/etch341/usage/spi/#7-status-registers)
+— useful for diagnosing "writes silently failing" (block-protect
+bits set) or "quad mode not enabled" (QE clear). SR1 works on any
+SPI NOR chip; SR2 / SR3 follow the W25Q convention and show
+"didn't respond" on chips that don't implement them. Raw hex
+shown for every register so you can cross-check the datasheet.
+
 ## Settings
 
-SPI clock speed selector (supported: 20, 100, 400, 750 kHz) plus
-the prefs-file path display so you know where the persisted state
-lives (`~/.config/etch341/prefs.toml` on Linux/macOS,
-`%APPDATA%\etch341\prefs.toml` on Windows). Changes save
-immediately.
+The pane is configuration-only — the activity log is hidden while
+Settings is the active pane so the body has room to breathe.
+Three sections:
+
+- **SPI clock speed** selector — 20 / 100 / 400 / 750 kHz. Picks
+  the bus rate every CH341A op uses; saved immediately, the next
+  op picks up the new value when it opens the device.
+- **Window — restore window position on startup** toggle. Off by
+  default; when on, the window's last bounds are snapshotted on
+  graceful close and restored on next launch.
+- **Preferences file** displays the on-disk prefs path
+  (`~/.config/etch341/prefs.toml` on Linux/macOS,
+  `%APPDATA%\etch341\prefs.toml` on Windows) with an **Open
+  folder** button that pops the containing directory in the OS
+  file manager (`open` / `explorer` / `xdg-open`).
 
 ## Activity log
 
