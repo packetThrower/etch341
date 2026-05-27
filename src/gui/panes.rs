@@ -46,9 +46,15 @@ pub struct PaneInputs<'a> {
     /// to set it; the Read pane body surfaces the current value
     /// so the user knows where the next dump will land.
     pub read_output_dir: Option<&'a Path>,
-    /// Last SFDP read (raw bytes + parsed decode) for the SFDP
-    /// pane. `None` until the user clicks Read on that pane.
-    pub sfdp_dump: Option<&'a (Vec<u8>, crate::sfdp::Sfdp)>,
+    /// Most recent Detect result for the Detect pane's chip-info
+    /// card. `None` until the user clicks Detect chip.
+    pub detect_result: Option<&'a crate::gui::DetectInfo>,
+    /// Parsed SFDP table from the most recent Detect run, shown
+    /// as a second card inside the Detect pane when present.
+    /// Decoupled from `detect_result` because some chips have a
+    /// valid SFDP magic but a BFPT we can't decode (or vice
+    /// versa).
+    pub detect_sfdp: Option<&'a crate::sfdp::Sfdp>,
 }
 
 pub fn render(
@@ -57,14 +63,15 @@ pub fn render(
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     match selected {
-        Pane::Detect => detect_pane(cx).into_any_element(),
+        Pane::Detect => {
+            detect_pane(inputs.detect_result, inputs.detect_sfdp, cx).into_any_element()
+        }
         Pane::Read => read_pane(cx).into_any_element(),
         Pane::Erase => erase_pane(inputs.erase_armed, cx).into_any_element(),
         Pane::Write => write_pane(inputs.write_path, inputs.write_armed, cx).into_any_element(),
         Pane::Verify => verify_pane(inputs.verify_path, cx).into_any_element(),
         Pane::Blank => blank_pane(cx).into_any_element(),
         Pane::Status => status_pane(inputs.status_regs, cx).into_any_element(),
-        Pane::Sfdp => sfdp_pane(inputs.sfdp_dump, cx).into_any_element(),
         Pane::Hex => hex_pane(
             inputs.hex_path,
             inputs.hex_bytes,
@@ -1299,37 +1306,12 @@ fn status_register_block(
     div().flex().flex_col().gap_1().child(header).child(grid)
 }
 
-fn sfdp_pane(
-    dump: Option<&(Vec<u8>, crate::sfdp::Sfdp)>,
-    cx: &mut Context<AppView>,
-) -> impl IntoElement {
-    let mut col = op_pane(
-        "SFDP",
-        "Reads the chip's Serial Flash Discoverable Parameters table \
-         (JESD216, opcode 0x5A) and decodes the JEDEC Basic Flash \
-         Parameter Table out of it. Useful for chips that aren't in \
-         the bundled database: size, page size, sector erase opcodes, \
-         and address width come straight from the chip.",
-    );
-    col = col.child(action_button_for(
-        "Read SFDP",
-        "read-sfdp",
-        cx,
-        |this, cx| this.start_read_sfdp(cx),
-    ));
-    let Some((_, parsed)) = dump else {
-        return col;
-    };
-    if !parsed.header.valid {
-        col = col.child(armed_warning(
-            "Chip did not return the 'SFDP' magic. Probably predates JESD216 \
-             (~2011) or is a vendor part that omits SFDP. Use the Detect pane \
-             to confirm the chip is responding at all.",
-        ));
-        return col;
-    }
-    // Build the parameter-header list once so we can drop it
-    // straight into the card below.
+/// Build the card that renders a decoded SFDP table: header line,
+/// parameter-header list, decoded BFPT, and erase-type table. Used
+/// by the Detect pane after a Detect run that picked up SFDP. Lives
+/// here (not in the Detect pane render) so the layout is reusable
+/// if we ever want a standalone SFDP view back.
+fn sfdp_card(parsed: &crate::sfdp::Sfdp, cx: &mut Context<AppView>) -> gpui::Div {
     let mut hdr_grid = mono_block();
     for (i, ph) in parsed.parameter_headers.iter().enumerate() {
         let tag = if ph.id == crate::sfdp::ParameterHeader::BFPT_ID {
@@ -1343,16 +1325,10 @@ fn sfdp_pane(
         )));
     }
 
-    // Group all decoded SFDP output inside one card so it reads as
-    // "this is the result of the SFDP read" instead of mixing in
-    // with the pane's heading + body + button stack. The Copy
-    // button on the card dumps a plain-text version of the same
-    // decoded view (handy for pasting into a bug report when
-    // ChipNotRecognized hits an unknown JEDEC).
     let copy_text = format_sfdp_for_copy(parsed);
     let mut output = card_with_copy(copy_text, "copy-sfdp", cx)
         .child(section_block_with_text(
-            "HEADER",
+            "SFDP HEADER",
             format!(
                 "rev {}.{}  ·  {} parameter header(s)",
                 parsed.header.major_rev,
@@ -1438,8 +1414,7 @@ fn sfdp_pane(
         );
     }
 
-    col = col.child(output);
-    col
+    output
 }
 
 /// Plain-text rendering of the same decoded SFDP view the pane
@@ -1555,14 +1530,91 @@ fn blank_pane(cx: &mut Context<AppView>) -> impl IntoElement {
     ))
 }
 
-fn detect_pane(cx: &mut Context<AppView>) -> impl IntoElement {
-    op_pane(
+fn detect_pane(
+    info: Option<&crate::gui::DetectInfo>,
+    sfdp: Option<&crate::sfdp::Sfdp>,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
+    let mut col = op_pane(
         "Detect",
-        "Reads the JEDEC ID and identifies the chip. The other steps detect \
-         internally too, so this is optional. Useful as a sanity check \
-         before anything destructive.",
+        "Reads the JEDEC ID, identifies the chip, and pulls the chip's \
+         SFDP table if it has one. The other steps detect internally too, \
+         so this is optional. Useful as a sanity check before anything \
+         destructive.",
     )
-    .child(action_button("Detect chip", cx))
+    .child(action_button("Detect chip", cx));
+
+    let Some(info) = info else {
+        return col;
+    };
+
+    // Chip-identification card (JEDEC + chip name + size + source +
+    // notes). Always shown after a Detect run; the source field
+    // makes it obvious whether the chip name came from the bundled
+    // DB or from an SFDP synthesis.
+    col = col.child(chip_info_card(info, cx));
+
+    // Second card: the raw decoded SFDP table, if the chip carried
+    // one. Rendered for both DB-hit and SFDP-fallback chips so power
+    // users can inspect the table regardless of catalogue status.
+    if let Some(s) = sfdp {
+        col = col.child(sfdp_card(s, cx));
+    }
+    col
+}
+
+fn chip_info_card(info: &crate::gui::DetectInfo, cx: &mut Context<AppView>) -> gpui::Div {
+    use crate::gui::ChipSource;
+    let mut grid = mono_block().child(div().child(format!("JEDEC : 0x{}", info.jedec)));
+    let mut copy_text = format!("JEDEC : 0x{}\n", info.jedec);
+    match (&info.source, info.chip.as_ref()) {
+        (ChipSource::Database, Some(c)) => {
+            grid = grid
+                .child(div().child(format!("Chip  : {}", c.name)))
+                .child(div().child("Source: chips.toml".to_string()))
+                .child(div().child(format!(
+                    "Size  : {} KB  ·  page {} B  ·  sector {} B",
+                    c.size_kb, c.page_size, c.sector_size,
+                )));
+            copy_text.push_str(&format!(
+                "Chip  : {}\nSource: chips.toml\nSize  : {} KB, page {} B, sector {} B\n",
+                c.name, c.size_kb, c.page_size, c.sector_size
+            ));
+            if !c.notes.is_empty() {
+                grid = grid.child(div().child(format!("Notes : {}", c.notes)));
+                copy_text.push_str(&format!("Notes : {}\n", c.notes));
+            }
+        }
+        (ChipSource::Sfdp, Some(c)) => {
+            grid = grid
+                .child(div().child(format!("Chip  : {}", c.name)))
+                .child(div().child("Source: SFDP (no chips.toml entry)".to_string()))
+                .child(div().child(format!(
+                    "Size  : {} KB  ·  page {} B  ·  sector {} B",
+                    c.size_kb, c.page_size, c.sector_size,
+                )));
+            copy_text.push_str(&format!(
+                "Chip  : {}\nSource: SFDP (no chips.toml entry)\nSize  : {} KB, page {} B, sector {} B\n",
+                c.name, c.size_kb, c.page_size, c.sector_size,
+            ));
+        }
+        (ChipSource::Unknown, _) => {
+            grid = grid
+                .child(div().child("Chip  : unknown".to_string()))
+                .child(div().child("Source: neither chips.toml nor SFDP".to_string()));
+            copy_text.push_str("Chip  : unknown\nSource: neither chips.toml nor SFDP\n");
+        }
+        (ChipSource::NoChip, _) => {
+            grid = grid.child(
+                div()
+                    .text_color(theme::text_tertiary())
+                    .child("Chip  : (no chip on the bus)".to_string()),
+            );
+            copy_text.push_str("Chip  : (no chip on the bus)\n");
+        }
+        _ => {}
+    }
+    card_with_copy(copy_text, "copy-detect", cx).child(grid)
 }
 
 /// Shared outer shell for the operation panes (Detect / Read / Erase

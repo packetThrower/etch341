@@ -193,9 +193,56 @@ pub enum Pane {
     Verify,
     Blank,
     Status,
-    Sfdp,
     Hex,
     Settings,
+}
+
+/// What the Detect pane caches between renders. Captures both the
+/// chip-identification result (raw JEDEC + resolved chip + which
+/// source provided the chip) and the source-of-truth marker so the
+/// pane can render "DB hit" vs "SFDP fallback" vs "unknown"
+/// consistently without re-querying.
+#[derive(Clone, Debug)]
+pub struct DetectInfo {
+    pub jedec: String,
+    pub chip: Option<crate::chipdb::Chip>,
+    pub source: ChipSource,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChipSource {
+    /// JEDEC matched a `chips.toml` entry.
+    Database,
+    /// JEDEC missed; chip parameters synthesised from SFDP.
+    Sfdp,
+    /// JEDEC missed and chip carries no SFDP either.
+    Unknown,
+    /// MISO floats high (no chip) or stuck low (board contention).
+    NoChip,
+}
+
+/// Intermediate type used only inside `refresh_detect`'s closure
+/// (we can't directly construct the outer `Connection` enum from
+/// inside the `and_then` because of borrow scopes on the chip's
+/// name string).
+enum ConnState {
+    Ready { name: String, size_kb: u32 },
+    NoChip,
+}
+
+/// Best-effort 256-byte SFDP read + parse. Swallows SPI errors as
+/// `None` (the chip might not implement SFDP and return weird data,
+/// or the read could fail on a flaky bus); the Detect pane treats
+/// `None` as "no SFDP info to show" rather than surfacing every
+/// underlying USB hiccup.
+fn read_sfdp_best_effort(ch: &mut Ch341) -> Option<crate::sfdp::Sfdp> {
+    let data = crate::spi::read_sfdp(ch, 0, 256).ok()?;
+    let parsed = crate::sfdp::parse(&data);
+    if parsed.header.valid {
+        Some(parsed)
+    } else {
+        None
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -262,10 +309,18 @@ pub struct AppView {
     /// shares the same decoded view (`StatusRegisters::wip` etc.)
     /// the CLI's `ops::status` uses.
     pub status_regs: Option<crate::spi::StatusRegisters>,
+    /// Result of the most recent Detect run. `chip` is `Some` when
+    /// JEDEC matched a DB entry OR SFDP synthesised one; `None` for
+    /// MISO-stuck states or a chip with no SFDP fallback. The Detect
+    /// pane renders this as a card.
+    pub detect_result: Option<DetectInfo>,
+    /// Parsed SFDP table from the most recent Detect run. Shown in
+    /// a second card inside the Detect pane when present, regardless
+    /// of whether the chip resolved via DB or SFDP fallback.
+    pub detect_sfdp: Option<crate::sfdp::Sfdp>,
     /// Last SFDP dump + parsed result from the SFDP pane's "Read"
     /// button. Both the raw bytes (for the hex preview) and the
     /// decoded `Sfdp` are kept; the pane render formats both.
-    pub sfdp_dump: Option<(Vec<u8>, crate::sfdp::Sfdp)>,
     pub log_lines: Vec<LogLine>,
     /// Persists scroll position across re-renders; required by
     /// `track_scroll(...)` to keep the log from jumping back to the
@@ -378,7 +433,8 @@ impl AppView {
             selected: Pane::Detect,
             connection: Connection::Disconnected,
             status_regs: None,
-            sfdp_dump: None,
+            detect_result: None,
+            detect_sfdp: None,
             log_lines: vec![LogLine {
                 timestamp: now_hms(),
                 text: "etch341 ready. Plug in a CH341A and click Detect chip.".into(),
@@ -1054,49 +1110,116 @@ impl AppView {
         .detach();
     }
 
-    /// Run `ops::run_detect` synchronously on the UI thread and fold the
-    /// result into the session header + activity log. USB enumeration +
-    /// a 4-byte SPI transfer is ~50 ms in practice; acceptable while we
-    /// stay single-threaded. Long ops (read/erase/write) will move to a
-    /// background task once they're wired.
+    /// Run `ops::run_detect` synchronously on the UI thread, also
+    /// read the chip's SFDP table, and fold both into the session
+    /// header / activity log / Detect pane state. USB enumeration,
+    /// JEDEC, and SFDP together total roughly 60 ms in practice,
+    /// which is acceptable on the UI thread for this command (long
+    /// ops use background tasks). Stashing the parsed SFDP into
+    /// `self.detect_sfdp` lets the Detect pane render the rich
+    /// JESD216 view without a separate "Read SFDP" button.
     pub fn refresh_detect(&mut self, cx: &mut Context<Self>) {
         self.push_log("→ detect".to_string());
-        let outcome = Ch341::open(false).and_then(|mut ch| ops::run_detect(&mut ch));
-        match outcome {
-            Ok(result) => {
-                self.push_log(format!("JEDEC 0x{}", result.jedec_string()));
-                match result.diagnosis {
+        // `outcome` carries the resolved chip-info plus the SFDP
+        // parse (if any). MISO-stuck states short-circuit before
+        // the SFDP read so we don't waste time decoding 256 bytes
+        // of `0xFF` on a disconnected bus.
+        let outcome: Result<(DetectInfo, Option<crate::sfdp::Sfdp>, ConnState), _> =
+            Ch341::open(false).and_then(|mut ch| {
+                let result = ops::run_detect(&mut ch)?;
+                let jedec = result.jedec_string();
+                let (chip, source, conn, sfdp) = match result.diagnosis {
                     Diagnosis::Known(c) => {
-                        self.push_log(format!("Detected {} ({} KB)", c.name, c.size_kb));
-                        self.connection = Connection::Ready {
-                            chip_name: c.name,
+                        // Even for in-DB chips, read SFDP so the
+                        // pane can show the rich table.
+                        let sfdp = read_sfdp_best_effort(&mut ch);
+                        let conn = ConnState::Ready {
+                            name: c.name.clone(),
                             size_kb: c.size_kb,
                         };
+                        (Some(c), ChipSource::Database, conn, sfdp)
                     }
                     Diagnosis::UnknownChip => {
+                        // Try SFDP as fallback. If it provides a
+                        // BFPT, synthesise a chip; either way keep
+                        // the parsed SFDP for the pane.
+                        let synth = ops::synthesize_from_sfdp(&mut ch, &jedec)?;
+                        let sfdp = read_sfdp_best_effort(&mut ch);
+                        match synth {
+                            Some(c) => {
+                                let conn = ConnState::Ready {
+                                    name: c.name.clone(),
+                                    size_kb: c.size_kb,
+                                };
+                                (Some(c), ChipSource::Sfdp, conn, sfdp)
+                            }
+                            None => (None, ChipSource::Unknown, ConnState::NoChip, sfdp),
+                        }
+                    }
+                    Diagnosis::MisoStuckLow | Diagnosis::MisoFloatsHigh => {
+                        (None, ChipSource::NoChip, ConnState::NoChip, None)
+                    }
+                };
+                let info = DetectInfo {
+                    jedec,
+                    chip,
+                    source,
+                };
+                Ok((info, sfdp, conn))
+            });
+        match outcome {
+            Ok((info, sfdp, conn)) => {
+                self.push_log(format!("JEDEC 0x{}", info.jedec));
+                match (&info.source, info.chip.as_ref()) {
+                    (ChipSource::Database, Some(c)) => {
+                        self.push_log(format!("Detected {} ({} KB)", c.name, c.size_kb));
+                    }
+                    (ChipSource::Sfdp, Some(c)) => {
                         self.push_log(format!(
-                            "Unknown JEDEC 0x{}: add an entry to chips.toml",
-                            result.jedec_string()
+                            "Detected {} ({} KB, parameters from SFDP)",
+                            c.name, c.size_kb
                         ));
-                        self.connection = Connection::NoChip;
                     }
-                    Diagnosis::MisoStuckLow => {
-                        self.push_log(
-                            "MISO stuck low: target board contention (lift chip or pin 8)".into(),
-                        );
-                        self.connection = Connection::NoChip;
+                    (ChipSource::Unknown, _) => {
+                        self.push_log(format!(
+                            "Unknown JEDEC 0x{}: chip has no SFDP either; add to chips.toml or pass --chip",
+                            info.jedec
+                        ));
                     }
-                    Diagnosis::MisoFloatsHigh => {
-                        self.push_log(
-                            "MISO floats high: no chip detected (check clip, VCC, pin 1)".into(),
-                        );
-                        self.connection = Connection::NoChip;
+                    (ChipSource::NoChip, _) => {
+                        // Surfaced via run_detect's diagnosis path
+                        // — synthesize the right log line from the
+                        // jedec ID, which encodes which condition
+                        // we're in (000000 vs FFFFFF).
+                        if info.jedec == "000000" {
+                            self.push_log(
+                                "MISO stuck low: target board contention (lift chip or pin 8)"
+                                    .into(),
+                            );
+                        } else {
+                            self.push_log(
+                                "MISO floats high: no chip detected (check clip, VCC, pin 1)"
+                                    .into(),
+                            );
+                        }
                     }
+                    _ => {}
                 }
+                self.connection = match conn {
+                    ConnState::Ready { name, size_kb } => Connection::Ready {
+                        chip_name: name,
+                        size_kb,
+                    },
+                    ConnState::NoChip => Connection::NoChip,
+                };
+                self.detect_result = Some(info);
+                self.detect_sfdp = sfdp;
             }
             Err(err) => {
                 self.push_log(format!("error: {err}"));
                 self.connection = Connection::Disconnected;
+                self.detect_result = None;
+                self.detect_sfdp = None;
             }
         }
         cx.notify();
@@ -1328,72 +1451,6 @@ impl AppView {
         .detach();
     }
 
-    /// Read 256 bytes of SFDP off the chip and stash the parsed
-    /// result in `self.sfdp_dump` for the SFDP pane to render.
-    /// Mirrors the `etch341 sfdp` CLI. Same JEDEC-first guard as
-    /// the Status read so an MISO-stuck-low / floats-high path
-    /// gets a friendly log message instead of a 256-byte all-FF
-    /// "decoded" dump.
-    pub fn start_read_sfdp(&mut self, cx: &mut Context<Self>) {
-        self.push_log("→ sfdp".into());
-        cx.notify();
-        let speed = self.prefs.spi_speed_khz;
-        cx.spawn(async move |weak, cx| {
-            let outcome = cx
-                .background_executor()
-                .spawn(async move {
-                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
-                    ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
-                    let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
-                    match detect.diagnosis {
-                        Diagnosis::MisoStuckLow => {
-                            return Err("MISO stuck low (target board contention)".into());
-                        }
-                        Diagnosis::MisoFloatsHigh => {
-                            return Err("MISO floats high (no chip / HOLD# grounded)".into());
-                        }
-                        _ => {}
-                    }
-                    let data =
-                        crate::spi::read_sfdp(&mut ch, 0, 256).map_err(|e| format!("{e}"))?;
-                    let parsed = crate::sfdp::parse(&data);
-                    Ok::<_, String>((data, parsed))
-                })
-                .await;
-
-            weak.update(cx, |this, cx| {
-                match outcome {
-                    Ok((data, parsed)) => {
-                        let summary = if let Some(b) = &parsed.bfpt {
-                            format!(
-                                "SFDP OK: rev {}.{}, {} bytes, page {}",
-                                parsed.header.major_rev,
-                                parsed.header.minor_rev,
-                                b.size_bytes,
-                                b.page_size
-                            )
-                        } else if parsed.header.valid {
-                            format!(
-                                "SFDP OK: rev {}.{} (BFPT missing)",
-                                parsed.header.major_rev, parsed.header.minor_rev,
-                            )
-                        } else {
-                            "SFDP: chip didn't return 'SFDP' magic (no JESD216 support)".to_string()
-                        };
-                        this.sfdp_dump = Some((data, parsed));
-                        this.push_log(summary);
-                    }
-                    Err(err) => {
-                        this.push_log(format!("SFDP FAIL: {err}"));
-                    }
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
     pub fn start_blank_check(&mut self, cx: &mut Context<Self>) {
         self.push_log("→ blank check".into());
         cx.notify();
@@ -1578,7 +1635,8 @@ impl Render for AppView {
                                     prefs_path: prefs_path_buf.as_deref(),
                                     status_regs: self.status_regs,
                                     read_output_dir: self.prefs.read_output_dir.as_deref(),
-                                    sfdp_dump: self.sfdp_dump.as_ref(),
+                                    detect_result: self.detect_result.as_ref(),
+                                    detect_sfdp: self.detect_sfdp.as_ref(),
                                 };
                                 let outer = div().flex_1().min_h(px(0.0)).min_w(px(0.0));
                                 if self.selected == Pane::Settings {

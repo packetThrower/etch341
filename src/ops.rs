@@ -116,29 +116,53 @@ pub fn detect(global: &GlobalOpts) -> Result<()> {
             println!("Chip     : MISO floats high: no chip detected.");
             println!("           Check clip orientation, VCC jumper (3.3V), and chip power.");
         }
-        Diagnosis::Known(c) => {
-            println!("Chip     : {}", c.name);
-            println!(
-                "Size     : {} KB ({} pages of {} B, {} sectors of {} B)",
-                c.size_kb,
-                (c.size_kb as u64 * 1024) / c.page_size as u64,
-                c.page_size,
-                (c.size_kb as u64 * 1024) / c.sector_size as u64,
-                c.sector_size,
-            );
-            if !c.notes.is_empty() {
-                println!("Notes    : {}", c.notes);
-            }
-        }
+        Diagnosis::Known(c) => print_chip_facts(c),
         Diagnosis::UnknownChip => {
-            println!(
-                "Chip     : unknown (JEDEC 0x{} not in chips.toml)",
-                result.jedec_string()
-            );
-            println!("           Add an entry to chips/chips.toml or pass --chip <NAME>.");
+            // JEDEC isn't in chips.toml; same SFDP fallback the
+            // destructive / read ops use. Lets `detect` answer
+            // "what chip is this?" for an uncatalogued part
+            // instead of dead-ending at "unknown". The
+            // "(SFDP)" suffix on the synthesised name keeps the
+            // signal that this didn't come from the bundled DB,
+            // and the chips.toml hint stays so the user knows
+            // they can curate it.
+            let jedec = result.jedec_string();
+            match synthesize_from_sfdp(&mut ch, &jedec)? {
+                Some(c) => {
+                    println!(
+                        "Chip     : {} (no chips.toml entry; parameters from SFDP)",
+                        c.name
+                    );
+                    print_chip_facts(&c);
+                    println!("           Consider adding an entry to chips/chips.toml.");
+                }
+                None => {
+                    println!("Chip     : unknown (JEDEC 0x{jedec} not in chips.toml)");
+                    println!("           Chip has no SFDP either; add an entry to");
+                    println!("           chips/chips.toml or pass --chip <NAME>.");
+                }
+            }
         }
     }
     Ok(())
+}
+
+/// Shared "Size / Notes" printer used by both the DB-hit and
+/// SFDP-fallback branches of `detect`. Factored out so the two
+/// paths produce identical formatting and the SFDP-derived chip's
+/// auto-generated notes get the same prefix as a curated entry's.
+fn print_chip_facts(c: &Chip) {
+    println!(
+        "Size     : {} KB ({} pages of {} B, {} sectors of {} B)",
+        c.size_kb,
+        (c.size_kb as u64 * 1024) / c.page_size as u64,
+        c.page_size,
+        (c.size_kb as u64 * 1024) / c.sector_size as u64,
+        c.sector_size,
+    );
+    if !c.notes.is_empty() {
+        println!("Notes    : {}", c.notes);
+    }
 }
 
 /// Read SR1/SR2/SR3 from the chip and print the raw bytes plus a

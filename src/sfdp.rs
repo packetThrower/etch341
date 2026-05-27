@@ -277,11 +277,29 @@ fn parse_bfpt(data: &[u8], header: ParameterHeader) -> Option<Bfpt> {
 
     // ---- DWORD 11 (offset +40): page size + program/erase
     // timings. Bits 0-3 encode page_size = 2^N. Older JESD216
-    // tables may not carry DWORD 11; default to 256 (universal
-    // SPI NOR convention) when it's missing.
-    let page_size = match dword_at(data, header.ptr + 40) {
-        Some(dw11) => 1u32 << (dw11 & 0xF),
-        None => 256,
+    // tables only define DWORDs 1-9 (length_dwords == 9 on
+    // pre-2014 silicon like the MX25L1006E) — for those the
+    // bytes at offset +40 belong to a different table or are
+    // unspecified padding, so reading "DWORD 11" gets us a
+    // garbage value (low nibble of 0xF → page_size 32768).
+    // Gate on `length_dwords >= 11`, and even when it passes
+    // sanity-cap the result against the universal SPI NOR
+    // upper bound (4 KB) so a malformed BFPT can't claim
+    // implausible page sizes either.
+    let page_size = if header.length_dwords >= 11 {
+        match dword_at(data, header.ptr + 40) {
+            Some(dw11) => {
+                let candidate = 1u32 << (dw11 & 0xF);
+                if (256..=4096).contains(&candidate) {
+                    candidate
+                } else {
+                    256
+                }
+            }
+            None => 256,
+        }
+    } else {
+        256
     };
 
     Some(Bfpt {
@@ -369,6 +387,61 @@ mod tests {
         assert_eq!(bfpt.erase_types[1].opcode, 0xD8);
         assert_eq!(bfpt.erase_types[2].size_bytes, 0);
         assert_eq!(bfpt.erase_types[3].size_bytes, 0);
+    }
+
+    /// Regression for the older 9-DWORD BFPTs shipped on chips
+    /// like the MX25L1006E (pre-JESD216A silicon). DWORD 11 is
+    /// out of bounds; we must default page_size to 256 rather
+    /// than reading garbage past the BFPT body. Without the
+    /// length gate, the parser previously decoded page_size as
+    /// 32768 because the byte past the BFPT happened to have its
+    /// low nibble set to `0xF`.
+    #[test]
+    fn nine_dword_bfpt_defaults_page_to_256() {
+        // Start with a 0-filled buffer (clean header bytes), then
+        // fill the post-BFPT region with 0xFF to specifically
+        // trigger the bug: a buggy DWORD-11 read would land on
+        // 0xFFFFFFFF whose low nibble is 0xF, decoding page_size
+        // as 1 << 15 = 32768. The length gate must keep us from
+        // reaching that byte.
+        let mut d = vec![0u8; 256];
+        d[0..4].copy_from_slice(b"SFDP");
+        d[4] = 0x00;
+        d[5] = 0x01;
+        d[6] = 0x00; // NPH = 0 → 1 header
+        d[7] = 0xFF;
+
+        // BFPT header @ 0x08: ID LSB 0x00, minor 0, major 1,
+        // length 9 dwords, pointer 0x000040, ID MSB 0xFF.
+        d[8] = 0x00;
+        d[9] = 0x00;
+        d[10] = 0x01;
+        d[11] = 9;
+        d[12] = 0x40;
+        d[13] = 0x00;
+        d[14] = 0x00;
+        d[15] = 0xFF;
+
+        // BFPT body: DWORD 1 trivial, DWORD 2 = 1 Mbit density.
+        // 1 Mbit = 1,048,576 bits → density = 1,048,575.
+        d[0x40..0x44].copy_from_slice(&0u32.to_le_bytes());
+        d[0x44..0x48].copy_from_slice(&1_048_575u32.to_le_bytes());
+
+        // Bytes past offset 0x40 + 9*4 = 0x64 are NOT part of
+        // the BFPT. Fill them with 0xFF so the bug trigger is
+        // present: DWORD-11 offset (0x40 + 40 = 0x68) lands on
+        // 0xFFFFFFFF.
+        for b in &mut d[0x64..] {
+            *b = 0xFF;
+        }
+
+        let s = parse(&d);
+        let bfpt = s.bfpt.expect("BFPT should decode");
+        assert_eq!(bfpt.size_bytes, 128 * 1024);
+        assert_eq!(
+            bfpt.page_size, 256,
+            "9-DWORD BFPT must fall back to the universal 256-byte page default"
+        );
     }
 
     /// Bit-31 density encoding (used by very large chips). Encode
