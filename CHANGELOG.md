@@ -7,6 +7,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-05-27
+
 ### Added
 
 - **SFDP support** (`etch341 sfdp` + folded into the Detect pane).
