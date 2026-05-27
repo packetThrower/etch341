@@ -4,7 +4,10 @@ use gpui::{
     MouseMoveEvent, ParentElement, StatefulInteractiveElement, Styled, UniformListScrollHandle,
     WeakEntity, div, prelude::FluentBuilder, px, uniform_list,
 };
+use gpui_component::group_box::{GroupBox, GroupBoxVariants as _};
 use gpui_component::input::{Input, InputState};
+use gpui_component::radio::{Radio, RadioGroup};
+use gpui_component::{Sizable as _, Size};
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
@@ -241,38 +244,32 @@ fn settings_pane(
         (750, "750 kHz, fastest reliable rate (recommended)"),
     ];
 
-    // Settings has its own outer container (not `op_pane`) because
-    // the section labels + speed rows have a different rhythm than
-    // an op pane's heading/body/button layout. Same scroll
-    // treatment though — the WINDOW + READ SAVE LOCATION sections
-    // can push the PREFERENCES FILE row off the bottom on shorter
-    // window heights.
-    let mut col = div()
-        .id("settings-scroll")
-        .size_full()
-        .min_h(px(0.0))
-        .overflow_y_scroll()
-        .flex()
-        .flex_col()
-        .gap_4()
-        .px_5()
-        .py_5()
-        .child(heading("Settings"))
-        .child(section_label("SPI CLOCK SPEED"))
+    // SPI clock speed section: RadioGroup + descriptive body.
+    let selected = speeds.iter().position(|&(k, _)| k == current_khz);
+    let speed_values: Vec<u32> = speeds.iter().map(|&(k, _)| k).collect();
+    let mut radio_group = RadioGroup::vertical("spi-speed")
+        .selected_index(selected)
+        .on_click(cx.listener(move |this, ix: &usize, _, cx| {
+            if let Some(&khz) = speed_values.get(*ix) {
+                this.set_spi_speed(khz, cx);
+            }
+        }));
+    for &(_, label) in speeds {
+        radio_group =
+            radio_group.child(Radio::new(label).label(label).with_size(Size::Small));
+    }
+    let speed_box = GroupBox::new()
+        .id("settings-speed")
+        .outline()
+        .title("SPI clock speed")
         .child(body(
             "Clock rate for every SPI op (Detect / Read / Erase / Write / \
              Verify / Blank-check). Saved immediately; the next op picks \
              up the new value when it opens the CH341A.",
-        ));
+        ))
+        .child(radio_group);
 
-    for &(khz, label) in speeds {
-        col = col.child(speed_row(khz, label, current_khz == khz, cx));
-    }
-
-    col = col.child(section_label("READ SAVE LOCATION")).child(body(
-        "Where the Read pane saves chip dumps. Defaults to your home \
-             directory; pick a folder to override.",
-    ));
+    // Read save location section.
     let read_dir_text = read_output_dir
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| {
@@ -280,32 +277,43 @@ fn settings_pane(
                 .map(|h| format!("{h} (default)"))
                 .unwrap_or_else(|_| "(default: $HOME, not set)".to_string())
         });
-    col = col.child(
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_3()
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .text_size(px(12.0))
-                    .font_family(theme::MONO_FONT)
-                    .text_color(theme::text_secondary())
-                    .whitespace_normal()
-                    .child(read_dir_text),
-            )
-            .child(action_button_for(
-                "Browse…",
-                "pick-read-output",
-                cx,
-                |this, cx| this.pick_read_output_dir(cx),
-            )),
-    );
+    let read_box = GroupBox::new()
+        .id("settings-read")
+        .outline()
+        .title("Read save location")
+        .child(body(
+            "Where the Read pane saves chip dumps. Defaults to your home \
+             directory; pick a folder to override.",
+        ))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_3()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .text_size(px(12.0))
+                        .font_family(theme::MONO_FONT)
+                        .text_color(theme::text_secondary())
+                        .whitespace_normal()
+                        .child(read_dir_text),
+                )
+                .child(action_button_for(
+                    "Browse…",
+                    "pick-read-output",
+                    cx,
+                    |this, cx| this.pick_read_output_dir(cx),
+                )),
+        );
 
-    col = col
-        .child(section_label("WINDOW"))
+    // Window section.
+    let window_box = GroupBox::new()
+        .id("settings-window")
+        .outline()
+        .title("Window")
         .child(body(
             "When enabled, the window's last position and size are saved \
              on close and restored the next time you launch etch341. Off by \
@@ -319,41 +327,77 @@ fn settings_pane(
             |this, cx| this.toggle_restore_window_bounds(cx),
         ));
 
-    col = col.child(section_label("PREFERENCES FILE"));
+    // Preferences file section. Button hidden when there's no real
+    // path — nothing useful to open if $HOME wasn't set.
     let path_text = prefs_path
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "(unable to determine; $HOME not set)".to_string());
-    // Path text + "Open folder" button on the same row, matching
-    // the `file_picker_row` shape so the settings pane reads as a
-    // consistent family. Button hidden when there's no real path —
-    // nothing useful to open if $HOME wasn't set.
-    col = col.child(
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_3()
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .text_size(px(12.0))
-                    .font_family(theme::MONO_FONT)
-                    .text_color(theme::text_secondary())
-                    .whitespace_normal()
-                    .child(path_text),
-            )
-            .when_some(prefs_path, |row, _| {
-                row.child(action_button_for(
-                    "Open folder",
-                    "open-prefs-folder",
-                    cx,
-                    |this, cx| this.open_prefs_folder(cx),
-                ))
-            }),
-    );
+    let prefs_box = GroupBox::new()
+        .id("settings-prefs")
+        .outline()
+        .title("Preferences file")
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_3()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .text_size(px(12.0))
+                        .font_family(theme::MONO_FONT)
+                        .text_color(theme::text_secondary())
+                        .whitespace_normal()
+                        .child(path_text),
+                )
+                .when_some(prefs_path, |row, _| {
+                    row.child(action_button_for(
+                        "Open folder",
+                        "open-prefs-folder",
+                        cx,
+                        |this, cx| this.open_prefs_folder(cx),
+                    ))
+                }),
+        );
 
-    col
+    // Two-level structure: a flex-row centering wrapper, then a
+    // flex-col content column with `flex_1 + max_w(680)`. flex_1
+    // makes the column grow on the main (horizontal) axis up to
+    // its max-width, and `justify_center` on the wrapper centers
+    // the column when there's slack. This gives the column a
+    // *definite* width on wide windows, which is what the body
+    // text needs to actually wrap at the right point instead of
+    // expanding the column.
+    div()
+        .id("settings-scroll")
+        .size_full()
+        .min_h(px(0.0))
+        .overflow_y_scroll()
+        .child(
+            div()
+                .w_full()
+                .flex()
+                .flex_row()
+                .justify_center()
+                .child(
+                    div()
+                        .flex_1()
+                        .max_w(px(680.0))
+                        .min_w(px(0.0))
+                        .flex()
+                        .flex_col()
+                        .gap_4()
+                        .px_5()
+                        .py_5()
+                        .child(heading("Settings"))
+                        .child(speed_box)
+                        .child(read_box)
+                        .child(window_box)
+                        .child(prefs_box),
+                ),
+        )
 }
 
 /// Small-caps section header inside the settings pane. Matches the
@@ -431,68 +475,6 @@ where
                 on_click(this, cx);
             }),
         )
-}
-
-fn speed_row(
-    khz: u32,
-    label: &'static str,
-    active: bool,
-    cx: &mut Context<AppView>,
-) -> impl IntoElement {
-    let dot_outer_color = if active {
-        theme::accent_blue()
-    } else {
-        theme::workshop_glass_strong()
-    };
-    let mut row = div()
-        .id(("speed", khz as u64))
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap_3()
-        .px_3()
-        .py_2()
-        .rounded(px(6.0))
-        .cursor_pointer()
-        .hover(|d| d.bg(theme::workshop_glass_strong()))
-        .child(
-            div()
-                .w(px(12.0))
-                .h(px(12.0))
-                .rounded_full()
-                .border_1()
-                .border_color(dot_outer_color)
-                .flex()
-                .items_center()
-                .justify_center()
-                .when(active, |d| {
-                    d.child(
-                        div()
-                            .w(px(6.0))
-                            .h(px(6.0))
-                            .rounded_full()
-                            .bg(theme::accent_blue()),
-                    )
-                }),
-        )
-        .child(
-            div()
-                .text_color(if active {
-                    theme::text_primary()
-                } else {
-                    theme::text_secondary()
-                })
-                .child(label.to_string()),
-        )
-        .on_click(
-            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
-                this.set_spi_speed(khz, cx);
-            }),
-        );
-    if active {
-        row = row.bg(theme::accent_blue_tint());
-    }
-    row
 }
 
 // The hex pane sits at the join point of the file picker, the
