@@ -71,170 +71,92 @@ pub fn render(
 }
 
 fn read_pane(cx: &mut Context<AppView>) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap_4()
-        .px_5()
-        .py_5()
-        .child(heading("Read"))
-        .child(body(
-            "Auto-detects the chip and dumps its entire contents to a \
-             timestamped file in your home directory. Runs on a background \
-             thread so the GUI stays responsive — watch the log for progress.",
-        ))
-        .child(action_button_for(
-            "Start read",
-            "start-read",
-            cx,
-            |this, cx| this.start_read(cx),
-        ))
+    op_pane(
+        "Read",
+        "Auto-detects the chip and dumps its entire contents to a \
+         timestamped file in your home directory. Runs on a background \
+         thread so the GUI stays responsive — watch the log for progress.",
+    )
+    .child(action_button_for(
+        "Start read",
+        "start-read",
+        cx,
+        |this, cx| this.start_read(cx),
+    ))
 }
 
 fn erase_pane(armed: bool, cx: &mut Context<AppView>) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap_4()
-        .px_5()
-        .py_5()
-        .child(heading("Erase"))
-        .child(body(
-            "Erases the entire chip back to 0xFF. DESTRUCTIVE and not \
-             undoable — make sure you have a Read backup first. Click \
-             the button to arm, then click again to actually erase. \
-             Switching panes resets the arm state.",
+    op_pane(
+        "Erase",
+        "Erases the entire chip back to 0xFF. DESTRUCTIVE and not \
+         undoable — make sure you have a Read backup first. Click \
+         the button to arm, then click again to actually erase. \
+         Switching panes resets the arm state.",
+    )
+    .when(armed, |this| {
+        this.child(armed_warning(
+            "Armed — next click will erase the entire chip.",
         ))
-        .when(armed, |this| {
-            this.child(
-                div()
-                    .self_start()
-                    .px_3()
-                    .py_2()
-                    .rounded(px(6.0))
-                    .bg(theme::warning_amber())
-                    .text_color(theme::bench_black())
-                    .whitespace_normal()
-                    .child("Armed — next click will erase the entire chip."),
-            )
-        })
-        .child(erase_button(armed, cx))
-}
-
-fn erase_button(armed: bool, cx: &mut Context<AppView>) -> impl IntoElement {
-    // Mirrors `action_button_for` but with a conditional label/bg
-    // for the armed state. Stays a sibling helper rather than a new
-    // generic so the callsite reads like "erase button at <state>"
-    // instead of a long param list.
-    let (label, bg) = if armed {
-        ("Click again to confirm", theme::caution_red())
-    } else {
-        ("Erase chip", theme::accent_blue())
-    };
-    div()
-        .id("start-erase")
-        .self_start()
-        .flex()
-        .items_center()
-        .justify_center()
-        .min_w(px(110.0))
-        .px_4()
-        .py_2()
-        .rounded(px(6.0))
-        .bg(bg)
-        .text_color(theme::text_primary())
-        .cursor_pointer()
-        .child(label)
-        .on_click(cx.listener(|this: &mut AppView, _: &ClickEvent, _, cx| {
-            this.arm_or_fire_erase(cx);
-        }))
+    })
+    .child(armable_button(
+        "Erase chip",
+        "Click again to confirm",
+        "start-erase",
+        armed,
+        cx,
+        |this, cx| this.arm_or_fire_erase(cx),
+    ))
 }
 
 fn write_pane(path: Option<&Path>, armed: bool, cx: &mut Context<AppView>) -> impl IntoElement {
-    let (label, bg) = if armed {
-        ("Click again to confirm", theme::caution_red())
-    } else {
-        ("Write chip", theme::accent_blue())
-    };
-    div()
-        .flex()
-        .flex_col()
-        .gap_4()
-        .px_5()
-        .py_5()
-        .child(heading("Write"))
-        .child(body(
-            "Programs the chip from a file. Erases first, then writes \
-             page-by-page, then verifies. DESTRUCTIVE — same arm/confirm \
-             protection as Erase. Switching panes resets the arm state.",
+    op_pane(
+        "Write",
+        "Programs the chip from a file. Erases first, then writes \
+         page-by-page, then verifies. DESTRUCTIVE — same arm/confirm \
+         protection as Erase. Switching panes resets the arm state.",
+    )
+    .child(file_picker_row(
+        path,
+        "Browse…",
+        "pick-write",
+        cx,
+        |this, cx| this.pick_write_file(cx),
+    ))
+    .when(armed && path.is_some(), |this| {
+        this.child(armed_warning(
+            "Armed — next click will erase and overwrite the chip.",
         ))
-        .child(file_picker_row(
-            path,
-            "Browse…",
-            "pick-write",
-            cx,
-            |this, cx| this.pick_write_file(cx),
-        ))
-        .when(armed && path.is_some(), |this| {
-            this.child(
-                div()
-                    .self_start()
-                    .px_3()
-                    .py_2()
-                    .rounded(px(6.0))
-                    .bg(theme::warning_amber())
-                    .text_color(theme::bench_black())
-                    .whitespace_normal()
-                    .child("Armed — next click will erase and overwrite the chip."),
-            )
-        })
-        .child(
-            div()
-                .id("start-write")
-                .self_start()
-                .flex()
-                .items_center()
-                .justify_center()
-                .min_w(px(110.0))
-                .px_4()
-                .py_2()
-                .rounded(px(6.0))
-                .bg(bg)
-                .text_color(theme::text_primary())
-                .cursor_pointer()
-                .child(label)
-                .on_click(cx.listener(|this: &mut AppView, _: &ClickEvent, _, cx| {
-                    this.arm_or_fire_write(cx);
-                })),
-        )
+    })
+    .child(armable_button(
+        "Write chip",
+        "Click again to confirm",
+        "start-write",
+        armed,
+        cx,
+        |this, cx| this.arm_or_fire_write(cx),
+    ))
 }
 
 fn verify_pane(path: Option<&Path>, cx: &mut Context<AppView>) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap_4()
-        .px_5()
-        .py_5()
-        .child(heading("Verify"))
-        .child(body(
-            "Reads the chip and compares against a file byte-by-byte. \
-             Non-destructive; reports the first mismatch's address if any \
-             bytes differ.",
-        ))
-        .child(file_picker_row(
-            path,
-            "Browse…",
-            "pick-verify",
-            cx,
-            |this, cx| this.pick_verify_file(cx),
-        ))
-        .child(action_button_for(
-            "Verify",
-            "start-verify",
-            cx,
-            |this, cx| this.start_verify(cx),
-        ))
+    op_pane(
+        "Verify",
+        "Reads the chip and compares against a file byte-by-byte. \
+         Non-destructive; reports the first mismatch's address if any \
+         bytes differ.",
+    )
+    .child(file_picker_row(
+        path,
+        "Browse…",
+        "pick-verify",
+        cx,
+        |this, cx| this.pick_verify_file(cx),
+    ))
+    .child(action_button_for(
+        "Verify",
+        "start-verify",
+        cx,
+        |this, cx| this.start_verify(cx),
+    ))
 }
 
 /// Path display + Browse button row. Path text wraps if long.
@@ -1016,40 +938,47 @@ fn hex_color_for(b: u8) -> gpui::Hsla {
 }
 
 fn blank_pane(cx: &mut Context<AppView>) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap_4()
-        .px_5()
-        .py_5()
-        .child(heading("Blank check"))
-        .child(body(
-            "Reads the entire chip and confirms every byte is 0xFF. \
-             Most useful after an erase — fails with the address of the \
-             first non-FF byte if the chip isn't actually blank. A \
-             programmed chip (e.g. a VBIOS) will fail at offset 0x0.",
-        ))
-        .child(action_button_for(
-            "Run blank check",
-            "start-blank",
-            cx,
-            |this, cx| this.start_blank_check(cx),
-        ))
+    op_pane(
+        "Blank check",
+        "Reads the entire chip and confirms every byte is 0xFF. \
+         Most useful after an erase — fails with the address of the \
+         first non-FF byte if the chip isn't actually blank. A \
+         programmed chip (e.g. a VBIOS) will fail at offset 0x0.",
+    )
+    .child(action_button_for(
+        "Run blank check",
+        "start-blank",
+        cx,
+        |this, cx| this.start_blank_check(cx),
+    ))
 }
 
 fn detect_pane(cx: &mut Context<AppView>) -> impl IntoElement {
+    op_pane(
+        "Detect",
+        "Reads the chip's JEDEC ID, looks it up in the bundled chip database, \
+         and updates the session header above.",
+    )
+    .child(action_button("Refresh", cx))
+}
+
+/// Shared outer shell for the operation panes (Detect / Read / Erase
+/// / Write / Verify / Blank). Returns a `flex_col` div with the
+/// standard pane padding + gap, the heading, and the body paragraph
+/// already added — callers chain on the per-pane extras (file
+/// picker, armed warning, action button) via `.child(...)`. Keeps
+/// "what a pane looks like" in one place so future tweaks (e.g.
+/// changing the body color or the gap between rows) land here
+/// instead of in six near-identical copies.
+fn op_pane(heading_text: &'static str, body_text: &'static str) -> gpui::Div {
     div()
         .flex()
         .flex_col()
         .gap_4()
         .px_5()
         .py_5()
-        .child(heading("Detect"))
-        .child(body(
-            "Reads the chip's JEDEC ID, looks it up in the bundled chip database, \
-             and updates the session header above.",
-        ))
-        .child(action_button("Refresh", cx))
+        .child(heading(heading_text))
+        .child(body(body_text))
 }
 
 fn heading(text: &'static str) -> impl IntoElement {
@@ -1069,6 +998,22 @@ fn body(text: &'static str) -> impl IntoElement {
         .child(text)
 }
 
+/// The amber "Armed — next click will <thing>" pill shown by the
+/// two-stage destructive panes (Erase, Write) between the body and
+/// the action button when the user has primed the operation.
+fn armed_warning(text: &'static str) -> impl IntoElement {
+    div()
+        .self_start()
+        .px_3()
+        .py_2()
+        .rounded(px(6.0))
+        .bg(theme::warning_amber())
+        .text_color(theme::bench_black())
+        .text_size(px(13.0))
+        .whitespace_normal()
+        .child(text)
+}
+
 fn action_button(label: &'static str, cx: &mut Context<AppView>) -> impl IntoElement {
     // Legacy single-purpose button used by the Detect pane.
     action_button_for(label, label, cx, |this, cx| this.refresh_detect(cx))
@@ -1083,28 +1028,8 @@ fn action_button_for<F>(
 where
     F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
 {
-    // `min_w` keeps short buttons (Refresh, Start read) the same size
-    // for visual consistency, while longer labels (Run blank check)
-    // grow to fit. `flex_none` prevents the button from being stretched
-    // by its parent flex column. Horizontal padding pairs with the
-    // intrinsic text width.
-    div()
-        .id(id)
-        // `flex_none` only controls main-axis grow/shrink; the parent
-        // `flex_col` still stretches us across the cross axis (width).
-        // `self_start` opts out so the button hugs its intrinsic
-        // width + padding instead of filling the pane.
-        .self_start()
-        .flex()
-        .items_center()
-        .justify_center()
-        .min_w(px(110.0))
-        .px_4()
-        .py_2()
-        .rounded(px(6.0))
+    styled_button(id)
         .bg(theme::accent_blue())
-        .text_color(theme::text_primary())
-        .cursor_pointer()
         .hover(|d| d.bg(theme::accent_blue_hover()))
         .child(label)
         .on_click(
@@ -1112,4 +1037,63 @@ where
                 on_click(this, cx);
             }),
         )
+}
+
+/// Two-stage destructive button used by Erase and Write. First click
+/// arms (the parent sets `armed = true` and re-renders); second
+/// click fires. Background flips amber → red as a "you're about to
+/// do something irreversible" cue. The handler closure runs on
+/// every click — the AppView decides whether this is an arm or a
+/// fire based on its own `*_armed` flag.
+fn armable_button<F>(
+    idle_label: &'static str,
+    armed_label: &'static str,
+    id: &'static str,
+    armed: bool,
+    cx: &mut Context<AppView>,
+    on_click: F,
+) -> impl IntoElement
+where
+    F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
+{
+    let (label, bg) = if armed {
+        (armed_label, theme::caution_red())
+    } else {
+        (idle_label, theme::accent_blue())
+    };
+    styled_button(id)
+        .bg(bg)
+        .child(label)
+        .on_click(
+            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+                on_click(this, cx);
+            }),
+        )
+}
+
+/// Shared button skeleton (sizing, rounding, text color, layout).
+/// Callers add `.bg(...)`, `.hover(...)`, `.child(label)`, and
+/// `.on_click(...)`. Tweaks to "what an op-pane button looks like"
+/// (padding, font size, min width) belong here.
+fn styled_button(id: &'static str) -> gpui::Stateful<gpui::Div> {
+    // `min_w` keeps short buttons (Refresh, Start read) the same size
+    // for visual consistency, while longer labels (Run blank check)
+    // grow to fit. `self_start` opts the button out of the parent
+    // `flex_col` cross-axis stretch so it hugs its intrinsic width +
+    // padding rather than filling the pane. Tightened from the
+    // original `px_4`/`py_2` + default text size — the bulky CTAs
+    // read as out of proportion against the rest of the chrome.
+    div()
+        .id(id)
+        .self_start()
+        .flex()
+        .items_center()
+        .justify_center()
+        .min_w(px(96.0))
+        .px_3()
+        .py_1p5()
+        .rounded(px(6.0))
+        .text_size(px(13.0))
+        .text_color(theme::text_primary())
+        .cursor_pointer()
 }
