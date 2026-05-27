@@ -49,6 +49,11 @@ pub enum Command {
     Verify(VerifyArgs),
     /// Confirm chip is fully erased.
     BlankCheck,
+    /// Dump SR1/SR2/SR3 with decoded bit names. Diagnoses "writes
+    /// silently failing" (block-protect bits set) and "quad mode
+    /// not enabled" (QE clear) without needing to memorise the
+    /// register layout.
+    Sr,
     /// I²C EEPROM operations (24Cxx family).
     I2c {
         #[command(subcommand)]
@@ -270,6 +275,17 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 return Ok(());
             }
             Ok(ops::detect(&global)?)
+        }
+
+        Command::Sr => {
+            if global.dry_run {
+                println!(
+                    "[dry-run] would open CH341A at {} kHz and read SR1/SR2/SR3",
+                    global.speed
+                );
+                return Ok(());
+            }
+            Ok(ops::status(&global)?)
         }
 
         Command::Read(args) => {

@@ -141,6 +141,101 @@ pub fn detect(global: &GlobalOpts) -> Result<()> {
     Ok(())
 }
 
+/// Read SR1/SR2/SR3 from the chip and print the raw bytes plus a
+/// decoded summary of the W25Q-family bit names. Standalone op —
+/// doesn't depend on chip-name lookup, just needs the chip to ACK
+/// SPI and respond to the read-status opcodes.
+pub fn status(global: &GlobalOpts) -> Result<()> {
+    let mut ch = Ch341::open(global.verbose)?;
+    // Run a JEDEC probe first so the user gets a clear "no chip"
+    // message when MISO is floating instead of a decoded SR1 of
+    // 0xFF reading as "WIP=1 WEL=1 BP=7 …" (every bit set looks
+    // alarmingly like real protected state, but it's actually
+    // just MISO pulled high through the CH341 with nothing
+    // driving it). The detect message points at the most common
+    // physical-setup mistakes.
+    let detect = run_detect(&mut ch)?;
+    println!("JEDEC ID : 0x{}", detect.jedec_string());
+    match &detect.diagnosis {
+        Diagnosis::MisoStuckLow => {
+            println!("Chip     : MISO stuck low — target board likely fighting us.");
+            println!("           Lift pin 8 (VCC) or remove the chip from the board.");
+            return Ok(());
+        }
+        Diagnosis::MisoFloatsHigh => {
+            println!("Chip     : MISO floats high — no chip detected.");
+            println!("           Check clip orientation, VCC jumper (3.3V), and chip power.");
+            return Ok(());
+        }
+        Diagnosis::Known(c) => println!("Chip     : {}", c.name),
+        Diagnosis::UnknownChip => println!("Chip     : (JEDEC ID not in DB; reading SR anyway)"),
+    }
+    println!();
+    let regs = spi::read_all_status(&mut ch)?;
+    print_status(&regs);
+    Ok(())
+}
+
+/// Pretty-printer split out so the GUI Status pane can format the
+/// same decoded view by reusing the formatting helpers below
+/// without going through stdout. (The print itself stays here so
+/// the CLI dispatcher doesn't need to know about the layout.)
+fn print_status(regs: &spi::StatusRegisters) {
+    println!("SR1 : 0x{:02X}  (0b{:08b})", regs.sr1, regs.sr1);
+    println!(
+        "        WIP={} WEL={} BP={} TB={} SEC/BP3={} SRP0={}",
+        bit(regs.wip()),
+        bit(regs.wel()),
+        regs.bp(),
+        bit(regs.tb()),
+        bit(regs.sec_or_bp3()),
+        bit(regs.srp0()),
+    );
+    if regs.sr2_present() {
+        println!("SR2 : 0x{:02X}  (0b{:08b})", regs.sr2, regs.sr2);
+        println!(
+            "        SRP1={} QE={} LB={} CMP={} SUS={}",
+            bit(regs.srp1()),
+            bit(regs.qe()),
+            regs.lb(),
+            bit(regs.cmp()),
+            bit(regs.sus()),
+        );
+    } else {
+        println!("SR2 : 0xFF    (chip didn't respond — likely doesn't implement SR2)");
+    }
+    if regs.sr3_present() {
+        println!("SR3 : 0x{:02X}  (0b{:08b})", regs.sr3, regs.sr3);
+        println!(
+            "        ADP={} WPS={} DRV={} HOLD/RST={}",
+            bit(regs.adp()),
+            bit(regs.wps()),
+            regs.drv(),
+            bit(regs.hold_rst()),
+        );
+    } else {
+        println!("SR3 : 0xFF    (chip didn't respond — likely doesn't implement SR3)");
+    }
+    // Two common gotchas worth surfacing without forcing the user
+    // to know the bit semantics: a non-zero BP mask silently fails
+    // writes, and writes to the SR itself need SRP0/SRP1 to permit
+    // it. Anything else is left to the decoded view above.
+    if regs.bp() != 0 || regs.sec_or_bp3() {
+        println!();
+        println!(
+            "note   : SR1 has block-protect bits set — writes/erases to the protected"
+        );
+        println!(
+            "         range will silently fail. Clear BP[2:0] (and SEC/BP3 if set) via"
+        );
+        println!("         WRSR before programming.");
+    }
+}
+
+fn bit(b: bool) -> char {
+    if b { '1' } else { '0' }
+}
+
 /// Pick a chip via `--chip <NAME>` if given, else by reading JEDEC ID.
 pub fn resolve_chip(spi: &mut dyn SpiTransport, global: &GlobalOpts) -> Result<Chip> {
     let db = ChipDb::load_embedded();

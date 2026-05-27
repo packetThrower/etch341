@@ -177,6 +177,7 @@ pub enum Pane {
     Write,
     Verify,
     Blank,
+    Status,
     Hex,
     Settings,
 }
@@ -239,6 +240,12 @@ impl ProgressSink for GuiSink {
 pub struct AppView {
     pub selected: Pane,
     pub connection: Connection,
+    /// Last-read SR1/SR2/SR3 bytes from the Status pane's "Read"
+    /// button. `None` before the first read or after the user
+    /// reset state. Held as the raw struct so the pane render
+    /// shares the same decoded view (`StatusRegisters::wip` etc.)
+    /// the CLI's `ops::status` uses.
+    pub status_regs: Option<crate::spi::StatusRegisters>,
     pub log_lines: Vec<LogLine>,
     /// Persists scroll position across re-renders; required by
     /// `track_scroll(...)` to keep the log from jumping back to the
@@ -350,6 +357,7 @@ impl AppView {
         Self {
             selected: Pane::Detect,
             connection: Connection::Disconnected,
+            status_regs: None,
             log_lines: vec![LogLine {
                 timestamp: now_hms(),
                 text: "etch341 ready — plug in a CH341A and click Refresh".into(),
@@ -1171,6 +1179,58 @@ impl AppView {
     /// that an erase succeeded (`ops::blank_check` returns
     /// `Error::NotBlank { addr, value }` on the first non-FF byte;
     /// the location is included in the error message).
+    /// Read SR1/SR2/SR3 in the background and stash the result in
+    /// `self.status_regs` for the Status pane to render. Mirrors
+    /// the `etch341 sr` CLI subcommand. No progress bar — the read
+    /// is three single-byte SPI ops, much faster than the polling
+    /// interval that drives `SharedProgress`.
+    pub fn start_read_status(&mut self, cx: &mut Context<Self>) {
+        self.push_log("→ status regs".into());
+        cx.notify();
+        let speed = self.prefs.spi_speed_khz;
+        cx.spawn(async move |weak, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
+                    // Same JEDEC-first guard as `ops::status` —
+                    // bail with a friendly message instead of
+                    // showing a "decoded" 0xFF as protected state.
+                    let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
+                    match detect.diagnosis {
+                        Diagnosis::MisoStuckLow => {
+                            return Err("MISO stuck low (target board contention)".into());
+                        }
+                        Diagnosis::MisoFloatsHigh => {
+                            return Err("MISO floats high (no chip / HOLD# grounded)".into());
+                        }
+                        _ => {}
+                    }
+                    crate::spi::read_all_status(&mut ch).map_err(|e| format!("{e}"))
+                })
+                .await;
+
+            weak.update(cx, |this, cx| {
+                match outcome {
+                    Ok(regs) => {
+                        this.status_regs = Some(regs);
+                        this.push_log(format!(
+                            "Status OK: SR1=0x{:02X} SR2=0x{:02X} SR3=0x{:02X}",
+                            regs.sr1, regs.sr2, regs.sr3
+                        ));
+                    }
+                    Err(err) => {
+                        this.push_log(format!("Status FAIL: {err}"));
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     pub fn start_blank_check(&mut self, cx: &mut Context<Self>) {
         self.push_log("→ blank check".into());
         cx.notify();
@@ -1338,6 +1398,7 @@ impl Render for AppView {
                             spi_speed_khz: self.prefs.spi_speed_khz,
                             restore_window_bounds: self.prefs.restore_window_bounds,
                             prefs_path: prefs_path_buf.as_deref(),
+                            status_regs: self.status_regs,
                         };
                         let outer = div().flex_1().min_h(px(0.0)).min_w(px(0.0));
                         if self.selected == Pane::Settings {

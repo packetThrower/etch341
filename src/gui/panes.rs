@@ -37,6 +37,10 @@ pub struct PaneInputs<'a> {
     /// in `gui::run` / `on_window_should_close`.
     pub restore_window_bounds: bool,
     pub prefs_path: Option<&'a Path>,
+    /// Last-read SR1/SR2/SR3 bytes for the Status pane. `None`
+    /// before the user clicks "Read"; populated by
+    /// `AppView::start_read_status` once the chip has responded.
+    pub status_regs: Option<crate::spi::StatusRegisters>,
 }
 
 pub fn render(
@@ -51,6 +55,7 @@ pub fn render(
         Pane::Write => write_pane(inputs.write_path, inputs.write_armed, cx).into_any_element(),
         Pane::Verify => verify_pane(inputs.verify_path, cx).into_any_element(),
         Pane::Blank => blank_pane(cx).into_any_element(),
+        Pane::Status => status_pane(inputs.status_regs, cx).into_any_element(),
         Pane::Hex => hex_pane(
             inputs.hex_path,
             inputs.hex_bytes,
@@ -1048,6 +1053,142 @@ fn hex_color_for(b: u8) -> gpui::Hsla {
         0x20..=0x7E => theme::text_primary(),
         _ => theme::text_secondary(),
     }
+}
+
+fn status_pane(
+    regs: Option<crate::spi::StatusRegisters>,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
+    let mut col = op_pane(
+        "Status registers",
+        "Dumps SR1 / SR2 / SR3 with decoded W25Q-family bit names. \
+         Diagnoses 'writes silently failing' (block-protect bits set) \
+         and 'quad mode not enabled' (QE clear) without needing to \
+         memorise the register layout. SR2 / SR3 are W25Q-family by \
+         convention — other vendors may differ; raw bytes are always \
+         shown so you can cross-check with the datasheet.",
+    );
+    col = col.child(action_button_for(
+        "Read status",
+        "read-status",
+        cx,
+        |this, cx| this.start_read_status(cx),
+    ));
+    if let Some(r) = regs {
+        col = col.child(status_register_block(
+            "SR1",
+            r.sr1,
+            true,
+            &[
+                ("WIP", r.wip().to_string()),
+                ("WEL", r.wel().to_string()),
+                ("BP", r.bp().to_string()),
+                ("TB", r.tb().to_string()),
+                ("SEC/BP3", r.sec_or_bp3().to_string()),
+                ("SRP0", r.srp0().to_string()),
+            ],
+        ));
+        col = col.child(status_register_block(
+            "SR2",
+            r.sr2,
+            r.sr2_present(),
+            &[
+                ("SRP1", r.srp1().to_string()),
+                ("QE", r.qe().to_string()),
+                ("LB", r.lb().to_string()),
+                ("CMP", r.cmp().to_string()),
+                ("SUS", r.sus().to_string()),
+            ],
+        ));
+        col = col.child(status_register_block(
+            "SR3",
+            r.sr3,
+            r.sr3_present(),
+            &[
+                ("ADP", r.adp().to_string()),
+                ("WPS", r.wps().to_string()),
+                ("DRV", r.drv().to_string()),
+                ("HOLD/RST", r.hold_rst().to_string()),
+            ],
+        ));
+        // Same gotcha-surfacing note the CLI prints — most common
+        // reason a user is on this pane is "writes silently failing"
+        // due to BP bits, so call it out directly.
+        if r.bp() != 0 || r.sec_or_bp3() {
+            col = col.child(armed_warning(
+                "SR1 has block-protect bits set — writes/erases to the protected range \
+                 will silently fail. Clear BP[2:0] (and SEC/BP3 if set) via WRSR before \
+                 programming.",
+            ));
+        }
+    }
+    col
+}
+
+/// One register row inside `status_pane` — section label, raw hex
+/// + binary, and a wrapped grid of decoded bit name → value pairs.
+/// `present == false` means the chip returned `0xFF` (no response)
+/// and we hide the decoded bits since they'd just be noise.
+fn status_register_block(
+    name: &'static str,
+    value: u8,
+    present: bool,
+    bits: &[(&'static str, String)],
+) -> gpui::Div {
+    let header = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .child(
+            div()
+                .text_size(px(11.0))
+                .text_color(theme::text_tertiary())
+                .child(name),
+        )
+        .child(
+            div()
+                .text_size(px(12.0))
+                .font_family("Menlo")
+                .text_color(if present {
+                    theme::text_primary()
+                } else {
+                    theme::text_tertiary()
+                })
+                .child(format!("0x{value:02X}  0b{value:08b}")),
+        );
+    if !present {
+        return div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(header)
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(theme::text_tertiary())
+                    .whitespace_normal()
+                    .child(format!("(chip didn't respond — likely doesn't implement {name})")),
+            );
+    }
+    // Bit-grid: each entry is "NAME: value" in Menlo at 12px, laid
+    // out as flex-wrap so narrow windows wrap rather than overflow.
+    let mut grid = div()
+        .flex()
+        .flex_row()
+        .flex_wrap()
+        .gap_x_4()
+        .gap_y_1()
+        .text_size(px(12.0))
+        .font_family("Menlo")
+        .text_color(theme::text_secondary());
+    for (label, v) in bits {
+        grid = grid.child(
+            div()
+                .child(format!("{label}={v}")),
+        );
+    }
+    div().flex().flex_col().gap_1().child(header).child(grid)
 }
 
 fn blank_pane(cx: &mut Context<AppView>) -> impl IntoElement {
