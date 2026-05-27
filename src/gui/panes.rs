@@ -1072,7 +1072,7 @@ fn detect_pane(cx: &mut Context<AppView>) -> impl IntoElement {
         "Reads the chip's JEDEC ID, looks it up in the bundled chip database, \
          and updates the session header above.",
     )
-    .child(action_button("Refresh", cx))
+    .child(action_button("Detect chip", cx))
 }
 
 /// Shared outer shell for the operation panes (Detect / Read / Erase
