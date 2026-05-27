@@ -58,6 +58,12 @@ pub struct PaneInputs<'a> {
     /// valid SFDP magic but a BFPT we can't decode (or vice
     /// versa).
     pub detect_sfdp: Option<&'a crate::sfdp::Sfdp>,
+    /// Font size (px) for the hex+ASCII view inside the Hex pane.
+    /// Persisted in `prefs.toml` and adjustable on the fly with
+    /// Cmd/Ctrl + / - / 0.
+    pub hex_font_size: f32,
+    /// Same idea for the strings list inside the Hex pane.
+    pub strings_font_size: f32,
 }
 
 pub fn render(
@@ -89,6 +95,8 @@ pub fn render(
             inputs.hex_selection,
             inputs.hex_search_term,
             inputs.hex_search_state,
+            inputs.hex_font_size,
+            inputs.strings_font_size,
             cx,
         )
         .into_any_element(),
@@ -97,6 +105,8 @@ pub fn render(
             inputs.restore_window_bounds,
             inputs.read_output_dir,
             inputs.prefs_path,
+            inputs.hex_font_size,
+            inputs.strings_font_size,
             cx,
         )
         .into_any_element(),
@@ -233,6 +243,8 @@ fn settings_pane(
     restore_window_bounds: bool,
     read_output_dir: Option<&Path>,
     prefs_path: Option<&Path>,
+    hex_font_size: f32,
+    strings_font_size: f32,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     // Matches `ch341::SUPPORTED_SPEEDS_KHZ` — the set the CH341A
@@ -327,6 +339,70 @@ fn settings_pane(
             |this, cx| this.toggle_restore_window_bounds(cx),
         ));
 
+    // Hex viewer section: two font-size rows (hex grid + strings
+    // list). Mirrors the Cmd/Ctrl + / - / 0 keybindings — both
+    // surfaces mutate the same prefs values, so changes round-trip
+    // either way.
+    let hex_box = GroupBox::new()
+        .id("settings-hex")
+        .outline()
+        .title("Hex viewer")
+        .child(body(
+            "Font size for the hex+ASCII view and the strings list \
+             inside the Hex pane. Adjustable on the fly with Cmd \
+             +/- and Cmd 0 on macOS, or Ctrl on Windows / Linux — \
+             the active sub-view changes when you toggle between \
+             Hex and Strings.",
+        ))
+        .child(font_size_row(
+            "Hex view",
+            hex_font_size,
+            "hex-font-minus",
+            "hex-font-plus",
+            cx,
+            |this, cx| this.nudge_hex_font(-1.0, cx),
+            |this, cx| this.nudge_hex_font(1.0, cx),
+        ))
+        .child(font_size_row(
+            "Strings view",
+            strings_font_size,
+            "strings-font-minus",
+            "strings-font-plus",
+            cx,
+            |this, cx| this.nudge_strings_font(-1.0, cx),
+            |this, cx| this.nudge_strings_font(1.0, cx),
+        ))
+        .child(
+            // Right-aligned reset chip. Sized to match the +/- chips
+            // (24px tall, padded for the longer label) so the
+            // GroupBox doesn't get a chunky CTA at the bottom.
+            div()
+                .flex()
+                .flex_row()
+                .justify_end()
+                .child(
+                    div()
+                        .id("hex-font-reset")
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .h(px(24.0))
+                        .px_3()
+                        .rounded(px(4.0))
+                        .text_size(px(12.0))
+                        .text_color(theme::text_primary())
+                        .bg(theme::workshop_glass_strong())
+                        .hover(|d| d.bg(theme::workshop_glass()))
+                        .cursor_pointer()
+                        .child("Reset to defaults")
+                        .on_click(cx.listener(
+                            |this: &mut AppView, _: &ClickEvent, _, cx| {
+                                this.reset_hex_fonts(cx);
+                            },
+                        )),
+                ),
+        );
+
     // Preferences file section. Button hidden when there's no real
     // path — nothing useful to open if $HOME wasn't set.
     let path_text = prefs_path
@@ -395,6 +471,7 @@ fn settings_pane(
                         .child(speed_box)
                         .child(read_box)
                         .child(window_box)
+                        .child(hex_box)
                         .child(prefs_box),
                 ),
         )
@@ -477,6 +554,80 @@ where
         )
 }
 
+/// Row used by Settings → Hex viewer: label on the left, a `[-] N px
+/// [+]` stepper on the right. Uses tight 24×24 chips instead of the
+/// full `action_button_for` shape — the standard CTA button reads
+/// out of scale next to a 12px label, and stacking two of them in
+/// one row eats half the viewport.
+fn font_size_row<FMinus, FPlus>(
+    label: &'static str,
+    current: f32,
+    id_minus: &'static str,
+    id_plus: &'static str,
+    cx: &mut Context<AppView>,
+    on_minus: FMinus,
+    on_plus: FPlus,
+) -> impl IntoElement
+where
+    FMinus: Fn(&mut AppView, &mut Context<AppView>) + 'static,
+    FPlus: Fn(&mut AppView, &mut Context<AppView>) + 'static,
+{
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(
+            div()
+                .flex_1()
+                .text_color(theme::text_primary())
+                .child(label),
+        )
+        .child(stepper_button("\u{2212}", id_minus, cx, on_minus))
+        .child(
+            div()
+                .min_w(px(44.0))
+                .text_size(px(12.0))
+                .font_family(theme::MONO_FONT)
+                .text_color(theme::text_primary())
+                .child(format!("{current:.0} px")),
+        )
+        .child(stepper_button("+", id_plus, cx, on_plus))
+}
+
+/// Compact 24×24 chip used by `font_size_row` for the inline +/-
+/// stepper. Same colour as `action_button_for` for visual lineage,
+/// just sized to a glyph instead of a CTA label.
+fn stepper_button<F>(
+    label: &'static str,
+    id: &'static str,
+    cx: &mut Context<AppView>,
+    on_click: F,
+) -> impl IntoElement
+where
+    F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
+{
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .justify_center()
+        .w(px(24.0))
+        .h(px(24.0))
+        .rounded(px(4.0))
+        .text_size(px(13.0))
+        .text_color(theme::text_primary())
+        .bg(theme::accent_blue())
+        .hover(|d| d.bg(theme::accent_blue_hover()))
+        .cursor_pointer()
+        .child(label)
+        .on_click(
+            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+                on_click(this, cx);
+            }),
+        )
+}
+
 // The hex pane sits at the join point of the file picker, the
 // search/filter input, the matches/selection overlays, the strings
 // list, and the hex view — each one needing its own slice of state
@@ -499,6 +650,8 @@ fn hex_pane(
     selection: Option<(usize, usize)>,
     search_term: &str,
     search_state: &Entity<InputState>,
+    hex_font_size: f32,
+    strings_font_size: f32,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let mut col = div()
@@ -606,6 +759,7 @@ fn hex_pane(
                     matched,
                     search_term.to_string(),
                     strings_scroll,
+                    strings_font_size,
                     cx.entity().downgrade(),
                 ));
         } else {
@@ -636,6 +790,7 @@ fn hex_pane(
                     highlight_line,
                     byte_matches,
                     selection,
+                    hex_font_size,
                     cx,
                 ));
         }
@@ -777,6 +932,7 @@ fn strings_view(
     matched: Vec<usize>,
     needle: String,
     scroll: UniformListScrollHandle,
+    font_size: f32,
     weak_view: WeakEntity<AppView>,
 ) -> impl IntoElement {
     let matched_arc = Arc::new(matched);
@@ -828,7 +984,7 @@ fn strings_view(
     .px_3()
     .py_2()
     .font_family(theme::MONO_FONT)
-    .text_size(px(11.0))
+    .text_size(px(font_size))
     .text_color(theme::text_secondary())
     .track_scroll(&scroll)
 }
@@ -887,9 +1043,14 @@ fn hex_view(
     highlight_line: Option<usize>,
     byte_matches: Arc<HashSet<usize>>,
     selection: Option<(usize, usize)>,
+    font_size: f32,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let line_count = bytes.len().div_ceil(16);
+    // Row height tracks font size so glyphs don't clip when the user
+    // zooms in. +5 matches the historical 16px row at the 11px
+    // default and scales linearly from there.
+    let row_height = font_size + 5.0;
     // WeakEntity captured into the per-row closures so each byte
     // cell's mouse handler can update AppView via `weak.update(...)`.
     // Strong handles would extend AppView's lifetime past its window.
@@ -912,6 +1073,7 @@ fn hex_view(
                     &bytes[start..end],
                     &byte_matches,
                     selection,
+                    row_height,
                     weak.clone(),
                 );
                 if Some(i) == highlight_line {
@@ -933,7 +1095,7 @@ fn hex_view(
     .px_3()
     .py_2()
     .font_family(theme::MONO_FONT)
-    .text_size(px(11.0))
+    .text_size(px(font_size))
     .text_color(theme::text_secondary())
     .track_scroll(&scroll)
     // Drag ends on mouse-up anywhere inside the hex view. A release
@@ -957,10 +1119,11 @@ fn hex_row(
     chunk: &[u8],
     matches: &HashSet<usize>,
     selection: Option<(usize, usize)>,
+    row_height: f32,
     weak: WeakEntity<AppView>,
 ) -> gpui::Div {
     let mut row = div()
-        .h(px(16.0))
+        .h(px(row_height))
         .flex()
         .flex_row()
         .whitespace_nowrap()

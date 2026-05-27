@@ -26,8 +26,42 @@ use crate::prefs::Prefs;
 // window's dispatch chain.
 actions!(
     etch341,
-    [FocusFind, FindNextAction, FindPrevAction, CopyHexSelection]
+    [
+        FocusFind,
+        FindNextAction,
+        FindPrevAction,
+        CopyHexSelection,
+        HexZoomIn,
+        HexZoomOut,
+        HexZoomReset,
+    ]
 );
+
+/// Best-effort topmost-visible row for a uniform list. Returns 0 if
+/// neither signal is available (fresh handle, never rendered).
+///
+/// Pinned gpui hides `logical_scroll_top_index` behind a `cfg(test)`
+/// gate, and on the base handle `top_item()` returns 0 for
+/// uniform_list because the latter virtualises its own children and
+/// never populates the base handle's `child_bounds`. So we compute
+/// the index from the raw pixel offset and a caller-supplied row
+/// height — that's the same height uniform_list uses to lay out
+/// rows, so the conversion is exact.
+///
+/// Deferred scrolls (set by `scroll_to_item*` and consumed by the
+/// next render) shadow the offset for one frame, so check those
+/// first.
+fn uniform_list_top_index(handle: &UniformListScrollHandle, row_height_px: f32) -> usize {
+    let state = handle.0.borrow();
+    if let Some(deferred) = state.deferred_scroll_to_item.as_ref() {
+        return deferred.item_index;
+    }
+    if row_height_px <= 0.0 {
+        return 0;
+    }
+    let offset_y: f32 = state.base_handle.offset().y.into();
+    ((-offset_y / row_height_px).max(0.0)) as usize
+}
 
 // The search-pattern parsing, string extraction, and byte-level
 // match logic live in the shared `crate::inspect` module so the CLI
@@ -73,6 +107,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         // bytes; the handler early-returns when an Input has
         // focus, so the gpui-component Input's own
         // copy-to-clipboard still works inside the search field.
+        // Both `cmd-=` and `cmd-+` map to "zoom in" — `=` is what the
+        // user actually presses on most keyboards (plus sign sits
+        // above `=`, requiring shift), but a Dvorak / international
+        // layout may bind `+` directly. Zed and most browsers bind
+        // both. Same for ctrl on non-macOS.
         #[cfg(target_os = "macos")]
         cx.bind_keys([
             KeyBinding::new("cmd-f", FocusFind, None),
@@ -80,6 +119,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             KeyBinding::new("cmd-g", FindNextAction, None),
             KeyBinding::new("cmd-shift-g", FindPrevAction, None),
             KeyBinding::new("cmd-c", CopyHexSelection, None),
+            KeyBinding::new("cmd-=", HexZoomIn, None),
+            KeyBinding::new("cmd-+", HexZoomIn, None),
+            KeyBinding::new("cmd--", HexZoomOut, None),
+            KeyBinding::new("cmd-0", HexZoomReset, None),
         ]);
         #[cfg(not(target_os = "macos"))]
         cx.bind_keys([
@@ -88,6 +131,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             KeyBinding::new("ctrl-g", FindNextAction, None),
             KeyBinding::new("ctrl-shift-g", FindPrevAction, None),
             KeyBinding::new("ctrl-c", CopyHexSelection, None),
+            KeyBinding::new("ctrl-=", HexZoomIn, None),
+            KeyBinding::new("ctrl-+", HexZoomIn, None),
+            KeyBinding::new("ctrl--", HexZoomOut, None),
+            KeyBinding::new("ctrl-0", HexZoomReset, None),
         ]);
 
         // Load prefs once up front so we can honour
@@ -473,6 +520,126 @@ impl AppView {
         match self.prefs.save() {
             Ok(()) => self.push_log(format!("SPI clock set to {khz} kHz (saved)")),
             Err(e) => self.push_log(format!("SPI clock set to {khz} kHz (save failed: {e})")),
+        }
+        cx.notify();
+    }
+
+    /// Bump the hex view font size by `delta` (typically ±1), clamped
+    /// to the supported range and saved to prefs. No-op at the
+    /// clamp boundary so we don't churn the file on repeated
+    /// keypresses past the limit.
+    ///
+    /// Re-scrolls to the same row index before returning so the user
+    /// stays parked at the same byte offset across zoom steps —
+    /// without this the underlying pixel scroll offset maps to a
+    /// different row at the new row height and the viewport "jumps."
+    /// The row-height arithmetic mirrors `hex_view`'s `+5` formula.
+    pub fn nudge_hex_font(&mut self, delta: f32, cx: &mut Context<Self>) {
+        let next = (self.prefs.hex_font_size + delta).clamp(
+            crate::prefs::HEX_FONT_MIN,
+            crate::prefs::HEX_FONT_MAX,
+        );
+        if (next - self.prefs.hex_font_size).abs() < f32::EPSILON {
+            return;
+        }
+        let top =
+            uniform_list_top_index(&self.hex_scroll, self.prefs.hex_font_size + 5.0);
+        self.prefs.hex_font_size = next;
+        self.hex_scroll.scroll_to_item(top, ScrollStrategy::Top);
+        self.persist_font_size(cx);
+    }
+
+    /// Same for the strings view. Separate from hex on purpose —
+    /// the strings list and hex grid have different density needs.
+    /// Strings rows have no explicit height — uniform_list measures
+    /// them from natural text content, which is `font_size *
+    /// line_height` plus a hair. `font_size + 4` matches what gpui
+    /// produces with default line-height for mono fonts in the
+    /// 8-24px range.
+    pub fn nudge_strings_font(&mut self, delta: f32, cx: &mut Context<Self>) {
+        let next = (self.prefs.strings_font_size + delta).clamp(
+            crate::prefs::HEX_FONT_MIN,
+            crate::prefs::HEX_FONT_MAX,
+        );
+        if (next - self.prefs.strings_font_size).abs() < f32::EPSILON {
+            return;
+        }
+        let top = uniform_list_top_index(
+            &self.strings_scroll,
+            self.prefs.strings_font_size + 4.0,
+        );
+        self.prefs.strings_font_size = next;
+        self.strings_scroll.scroll_to_item(top, ScrollStrategy::Top);
+        self.persist_font_size(cx);
+    }
+
+    /// Keybinding handler: cmd/ctrl + `=` / `+`. Only fires when
+    /// the Hex pane is selected; routes to whichever sub-view is
+    /// currently visible (hex grid or strings list).
+    pub fn hex_zoom_in(&mut self, cx: &mut Context<Self>) {
+        if self.selected != Pane::Hex {
+            return;
+        }
+        if self.hex_show_strings {
+            self.nudge_strings_font(1.0, cx);
+        } else {
+            self.nudge_hex_font(1.0, cx);
+        }
+    }
+
+    /// Keybinding handler: cmd/ctrl + `-`.
+    pub fn hex_zoom_out(&mut self, cx: &mut Context<Self>) {
+        if self.selected != Pane::Hex {
+            return;
+        }
+        if self.hex_show_strings {
+            self.nudge_strings_font(-1.0, cx);
+        } else {
+            self.nudge_hex_font(-1.0, cx);
+        }
+    }
+
+    /// Keybinding handler: cmd/ctrl + `0`. Resets the active sub-
+    /// view's font to the original default. Same scroll-preserve
+    /// trick as the nudge handlers.
+    pub fn hex_zoom_reset(&mut self, cx: &mut Context<Self>) {
+        if self.selected != Pane::Hex {
+            return;
+        }
+        if self.hex_show_strings {
+            let top = uniform_list_top_index(
+                &self.strings_scroll,
+                self.prefs.strings_font_size + 4.0,
+            );
+            self.prefs.strings_font_size = crate::prefs::HEX_FONT_DEFAULT;
+            self.strings_scroll
+                .scroll_to_item(top, ScrollStrategy::Top);
+        } else {
+            let top =
+                uniform_list_top_index(&self.hex_scroll, self.prefs.hex_font_size + 5.0);
+            self.prefs.hex_font_size = crate::prefs::HEX_FONT_DEFAULT;
+            self.hex_scroll.scroll_to_item(top, ScrollStrategy::Top);
+        }
+        self.persist_font_size(cx);
+    }
+
+    /// Settings → Hex viewer → "Reset to defaults" button. Resets
+    /// *both* font sizes — Cmd+0 only resets the active sub-view,
+    /// but a settings-level reset is the natural "put it all back"
+    /// affordance. No scroll-preserve since the user is on the
+    /// Settings pane, not Hex.
+    pub fn reset_hex_fonts(&mut self, cx: &mut Context<Self>) {
+        self.prefs.hex_font_size = crate::prefs::HEX_FONT_DEFAULT;
+        self.prefs.strings_font_size = crate::prefs::HEX_FONT_DEFAULT;
+        self.persist_font_size(cx);
+    }
+
+    /// Shared save-and-redraw path for font-size changes. Failures
+    /// only surface in the activity log (silent on success — these
+    /// happen on every keystroke during a zoom session).
+    fn persist_font_size(&mut self, cx: &mut Context<Self>) {
+        if let Err(e) = self.prefs.save() {
+            self.push_log(format!("font size save failed: {e}"));
         }
         cx.notify();
     }
@@ -1578,6 +1745,15 @@ impl Render for AppView {
                     this.copy_hex_selection(cx);
                 }),
             )
+            .on_action(cx.listener(|this: &mut AppView, _: &HexZoomIn, _, cx| {
+                this.hex_zoom_in(cx);
+            }))
+            .on_action(cx.listener(|this: &mut AppView, _: &HexZoomOut, _, cx| {
+                this.hex_zoom_out(cx);
+            }))
+            .on_action(cx.listener(|this: &mut AppView, _: &HexZoomReset, _, cx| {
+                this.hex_zoom_reset(cx);
+            }))
             .child(TitleBar::new())
             .child(
                 div()
@@ -1637,6 +1813,8 @@ impl Render for AppView {
                                     read_output_dir: self.prefs.read_output_dir.as_deref(),
                                     detect_result: self.detect_result.as_ref(),
                                     detect_sfdp: self.detect_sfdp.as_ref(),
+                                    hex_font_size: self.prefs.hex_font_size,
+                                    strings_font_size: self.prefs.strings_font_size,
                                 };
                                 let outer = div().flex_1().min_h(px(0.0)).min_w(px(0.0));
                                 if self.selected == Pane::Settings {

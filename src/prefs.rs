@@ -31,6 +31,14 @@ pub struct Prefs {
     /// dump into. `None` falls back to `$HOME` (the original
     /// behaviour). Set via Settings → Read save location.
     pub read_output_dir: Option<PathBuf>,
+    /// Font size (in px) for the Hex pane's hex+ASCII view.
+    /// Adjustable on the fly with Cmd/Ctrl + / - / 0 while the Hex
+    /// pane is showing the hex view, or via the Settings pane.
+    pub hex_font_size: f32,
+    /// Font size (in px) for the Hex pane's strings view. Same
+    /// keybindings as `hex_font_size`, but only one of the two is
+    /// adjusted at a time (whichever view is currently visible).
+    pub strings_font_size: f32,
 }
 
 /// On-disk snapshot of the window's position + size. Stored as
@@ -44,6 +52,17 @@ pub struct WindowGeometry {
     pub height: f32,
 }
 
+/// Default font size (in px) for the Hex pane's hex view and
+/// strings view. Mirrors the historical hardcoded `text_size(px(11.0))`
+/// so an existing prefs.toml without these fields lands on the
+/// same visual default.
+pub const HEX_FONT_DEFAULT: f32 = 11.0;
+/// Allowed range for the hex / strings view font size, clamped on
+/// every adjustment. 8 keeps glyphs legible on hi-DPI screens; 24
+/// is well past the "I need to lean back from the screen" point.
+pub const HEX_FONT_MIN: f32 = 8.0;
+pub const HEX_FONT_MAX: f32 = 24.0;
+
 impl Default for Prefs {
     fn default() -> Self {
         Self {
@@ -55,6 +74,8 @@ impl Default for Prefs {
             restore_window_bounds: false,
             window_bounds: None,
             read_output_dir: None,
+            hex_font_size: HEX_FONT_DEFAULT,
+            strings_font_size: HEX_FONT_DEFAULT,
         }
     }
 }
