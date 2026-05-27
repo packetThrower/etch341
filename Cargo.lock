@@ -1681,6 +1681,7 @@ name = "etch341"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "embed-resource",
  "gpui",
  "gpui-component",
  "gpui-component-assets",

@@ -75,6 +75,12 @@ gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", 
 [dev-dependencies]
 mockall = "0.12"
 
+# Build-script-only dep. Embeds resources/icons/icon.ico into the
+# Windows .exe PE resource section so Explorer / taskbar / Alt-Tab
+# show the etch341 icon on the binary itself. No-op on other targets.
+[build-dependencies]
+embed-resource = "3"
+
 # cargo-packager metadata. Drives `cargo packager --release -f
 # <format>` invocations in .github/workflows/release.yml. Defines
 # the per-platform installer artifacts that ship on every tag.

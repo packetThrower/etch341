@@ -3,11 +3,12 @@
 use gpui::{
     App, AppContext, Bounds, ClipboardItem, Context, Entity, FocusHandle, InteractiveElement,
     IntoElement, KeyBinding, ParentElement, Render, ScrollHandle, ScrollStrategy, Styled,
-    Subscription, TitlebarOptions, UniformListScrollHandle, Window, WindowBounds, WindowOptions,
+    Subscription, TitlebarOptions, UniformListScrollHandle, Window, WindowBounds, WindowDecorations,
+    WindowOptions,
     actions, div, px,
 };
 use gpui_component::{
-    Root, TitleBar,
+    Root, Theme, ThemeMode, TitleBar,
     input::{InputEvent, InputState},
     resizable::{resizable_panel, v_resizable},
 };
@@ -45,6 +46,16 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let app = gpui_platform::application().with_assets(gpui_component_assets::Assets);
     app.run(|cx: &mut App| {
         gpui_component::init(cx);
+        // Force gpui-component into dark mode regardless of the OS
+        // appearance — etch341's chrome (sidebar, panes, log, hex)
+        // is dark-only by design. Without this the gpui-component
+        // widgets we embed (`TitleBar`, `v_resizable`, the
+        // `Input` used by hex-search) paint with the *light* theme
+        // and stand out as bright tiles against our dark window.
+        // PortFinder mirrors the OS via `apply_system_theme`; we
+        // just pin the mode because there's no light variant to
+        // switch into.
+        Theme::change(ThemeMode::Dark, None, cx);
 
         // Standard hex-editor shortcuts: Cmd+F focuses Find, Cmd+G
         // steps to the next match, Cmd+Shift+G steps back.
@@ -68,15 +79,45 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         if let Err(err) = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
+                // `TitleBar::title_bar_options()` provides
+                // `appears_transparent: true` plus the
+                // traffic-light position that matches gpui-
+                // component's default 34px titlebar height. We
+                // used to override `traffic_light_position` to
+                // `(16, 16)` (copied from Baudrun, where skins set
+                // a taller titlebar), but that left the lights
+                // bottom-aligned inside our default-height bar.
+                // PortFinder just takes the defaults; we follow
+                // suit. `title` is set so the OS taskbar / dock /
+                // window-list still labels the window even though
+                // the widget draws no visible text by default.
                 titlebar: Some(TitlebarOptions {
                     title: Some("etch341".into()),
-                    traffic_light_position: Some(gpui::point(px(16.0), px(16.0))),
                     ..TitleBar::title_bar_options()
                 }),
                 app_id: Some("etch341".into()),
+                // Force client-side decorations. Without this gpui
+                // defaults to `Server`, which KDE Plasma's KWin
+                // honours by drawing its own server-side title bar
+                // *on top of* our gpui-component TitleBar — dual
+                // titlebars stacked on every KDE install. Mutter
+                // (GNOME) ignores the protocol and always does CSD,
+                // so the bug only manifests under KWin, but the fix
+                // is universal. No-op on macOS / Windows. Pairs with
+                // `TitleBar::title_bar_options()` above — they're
+                // intentionally set together as gpui-component's own
+                // example apps do.
+                window_decorations: Some(WindowDecorations::Client),
                 ..Default::default()
             },
             |window, cx| {
+                // Widen the resize hit-test margin from the gpui
+                // default (which is effectively 0 on Wayland CSD
+                // because the compositor refuses xdg-decoration).
+                // Without this the diagonal/edge resize zones are an
+                // unreachably-thin one-pixel strip on GNOME-Wayland.
+                // No-op on macOS / Windows / X11.
+                window.set_client_inset(px(10.0));
                 let view = cx.new(|cx| AppView::new(window, cx));
                 // Give the root view focus so window-scoped key
                 // bindings (None context) have a dispatch path. Without
@@ -1094,15 +1135,26 @@ fn read_output_path() -> std::path::PathBuf {
 impl Render for AppView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let prefs_path_buf = Prefs::path();
+        // Outer column: TitleBar on top, then the existing sidebar +
+        // main-column row fills the rest. The TitleBar widget draws
+        // the window title text plus min/max/close controls on
+        // Windows/Linux (where `appears_transparent` hides the
+        // native chrome) and renders transparently on macOS so the
+        // native traffic lights show through. Without this widget,
+        // the Windows build looks chromeless and unmovable — exactly
+        // the symptom the .exe shows on a fresh Windows VM.
         div()
             .track_focus(&self.focus_handle)
             .flex()
-            .flex_row()
+            .flex_col()
             .size_full()
             .bg(theme::bench_black())
             .text_color(theme::text_primary())
             // Window-level action handlers — these fire via the
-            // gpui-registered key bindings above.
+            // gpui-registered key bindings above. Must stay on the
+            // outer root div (the one with `track_focus`) so action
+            // dispatch from the focused element bubbles up and finds
+            // them.
             .on_action(
                 cx.listener(|this: &mut AppView, _: &FocusFind, window, cx| {
                     this.selected = Pane::Hex;
@@ -1127,8 +1179,15 @@ impl Render for AppView {
                     this.copy_hex_selection(cx);
                 }),
             )
-            .child(sidebar::render(self.selected, cx))
+            .child(TitleBar::new())
             .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .child(sidebar::render(self.selected, cx))
+                    .child(
                 div()
                     .flex_1()
                     // `min_w(0)` overrides flex's default `min-width: auto`
@@ -1206,6 +1265,7 @@ impl Render for AppView {
                                 ),
                         )
                     }),
+            ),
             )
     }
 }
