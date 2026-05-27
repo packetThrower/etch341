@@ -392,6 +392,51 @@ impl AppView {
         cx.notify();
     }
 
+    /// Open the directory containing `prefs.toml` in the OS file
+    /// manager. Best-effort — if `$HOME` isn't set (no prefs path),
+    /// or the platform helper can't be spawned, we log the failure
+    /// and move on. Done as a `Command::spawn` (not `output()`) so
+    /// the GUI doesn't block on file-manager startup.
+    pub fn open_prefs_folder(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = Prefs::path() else {
+            self.push_log("open prefs folder: $HOME not set".to_string());
+            cx.notify();
+            return;
+        };
+        let Some(dir) = path.parent() else {
+            self.push_log(format!(
+                "open prefs folder: no parent for {}",
+                path.display()
+            ));
+            cx.notify();
+            return;
+        };
+        // Per-OS file-manager invocation. `open` (macOS), `explorer`
+        // (Windows), and `xdg-open` (Linux freedesktop spec) all
+        // accept a directory and open it in the default file
+        // browser. No third-party crate dep — the surface area is
+        // three lines of platform-gated code.
+        #[cfg(target_os = "macos")]
+        let cmd = "open";
+        #[cfg(target_os = "windows")]
+        let cmd = "explorer";
+        #[cfg(target_os = "linux")]
+        let cmd = "xdg-open";
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+        let cmd: &str = "";
+
+        if cmd.is_empty() {
+            self.push_log("open prefs folder: unsupported platform".to_string());
+            cx.notify();
+            return;
+        }
+        match std::process::Command::new(cmd).arg(dir).spawn() {
+            Ok(_) => self.push_log(format!("Opened {}", dir.display())),
+            Err(e) => self.push_log(format!("open prefs folder: {e}")),
+        }
+        cx.notify();
+    }
+
     /// Flip the "restore window position on startup" toggle. The
     /// actual save happens inside the window-close handler in
     /// `gui::run` — turning it off here simply means the next close

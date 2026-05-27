@@ -55,13 +55,33 @@ impl Default for Prefs {
 }
 
 impl Prefs {
+    /// Per-OS prefs file location:
+    ///   - Linux:   `$HOME/.config/etch341/prefs.toml` (XDG-ish)
+    ///   - macOS:   `$HOME/.config/etch341/prefs.toml` (same; many
+    ///     cross-platform CLIs follow XDG on macOS too, and the
+    ///     existing dotfile would orphan if we moved to
+    ///     `~/Library/Application Support`)
+    ///   - Windows: `%APPDATA%\etch341\prefs.toml`
+    /// Returns `None` if the relevant env var isn't set (rare —
+    /// system without `$HOME` on Unix or without `APPDATA` on
+    /// Windows). All callers tolerate `None` (no save, no restore,
+    /// no "Open folder" button in Settings).
     pub fn path() -> Option<PathBuf> {
-        std::env::var("HOME").ok().map(|h| {
-            PathBuf::from(h)
-                .join(".config")
-                .join("etch341")
-                .join("prefs.toml")
-        })
+        #[cfg(target_os = "windows")]
+        {
+            std::env::var("APPDATA")
+                .ok()
+                .map(|a| PathBuf::from(a).join("etch341").join("prefs.toml"))
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            std::env::var("HOME").ok().map(|h| {
+                PathBuf::from(h)
+                    .join(".config")
+                    .join("etch341")
+                    .join("prefs.toml")
+            })
+        }
     }
 
     pub fn load() -> Self {

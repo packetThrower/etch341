@@ -258,13 +258,34 @@ fn settings_pane(
     let path_text = prefs_path
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "(unable to determine — $HOME not set)".to_string());
+    // Path text + "Open folder" button on the same row, matching
+    // the `file_picker_row` shape so the settings pane reads as a
+    // consistent family. Button hidden when there's no real path —
+    // nothing useful to open if $HOME wasn't set.
     col = col.child(
         div()
-            .text_size(px(12.0))
-            .font_family("Menlo")
-            .text_color(theme::text_secondary())
-            .whitespace_normal()
-            .child(path_text),
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_3()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .text_size(px(12.0))
+                    .font_family("Menlo")
+                    .text_color(theme::text_secondary())
+                    .whitespace_normal()
+                    .child(path_text),
+            )
+            .when_some(prefs_path, |row, _| {
+                row.child(action_button_for(
+                    "Open folder",
+                    "open-prefs-folder",
+                    cx,
+                    |this, cx| this.open_prefs_folder(cx),
+                ))
+            }),
     );
 
     col
