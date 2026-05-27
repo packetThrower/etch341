@@ -62,6 +62,7 @@ impl Prefs {
     ///     existing dotfile would orphan if we moved to
     ///     `~/Library/Application Support`)
     ///   - Windows: `%APPDATA%\etch341\prefs.toml`
+    ///
     /// Returns `None` if the relevant env var isn't set (rare —
     /// system without `$HOME` on Unix or without `APPDATA` on
     /// Windows). All callers tolerate `None` (no save, no restore,

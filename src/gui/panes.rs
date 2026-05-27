@@ -1121,7 +1121,7 @@ fn status_pane(
 }
 
 /// One register row inside `status_pane` — section label, raw hex
-/// + binary, and a wrapped grid of decoded bit name → value pairs.
+/// (+ binary), and a wrapped grid of decoded bit name → value pairs.
 /// `present == false` means the chip returned `0xFF` (no response)
 /// and we hide the decoded bits since they'd just be noise.
 fn status_register_block(
