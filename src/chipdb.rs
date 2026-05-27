@@ -1,4 +1,16 @@
-//! Chip database loader. Reads `chips/chips.toml` at runtime.
+//! Chip database loader.
+//!
+//! Both DBs (`chips/chips.toml` for SPI NOR + `chips/i2c_chips.toml`
+//! for 24Cxx EEPROMs) are baked into the `etch341` binary at build
+//! time via `include_str!`, so the shipped binary doesn't touch the
+//! filesystem for chip lookup — no external file to install or
+//! `~/.config/etch341/chips.toml` to maintain. Editing the bundled
+//! catalogue requires a rebuild.
+//!
+//! The `load_embedded()` constructors below feed the compiled-in
+//! strings to `toml::from_str`; the `load(&Path)` constructor is
+//! used only by the in-tree unit tests, which round-trip the
+//! source-tree files via `CARGO_MANIFEST_DIR`.
 
 use crate::error::{Error, Result};
 use serde::Deserialize;
