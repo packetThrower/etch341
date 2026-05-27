@@ -19,11 +19,6 @@ priority order.
 
 ### High value, low–medium effort
 
-- [ ] **Status register dump** (`etch341 sr` / `etch341 sr1 sr2 sr3`)
-      — read SR1/SR2/SR3 raw and decode the standard bits
-      (WIP / WEL / BP0-3 / TB / SRP0 / SRP1 / QE). Diagnoses "writes
-      silently failing" cases where BP bits are set and "quad mode
-      not enabled" cases where QE is clear. ~30 min.
 - [ ] **Read to stdout** — accept `-o -` and write the chip dump to
       stdout. Enables `etch341 read -o - | sha256sum`,
       `etch341 read -o - | diff -`, and other UNIX-pipe idioms.

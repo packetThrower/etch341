@@ -39,6 +39,17 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 - **W25Q128JV silicon validation** — clean detect against a
   consolidated Intel BIOS + ME + GbE flash on a Dell laptop
   motherboard.
+- **Status register dump** — `etch341 sr` (and a matching GUI
+  "Status regs" pane in the sidebar's tools section) reads
+  SR1 / SR2 / SR3 and decodes the standard bit fields
+  (`WIP` / `WEL` / `BP[2:0]` / `TB` / `SEC-or-BP3` / `SRP0` /
+  `SRP1` / `QE` / `LB` / `CMP` / `SUS` / `ADP` / `WPS` / `DRV`
+  / `HOLD-RST`). Diagnoses the two most common silent-failure
+  modes: block-protect bits set (writes silently fail) and QE
+  clear (quad opcodes NACK). SR1 is universal across SPI NOR
+  vendors; SR2 / SR3 follow the W25Q-family convention and
+  show "didn't respond" on chips that don't implement them.
+  Silicon-validated on a Macronix MX25U4033E.
 
 ### Changed
 
