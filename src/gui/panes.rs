@@ -174,54 +174,58 @@ fn erase_pane(armed: bool, cx: &mut Context<AppView>) -> impl IntoElement {
 }
 
 fn write_pane(path: Option<&Path>, armed: bool, cx: &mut Context<AppView>) -> impl IntoElement {
-    op_pane(
-        "Write",
-        "Programs the chip from a file. Erases first, then writes \
-         page-by-page, then verifies. DESTRUCTIVE: same arm/confirm \
-         protection as Erase. Switching panes resets the arm state.",
-    )
-    .child(file_picker_row(
-        path,
-        "Browse…",
-        "pick-write",
-        cx,
-        |this, cx| this.pick_write_file(cx),
-    ))
-    .when(armed && path.is_some(), |this| {
-        this.child(armed_warning(
+    let mut group = GroupBox::new()
+        .id("write-box")
+        .outline()
+        .max_w(px(680.0))
+        .title("Program from file")
+        .child(bordered_file_row(path, "pick-write", cx, |this, cx| {
+            this.pick_write_file(cx)
+        }));
+    if armed && path.is_some() {
+        group = group.child(armed_warning(
             "Armed: next click will erase and overwrite the chip.",
-        ))
-    })
-    .child(armable_button(
+        ));
+    }
+    group = group.child(armable_button(
         "Write chip",
         "Click again to confirm",
         "start-write",
         armed,
         cx,
         |this, cx| this.arm_or_fire_write(cx),
-    ))
+    ));
+    op_pane(
+        "Write",
+        "Programs the chip from a file. Erases first, then writes \
+         page-by-page, then verifies. DESTRUCTIVE: same arm/confirm \
+         protection as Erase. Switching panes resets the arm state.",
+    )
+    .child(group)
 }
 
 fn verify_pane(path: Option<&Path>, cx: &mut Context<AppView>) -> impl IntoElement {
+    let group = GroupBox::new()
+        .id("verify-box")
+        .outline()
+        .max_w(px(680.0))
+        .title("Compare against a file")
+        .child(bordered_file_row(path, "pick-verify", cx, |this, cx| {
+            this.pick_verify_file(cx)
+        }))
+        .child(action_button_for(
+            "Verify",
+            "start-verify",
+            cx,
+            |this, cx| this.start_verify(cx),
+        ));
     op_pane(
         "Verify",
         "Reads the chip and compares against a file byte-by-byte. \
          Non-destructive; reports the first mismatch's address if any \
          bytes differ.",
     )
-    .child(file_picker_row(
-        path,
-        "Browse…",
-        "pick-verify",
-        cx,
-        |this, cx| this.pick_verify_file(cx),
-    ))
-    .child(action_button_for(
-        "Verify",
-        "start-verify",
-        cx,
-        |this, cx| this.start_verify(cx),
-    ))
+    .child(group)
 }
 
 /// Path display + Browse button row. Path text wraps if long.
@@ -1587,7 +1591,9 @@ fn otp_pane(
         .outline()
         .max_w(px(680.0))
         .title("Write from file")
-        .child(otp_file_row(write_path, cx));
+        .child(bordered_file_row(write_path, "pick-otp", cx, |this, cx| {
+            this.pick_otp_file(cx)
+        }));
     if write_armed && write_path.is_some() {
         write_box = write_box.child(armed_warning(
             "Armed: next click programs the selected register from the file (offset 0).",
@@ -1625,11 +1631,20 @@ fn otp_divider() -> impl IntoElement {
         .bg(theme::workshop_glass_strong())
 }
 
-/// File-path display + Browse button for the OTP write source.
-/// Unlike the shared `file_picker_row`, the path sits in a bordered,
-/// input-style box so it reads as "the file goes here" rather than
-/// loose text floating next to a button.
-fn otp_file_row(path: Option<&Path>, cx: &mut Context<AppView>) -> impl IntoElement {
+/// File-path display + Browse button with the path shown in a
+/// bordered, input-style box, so the selected file reads as a field
+/// rather than loose text floating next to a button. Shared by the
+/// Write / Verify / OTP panes. (The Hex pane keeps the plainer
+/// `file_picker_row` — it's fine as-is.)
+fn bordered_file_row<F>(
+    path: Option<&Path>,
+    button_id: &'static str,
+    cx: &mut Context<AppView>,
+    on_click: F,
+) -> impl IntoElement
+where
+    F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
+{
     let display = path
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "(no file selected)".to_string());
@@ -1659,12 +1674,7 @@ fn otp_file_row(path: Option<&Path>, cx: &mut Context<AppView>) -> impl IntoElem
                 .font_family(theme::MONO_FONT)
                 .child(display),
         )
-        .child(action_button_for(
-            "Browse…",
-            "pick-otp",
-            cx,
-            |this, cx| this.pick_otp_file(cx),
-        ))
+        .child(action_button_for("Browse…", button_id, cx, on_click))
 }
 
 /// Hexdump one register as offset / hex / ASCII text lines, matching
