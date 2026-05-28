@@ -4,7 +4,7 @@ use gpui::{
     App, AppContext, Bounds, ClipboardItem, Context, Entity, FocusHandle, InteractiveElement,
     IntoElement, KeyBinding, ParentElement, Render, ScrollHandle, ScrollStrategy, Styled,
     Subscription, TitlebarOptions, UniformListScrollHandle, Window, WindowBounds,
-    WindowDecorations, WindowOptions, actions, div, px,
+    WindowDecorations, WindowHandle, WindowOptions, actions, div, px,
 };
 use gpui_component::{
     Root, Theme, ThemeMode, TitleBar,
@@ -378,6 +378,15 @@ pub struct AppView {
     /// `track_scroll(...)` to keep the log from jumping back to the
     /// top whenever a new line is appended.
     pub log_scroll: ScrollHandle,
+    /// True while the activity log is detached into its own window.
+    /// The inline log panel is dropped (the active pane takes the
+    /// full height) in this state; closing the pop-out window flips
+    /// it back.
+    pub log_popped_out: bool,
+    /// Handle to the pop-out window while it's open, so a repeat
+    /// pop-out click activates the existing window instead of
+    /// spawning a duplicate. `None` when the log is inline.
+    pub log_window: Option<WindowHandle<Root>>,
     /// First click on the Erase button arms it (label/color swap);
     /// the second click within the same pane visit fires the actual
     /// erase. Reset to false when the user navigates away.
@@ -492,6 +501,8 @@ impl AppView {
                 text: "etch341 ready. Plug in a CH341A and click Detect chip.".into(),
             }],
             log_scroll: ScrollHandle::new(),
+            log_popped_out: false,
+            log_window: None,
             erase_armed: false,
             write_armed: false,
             write_input_path: None,
@@ -636,6 +647,77 @@ impl AppView {
     pub fn clear_log(&mut self, cx: &mut Context<Self>) {
         self.log_lines.clear();
         cx.notify();
+    }
+
+    /// Detach the activity log into its own window. A second click
+    /// while it's already open just activates the existing window.
+    /// The pop-out renders the same buffer live (it observes this
+    /// AppView), so nothing here moves or copies the log itself —
+    /// we only flip the inline panel off and track the window.
+    pub fn pop_out_log(&mut self, cx: &mut Context<Self>) {
+        if let Some(handle) = self.log_window {
+            let _ = handle.update(cx, |_, window, _| window.activate_window());
+            return;
+        }
+        self.log_popped_out = true;
+        cx.notify();
+
+        let app = cx.entity();
+        // Defer so we open the window after the current effect cycle
+        // returns the borrowed entities to the app (open_window wants
+        // a clean &mut App).
+        cx.defer(move |cx| {
+            let bounds = Bounds::centered(None, gpui::size(px(560.0), px(420.0)), cx);
+            let opened = cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    // Same transparent-titlebar + client-decoration
+                    // recipe the main window uses, so the pop-out
+                    // wears the app's dark chrome rather than a
+                    // jarring native bar. `title` still labels it in
+                    // the OS window list / dock.
+                    titlebar: Some(TitlebarOptions {
+                        title: Some("etch341 — Activity Log".into()),
+                        ..TitleBar::title_bar_options()
+                    }),
+                    app_id: Some("etch341".into()),
+                    window_decorations: Some(WindowDecorations::Client),
+                    ..Default::default()
+                },
+                {
+                    let app = app.clone();
+                    move |window, cx| {
+                        window.set_client_inset(px(10.0));
+                        // Closing the pop-out restores the inline log.
+                        let close_app = app.downgrade();
+                        window.on_window_should_close(cx, move |_window, cx| {
+                            let _ = close_app.update(cx, |this, cx| {
+                                this.log_popped_out = false;
+                                this.log_window = None;
+                                cx.notify();
+                            });
+                            true
+                        });
+                        let log_view = cx.new(|cx| log::LogWindow::new(app.clone(), cx));
+                        cx.new(|cx| Root::new(log_view, window, cx))
+                    }
+                },
+            );
+            match opened {
+                Ok(handle) => {
+                    let _ = app.update(cx, |this, _| this.log_window = Some(handle));
+                }
+                Err(e) => {
+                    // Couldn't open — undo the inline-hidden state so
+                    // the user isn't left with no log at all.
+                    let _ = app.update(cx, |this, cx| {
+                        this.log_popped_out = false;
+                        this.push_log(format!("pop-out log failed: {e}"));
+                        cx.notify();
+                    });
+                }
+            }
+        });
     }
 
     /// Settings → Hex viewer → "Reset to defaults" button. Resets
@@ -1833,7 +1915,11 @@ impl Render for AppView {
                                     timestamp_local: self.prefs.timestamp_local,
                                 };
                                 let outer = div().flex_1().min_h(px(0.0)).min_w(px(0.0));
-                                if self.selected == Pane::Settings {
+                                // Settings has no op activity worth a log
+                                // panel; a popped-out log lives in its own
+                                // window. Either way the active pane takes
+                                // the full height (no split).
+                                if self.selected == Pane::Settings || self.log_popped_out {
                                     outer.child(
                                         div()
                                             .size_full()
