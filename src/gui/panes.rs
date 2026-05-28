@@ -455,7 +455,27 @@ fn settings_pane(
                     .gap_4()
                     .px_5()
                     .py_5()
-                    .child(heading("Settings"))
+                    .child(
+                        // Heading + version chip on one baseline-
+                        // aligned row. Build version is patched into
+                        // `CARGO_PKG_VERSION` by the release workflow
+                        // before each tagged build; local dev builds
+                        // show whatever Cargo.toml carries (0.1.0
+                        // until next release), which is itself a
+                        // useful "this isn't a published binary" cue.
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_baseline()
+                            .gap_2()
+                            .child(heading("Settings"))
+                            .child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .text_color(theme::text_tertiary())
+                                    .child(format!("v{}", env!("CARGO_PKG_VERSION"))),
+                            ),
+                    )
                     .child(speed_box)
                     .child(read_box)
                     .child(window_box)
