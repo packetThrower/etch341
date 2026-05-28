@@ -1,11 +1,11 @@
-use super::{LogLine, theme};
+use super::{LogLine, format_log_time, theme};
 use gpui::{
     InteractiveElement, IntoElement, ParentElement, ScrollHandle, StatefulInteractiveElement,
     Styled, div, px,
 };
 use gpui_component::scroll::ScrollableElement;
 
-pub fn render(lines: &[LogLine], scroll: &ScrollHandle) -> impl IntoElement {
+pub fn render(lines: &[LogLine], local_tz: bool, scroll: &ScrollHandle) -> impl IntoElement {
     // The outer `.relative()` is the positioning context; the
     // scrollable element and the `vertical_scrollbar` must be
     // SIBLINGS inside it — not parent and child. If the scrollbar
@@ -47,7 +47,7 @@ pub fn render(lines: &[LogLine], scroll: &ScrollHandle) -> impl IntoElement {
                                 .child(
                                     div()
                                         .text_color(theme::text_tertiary())
-                                        .child(line.timestamp.clone()),
+                                        .child(format_log_time(line.timestamp_secs, local_tz)),
                                 )
                                 .child(
                                     // Wrap long log lines (file paths,

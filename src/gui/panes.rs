@@ -64,6 +64,10 @@ pub struct PaneInputs<'a> {
     pub hex_font_size: f32,
     /// Same idea for the strings list inside the Hex pane.
     pub strings_font_size: f32,
+    /// Render activity-log timestamps in the system's local time
+    /// zone (true) or UTC (false, default). Surfaces in Settings →
+    /// Log timestamps; storage stays raw UTC seconds either way.
+    pub timestamp_local: bool,
 }
 
 pub fn render(
@@ -107,6 +111,7 @@ pub fn render(
             inputs.prefs_path,
             inputs.hex_font_size,
             inputs.strings_font_size,
+            inputs.timestamp_local,
             cx,
         )
         .into_any_element(),
@@ -238,6 +243,7 @@ where
         .child(action_button_for(button_label, button_id, cx, on_click))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn settings_pane(
     current_khz: u32,
     restore_window_bounds: bool,
@@ -245,6 +251,7 @@ fn settings_pane(
     prefs_path: Option<&Path>,
     hex_font_size: f32,
     strings_font_size: f32,
+    timestamp_local: bool,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     // Matches `ch341::SUPPORTED_SPEEDS_KHZ` — the set the CH341A
@@ -396,6 +403,28 @@ fn settings_pane(
             ),
         );
 
+    // Log timestamps section: UTC (default) vs system local time.
+    // Storage is always raw UTC seconds; this toggle only changes
+    // how the activity log renders — both past and new lines
+    // re-format on flip.
+    let log_box = GroupBox::new()
+        .id("settings-log")
+        .outline()
+        .title("Log timestamps")
+        .child(body(
+            "Activity log entries always store UTC under the hood — \
+             this only changes how they're displayed. Enable to render \
+             both existing and new lines in the system's local time \
+             zone; disable to show UTC like an old-school server log.",
+        ))
+        .child(toggle_row(
+            "Show local time in the activity log",
+            "toggle-timestamp-local",
+            timestamp_local,
+            cx,
+            |this, cx| this.set_timestamp_local(!this.prefs.timestamp_local, cx),
+        ));
+
     // Preferences file section. Button hidden when there's no real
     // path — nothing useful to open if $HOME wasn't set.
     let path_text = prefs_path
@@ -480,6 +509,7 @@ fn settings_pane(
                     .child(read_box)
                     .child(window_box)
                     .child(hex_box)
+                    .child(log_box)
                     .child(prefs_box),
             ),
         )

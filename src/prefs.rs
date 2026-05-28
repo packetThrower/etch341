@@ -39,6 +39,13 @@ pub struct Prefs {
     /// keybindings as `hex_font_size`, but only one of the two is
     /// adjusted at a time (whichever view is currently visible).
     pub strings_font_size: f32,
+    /// Render activity-log timestamps in the user's local time
+    /// zone instead of UTC. Storage is always raw UTC seconds —
+    /// this only affects how existing and new log lines are
+    /// displayed. Off by default since UTC matches the historical
+    /// behaviour and is what shows up in any log files we'd add
+    /// later.
+    pub timestamp_local: bool,
 }
 
 /// On-disk snapshot of the window's position + size. Stored as
@@ -76,6 +83,7 @@ impl Default for Prefs {
             read_output_dir: None,
             hex_font_size: HEX_FONT_DEFAULT,
             strings_font_size: HEX_FONT_DEFAULT,
+            timestamp_local: false,
         }
     }
 }

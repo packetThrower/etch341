@@ -39,6 +39,14 @@ serde = { version = "1", features = ["derive"] }
 hex = "0.4"
 sha2 = "0.10"
 
+# Local-time formatting for the GUI activity log. The original
+# `now_hms()` did HH:MM:SS in UTC by dividing `SystemTime::now()`
+# seconds, which has no notion of timezone. `local-offset` enables
+# `UtcOffset::current_local_offset()` so the user's "Local"
+# preference can render existing UTC-stored log entries against the
+# system's offset.
+time = { version = "0.3", features = ["local-offset"] }
+
 # Native file-picker dialogs (NSOpenPanel on macOS, GTK on Linux,
 # IFileOpenDialog on Windows). Used by the GUI's Write / Verify
 # panes to choose a binary file. Stays in the default deps because

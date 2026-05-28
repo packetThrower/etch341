@@ -301,7 +301,12 @@ pub enum Connection {
 
 #[derive(Clone, Debug)]
 pub struct LogLine {
-    pub timestamp: String,
+    /// Unix epoch seconds at the time `push_log` was called. Stored
+    /// as raw UTC so the renderer can recompute the displayed
+    /// `HH:MM:SS` in whichever timezone `prefs.timestamp_local`
+    /// currently selects — including for log lines added before
+    /// the user flipped the toggle.
+    pub timestamp_secs: u64,
     pub text: String,
 }
 
@@ -483,7 +488,7 @@ impl AppView {
             detect_result: None,
             detect_sfdp: None,
             log_lines: vec![LogLine {
-                timestamp: now_hms(),
+                timestamp_secs: now_unix_secs(),
                 text: "etch341 ready. Plug in a CH341A and click Detect chip.".into(),
             }],
             log_scroll: ScrollHandle::new(),
@@ -609,6 +614,20 @@ impl AppView {
             self.hex_scroll.scroll_to_item(top, ScrollStrategy::Top);
         }
         self.persist_font_size(cx);
+    }
+
+    /// Settings → Log timestamps toggle. Storage stays UTC; this
+    /// only flips how existing + new log lines render. Saves
+    /// immediately so the next launch lands on the same display.
+    pub fn set_timestamp_local(&mut self, local: bool, cx: &mut Context<Self>) {
+        if self.prefs.timestamp_local == local {
+            return;
+        }
+        self.prefs.timestamp_local = local;
+        if let Err(e) = self.prefs.save() {
+            self.push_log(format!("timestamp display save failed: {e}"));
+        }
+        cx.notify();
     }
 
     /// Settings → Hex viewer → "Reset to defaults" button. Resets
@@ -1382,7 +1401,7 @@ impl AppView {
 
     fn push_log(&mut self, text: String) {
         self.log_lines.push(LogLine {
-            timestamp: now_hms(),
+            timestamp_secs: now_unix_secs(),
             text,
         });
         // Auto-scroll so the newest line is visible. `scroll_to_bottom`
@@ -1803,6 +1822,7 @@ impl Render for AppView {
                                     detect_sfdp: self.detect_sfdp.as_ref(),
                                     hex_font_size: self.prefs.hex_font_size,
                                     strings_font_size: self.prefs.strings_font_size,
+                                    timestamp_local: self.prefs.timestamp_local,
                                 };
                                 let outer = div().flex_1().min_h(px(0.0)).min_w(px(0.0));
                                 if self.selected == Pane::Settings {
@@ -1853,6 +1873,7 @@ impl Render for AppView {
                                                     .size_range(px(120.0)..px(500.0))
                                                     .child(log::render(
                                                         &self.log_lines,
+                                                        self.prefs.timestamp_local,
                                                         &self.log_scroll,
                                                     )),
                                             ),
@@ -1864,16 +1885,29 @@ impl Render for AppView {
     }
 }
 
-/// UTC-clock HH:MM:SS. Cheap; no chrono dep.
-fn now_hms() -> String {
-    let secs = std::time::SystemTime::now()
+/// Current wall-clock as Unix epoch seconds. Storage form for log
+/// entries so the renderer can format in whichever timezone the user
+/// has selected without losing precision on past entries.
+fn now_unix_secs() -> u64 {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs();
-    format!(
-        "{:02}:{:02}:{:02}",
-        (secs / 3600) % 24,
-        (secs / 60) % 60,
-        secs % 60
-    )
+        .as_secs()
+}
+
+/// Render a Unix epoch second as `HH:MM:SS`, either in UTC or the
+/// system's local time depending on `local`. Falls back to UTC if
+/// the local offset can't be determined (e.g. mid-thread-spawn on
+/// some platforms — the `time` crate's documented edge case).
+pub fn format_log_time(secs: u64, local: bool) -> String {
+    use time::{OffsetDateTime, UtcOffset};
+    let utc =
+        OffsetDateTime::from_unix_timestamp(secs as i64).unwrap_or(OffsetDateTime::UNIX_EPOCH);
+    let dt = if local {
+        let offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
+        utc.to_offset(offset)
+    } else {
+        utc
+    };
+    format!("{:02}:{:02}:{:02}", dt.hour(), dt.minute(), dt.second())
 }
