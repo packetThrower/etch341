@@ -19,9 +19,14 @@ pub struct GlobalOpts {
     #[arg(short = 'c', long, global = true)]
     pub chip: Option<String>,
 
-    /// SPI clock speed in kHz. Supported: 20, 100, 400, 750.
-    #[arg(short = 's', long, global = true, default_value_t = 750)]
-    pub speed: u32,
+    /// Clock speed in kHz. Defaults are mode-aware: SPI ops use
+    /// 750 kHz when unset; I²C ops use 100 kHz (Standard mode).
+    /// Supported values: 20, 100, 400, 750. I²C ops reject 750
+    /// because every 24Cxx in our database is spec'd at 400 kHz
+    /// max — over-clocking a 24C02 has been observed to lock up
+    /// the chip mid-write past recovery.
+    #[arg(short = 's', long, global = true)]
+    pub speed: Option<u32>,
 
     /// Log every SPI or I²C transaction to stderr.
     #[arg(short = 'v', long, global = true)]
@@ -33,6 +38,40 @@ pub struct GlobalOpts {
     /// ignore this flag.
     #[arg(short = 'n', long, global = true)]
     pub dry_run: bool,
+}
+
+/// Default SPI clock when `--speed` is unset. Maximum the CH341A
+/// natively supports through the I2C_STREAM SET command.
+pub const SPI_DEFAULT_SPEED_KHZ: u32 = 750;
+/// Default I²C clock when `--speed` is unset. Standard-mode I²C —
+/// universally supported by every 24Cxx revision.
+pub const I2C_DEFAULT_SPEED_KHZ: u32 = 100;
+/// Hard ceiling for I²C operations. Every chip in our DB is
+/// 400 kHz max per its datasheet; 750 kHz over-clocks them and
+/// has been observed to lock up parts mid-write.
+pub const I2C_MAX_SPEED_KHZ: u32 = 400;
+
+impl GlobalOpts {
+    /// Resolve `--speed` for SPI operations. Falls back to
+    /// [`SPI_DEFAULT_SPEED_KHZ`] when the user didn't pass `-s`.
+    pub fn spi_speed(&self) -> u32 {
+        self.speed.unwrap_or(SPI_DEFAULT_SPEED_KHZ)
+    }
+
+    /// Resolve `--speed` for I²C operations. Falls back to
+    /// [`I2C_DEFAULT_SPEED_KHZ`] and rejects any explicit value
+    /// above [`I2C_MAX_SPEED_KHZ`] with a message that tells the
+    /// user what the spec'd ceiling is.
+    pub fn i2c_speed(&self) -> Result<u32, String> {
+        let speed = self.speed.unwrap_or(I2C_DEFAULT_SPEED_KHZ);
+        if speed > I2C_MAX_SPEED_KHZ {
+            return Err(format!(
+                "I²C clock {speed} kHz exceeds the {I2C_MAX_SPEED_KHZ} kHz max for the 24Cxx \
+                 family. Use -s 100 (default), -s 20, or -s 400."
+            ));
+        }
+        Ok(speed)
+    }
 }
 
 #[derive(Subcommand)]
@@ -273,12 +312,13 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
     use crate::ch341::Ch341;
     use crate::ops;
 
+    let speed = global.spi_speed();
     match cmd {
         Command::Detect => {
             if global.dry_run {
                 println!(
                     "[dry-run] would open CH341A and read JEDEC ID at {} kHz",
-                    global.speed
+                    speed
                 );
                 return Ok(());
             }
@@ -289,7 +329,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
             if global.dry_run {
                 println!(
                     "[dry-run] would open CH341A at {} kHz and read SR1/SR2/SR3",
-                    global.speed
+                    speed
                 );
                 return Ok(());
             }
@@ -300,7 +340,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
             if global.dry_run {
                 println!(
                     "[dry-run] would open CH341A at {} kHz and read SFDP table",
-                    global.speed
+                    speed
                 );
                 return Ok(());
             }
@@ -324,7 +364,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 return Ok(());
             }
             let mut ch = Ch341::open(global.verbose)?;
-            ch.set_clock(global.speed)?;
+            ch.set_clock(speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let chip_bytes = chip.size_kb.saturating_mul(1024);
             let len = args.length.unwrap_or(chip_bytes.saturating_sub(args.start));
@@ -352,7 +392,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 return Ok(());
             }
             let mut ch = Ch341::open(global.verbose)?;
-            ch.set_clock(global.speed)?;
+            ch.set_clock(speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let mut sink = IndicatifSink::new("write  ");
             ops::write(
@@ -390,7 +430,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 return Ok(());
             }
             let mut ch = Ch341::open(global.verbose)?;
-            ch.set_clock(global.speed)?;
+            ch.set_clock(speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let mut sink = IndicatifSink::new("erase  ");
             match args.range.as_deref() {
@@ -418,7 +458,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 return Ok(());
             }
             let mut ch = Ch341::open(global.verbose)?;
-            ch.set_clock(global.speed)?;
+            ch.set_clock(speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let mut sink = IndicatifSink::new("verify ");
             let mismatches = ops::verify(&mut ch, &chip, &data, args.start, &mut sink)?;
@@ -438,7 +478,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 return Ok(());
             }
             let mut ch = Ch341::open(global.verbose)?;
-            ch.set_clock(global.speed)?;
+            ch.set_clock(speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let mut sink = IndicatifSink::new("blank  ");
             ops::blank_check(&mut ch, &chip, &mut sink)?;
@@ -673,6 +713,10 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
     use crate::ch341::Ch341;
     use crate::i2c_ops;
 
+    // Validate up front so a 750 kHz `-s` never reaches the chip on
+    // an I²C op (it locked up an M24C02-R during 2026-05 bring-up).
+    let speed = global.i2c_speed()?;
+
     // I²C ops need a chip selected up front (no JEDEC ID to query),
     // except for `scan` which is bus-only.
     let resolve_chip = |chip: &Option<String>| {
@@ -686,12 +730,12 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
             if global.dry_run {
                 println!(
                     "[dry-run] would open CH341A in I²C mode and probe 0x08..0x77 at {} kHz",
-                    global.speed
+                    speed
                 );
                 return Ok(());
             }
             let mut ch = Ch341::open_i2c(global.verbose)?;
-            ch.set_clock(global.speed)?;
+            ch.set_clock(speed)?;
             let hits = i2c_ops::scan(&mut ch)?;
             if hits.is_empty() {
                 println!("No I²C devices responded on 0x08..0x77.");
@@ -723,7 +767,7 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
             }
             let chip = resolve_chip(&global.chip)?;
             let mut ch = Ch341::open_i2c(global.verbose)?;
-            ch.set_clock(global.speed)?;
+            ch.set_clock(speed)?;
             let len = args
                 .length
                 .unwrap_or(chip.size_bytes.saturating_sub(args.start));
@@ -757,7 +801,7 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
             }
             let chip = resolve_chip(&global.chip)?;
             let mut ch = Ch341::open_i2c(global.verbose)?;
-            ch.set_clock(global.speed)?;
+            ch.set_clock(speed)?;
             let mut sink = IndicatifSink::new("i2c-wr ");
             i2c_ops::write(
                 &mut ch,
@@ -801,7 +845,7 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
             }
             let chip = resolve_chip(&global.chip)?;
             let mut ch = Ch341::open_i2c(global.verbose)?;
-            ch.set_clock(global.speed)?;
+            ch.set_clock(speed)?;
             let mut sink = IndicatifSink::new("i2c-vfy");
             let mismatches = i2c_ops::verify(
                 &mut ch,
@@ -829,7 +873,7 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
             }
             let chip = resolve_chip(&global.chip)?;
             let mut ch = Ch341::open_i2c(global.verbose)?;
-            ch.set_clock(global.speed)?;
+            ch.set_clock(speed)?;
             let mut sink = IndicatifSink::new("i2c-blk");
             i2c_ops::blank_check(&mut ch, &chip, args.straps as u8, &mut sink)?;
             println!("Blank check OK ({} bytes all 0xFF)", chip.size_bytes);
@@ -847,7 +891,7 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
             }
             let chip = resolve_chip(&global.chip)?;
             let mut ch = Ch341::open_i2c(global.verbose)?;
-            ch.set_clock(global.speed)?;
+            ch.set_clock(speed)?;
             let mut sink = IndicatifSink::new("i2c-er ");
             i2c_ops::erase(&mut ch, &chip, args.straps as u8, &mut sink)?;
             println!("Erase OK ({} bytes set to 0xFF)", chip.size_bytes);

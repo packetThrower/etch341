@@ -5,13 +5,12 @@ editUrl: https://github.com/packetThrower/etch341/edit/main/docs/src/content/doc
 ---
 
 :::caution
-The I²C path is **not yet hardware-validated**. The protocol layer,
-CH341A transport, CLI subcommands, and chip database are all in
-place and pass 16 mock-transport unit tests — but nobody's run the
-end-to-end workflow against a real 24Cxx chip yet. Your first run
-is also our bring-up. If something's off, please open an issue
-with the verbose-mode (`-v i2c scan`) output and we'll get it
-sorted.
+The I²C path is partially hardware-validated. Scan and read have
+been confirmed against real 24C02 silicon; write + verify on a
+clean chip is still the [open validation
+TODO](https://github.com/packetThrower/etch341/blob/main/TODO.md).
+If something's off, please open an issue with the verbose-mode
+(`-v i2c scan`) output and we'll get it sorted.
 :::
 
 ## How it differs from SPI
@@ -101,6 +100,27 @@ etch341 -c 24C02 i2c erase
 etch341 -c 24C02 i2c blank-check    # confirm all 0xFF
 ```
 
+## Clock speed
+
+I²C ops default to **100 kHz** (Standard mode) and reject anything
+above **400 kHz** (Fast mode). The 24Cxx family is spec'd at
+400 kHz max in every datasheet we've checked — over-clocking past
+that has been observed to lock up an M24C02-R mid-write, with the
+chip never returning to ready and recovery requiring a multi-minute
+power-off (and sometimes not at all).
+
+```sh
+etch341 i2c scan                 # 100 kHz (default — every 24Cxx works here)
+etch341 -s 20  i2c scan          # 20 kHz, slow but extremely tolerant of bad wiring
+etch341 -s 400 i2c scan          # 400 kHz, Fast mode — only with good wiring + decoupling
+etch341 -s 750 i2c scan          # rejected: "exceeds the 400 kHz max"
+```
+
+The 750 kHz that's the SPI default is intentionally not allowed
+for I²C. If you're sharing the same shell session for both buses,
+remember that `-s` defaults are mode-aware — passing nothing gets
+the right ceiling for the bus you're on.
+
 ## Pin straps
 
 If the chip's A0 / A1 / A2 pins are wired to something other than
@@ -149,3 +169,41 @@ EEPROMs can be physically worn out after ~100,000-1,000,000 writes
 per byte. If a long-used chip starts failing verify on writes that
 worked yesterday, the chip itself may be at end-of-life. Try a
 different one before chasing protocol issues.
+
+### `Error: Timeout` mid-write, chip goes silent on retry
+
+This is the over-clock failure mode. Symptoms:
+
+1. `i2c scan` and `i2c read` work fine.
+2. `i2c write` runs for a moment then errors with `Timeout`.
+3. After the timeout, `i2c scan` reports the chip silent — every
+   address NACKs.
+4. The chip stays silent through a CH341A unplug/replug. It may
+   recover after several minutes fully unpowered; it may not.
+
+What's happening: the chip accepted the first page-write
+transaction, started its internal program cycle, and never
+returned to ready. The protocol layer's `wait_ready` ACK-polls
+for 50 ms post-write, then errors out. The chip is now stuck in
+a half-busy state.
+
+Root cause: clocking the 24Cxx above its spec'd 400 kHz max. This
+is why `-s 750` is rejected for I²C ops — that ceiling was added
+specifically because over-clocking a 24C02 with the historical
+default of 750 kHz bricked it past recovery during 2026-05
+bring-up. If you're on an older etch341 build that still allows
+750 kHz, **pass `-s 100` explicitly** for any write op.
+
+### In-circuit write attempts fail
+
+If you're writing the chip while it's still soldered to a board
+with other I²C devices on the bus (VRM controllers, sensors, etc),
+those neighbors' parasitic VCC and pull-ups can fight the CH341A
+during write transactions even when the board is unpowered. Reads
+typically survive this; writes mid-byte get mangled and the chip
+locks up.
+
+Always desolder the chip — or at least confirm the board's other
+I²C devices are fully isolated from the bus — before doing write
+ops in-circuit. Out-of-circuit on a SOIC-8 clip or adapter
+socket is the canonical setup.

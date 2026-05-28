@@ -7,6 +7,27 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+### Changed
+
+- **I²C clock defaults to 100 kHz** (was 750 kHz, which is
+  out-of-spec for every chip in the 24Cxx family). Explicit
+  `-s 750` is now rejected for I²C ops with a message pointing at
+  the 400 kHz datasheet ceiling. SPI ops are unaffected — the
+  `-s` default for SPI is still 750 kHz. Background: an
+  M24C02-R was bricked during 2026-05 bring-up because the
+  global 750 kHz default exceeded its 400 kHz max mid-write and
+  the chip never returned to ready.
+
+### Documented
+
+- **I²C clock + over-clock failure mode** in
+  [Usage → I²C](https://packetthrower.github.io/etch341/usage/i2c/).
+  Adds a Clock speed section explaining the default + ceiling,
+  and an `Error: Timeout mid-write, chip goes silent on retry`
+  entry under Troubleshooting. Plus an in-circuit write warning
+  covering the bus-contention failure mode seen on a Cisco C921
+  during the same bring-up.
+
 ## [0.4.0] — 2026-05-27
 
 ### Added
