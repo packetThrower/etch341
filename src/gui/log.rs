@@ -1,11 +1,17 @@
-use super::{LogLine, format_log_time, theme};
+use super::{AppView, LogLine, format_log_time, theme};
 use gpui::{
-    InteractiveElement, IntoElement, ParentElement, ScrollHandle, StatefulInteractiveElement,
-    Styled, div, px,
+    ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, ScrollHandle,
+    StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
 };
 use gpui_component::scroll::ScrollableElement;
+use gpui_component::tooltip::Tooltip;
 
-pub fn render(lines: &[LogLine], local_tz: bool, scroll: &ScrollHandle) -> impl IntoElement {
+pub fn render(
+    lines: &[LogLine],
+    local_tz: bool,
+    scroll: &ScrollHandle,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
     // The outer `.relative()` is the positioning context; the
     // scrollable element and the `vertical_scrollbar` must be
     // SIBLINGS inside it — not parent and child. If the scrollbar
@@ -57,6 +63,41 @@ pub fn render(lines: &[LogLine], local_tz: bool, scroll: &ScrollHandle) -> impl 
                                 )
                         })),
                 ),
+        )
+        .child(
+            // Small × chip floating top-right of the panel. Sits
+            // above the scroll content via `absolute()`, offset
+            // enough on the right to clear the scrollbar gutter.
+            // Hidden when there's nothing to clear so the panel
+            // stays clean on first launch.
+            div()
+                .absolute()
+                .top(px(6.0))
+                .right(px(14.0))
+                .when(!lines.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .id("log-clear")
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .w(px(20.0))
+                            .h(px(20.0))
+                            .rounded(px(4.0))
+                            .text_size(px(14.0))
+                            .text_color(theme::text_tertiary())
+                            .cursor_pointer()
+                            .hover(|d| {
+                                d.bg(theme::workshop_glass_strong())
+                                    .text_color(theme::text_primary())
+                            })
+                            .child("\u{00D7}")
+                            .tooltip(|window, cx| Tooltip::new("Clear log").build(window, cx))
+                            .on_click(cx.listener(|this: &mut AppView, _: &ClickEvent, _, cx| {
+                                this.clear_log(cx);
+                            })),
+                    )
+                }),
         )
         .vertical_scrollbar(scroll)
 }

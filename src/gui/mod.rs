@@ -630,6 +630,14 @@ impl AppView {
         cx.notify();
     }
 
+    /// Wipe the activity log. Bound to the log pane's clear button.
+    /// Not undoable on purpose — the log is a running narrative,
+    /// not a document. Cheap to re-fill: just run an op.
+    pub fn clear_log(&mut self, cx: &mut Context<Self>) {
+        self.log_lines.clear();
+        cx.notify();
+    }
+
     /// Settings → Hex viewer → "Reset to defaults" button. Resets
     /// *both* font sizes — Cmd+0 only resets the active sub-view,
     /// but a settings-level reset is the natural "put it all back"
@@ -1875,6 +1883,7 @@ impl Render for AppView {
                                                         &self.log_lines,
                                                         self.prefs.timestamp_local,
                                                         &self.log_scroll,
+                                                        cx,
                                                     )),
                                             ),
                                     )
