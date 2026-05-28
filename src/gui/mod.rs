@@ -72,6 +72,10 @@ fn apply_accent_to_component_theme(cx: &mut App) {
     t.primary = theme::accent();
     t.primary_hover = theme::accent_hover();
     t.primary_active = theme::accent_active();
+    // The on-primary color (e.g. the RadioGroup checkmark) follows
+    // the same luma-based dark/light pick so it stays legible on a
+    // light accent.
+    t.primary_foreground = theme::accent_foreground();
 }
 
 // The search-pattern parsing, string extraction, and byte-level

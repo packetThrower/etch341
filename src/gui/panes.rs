@@ -374,7 +374,7 @@ fn settings_pane(
     // through PaneInputs.
     let current_accent = theme::accent_hex();
     let mut swatches = div().flex().flex_row().flex_wrap().gap_3();
-    for &(name, hex) in theme::ACCENT_PRESETS {
+    for &(name, hex, _) in theme::ACCENT_PRESETS {
         swatches = swatches.child(accent_swatch(name, hex, hex == current_accent, cx));
     }
     let appearance_box = GroupBox::new()
@@ -732,7 +732,7 @@ where
         .h(px(24.0))
         .rounded(px(4.0))
         .text_size(px(13.0))
-        .text_color(theme::text_primary())
+        .text_color(theme::accent_foreground())
         .bg(theme::accent())
         .hover(|d| d.bg(theme::accent_hover()))
         .cursor_pointer()
@@ -2260,6 +2260,7 @@ where
 {
     styled_button(id)
         .bg(theme::accent())
+        .text_color(theme::accent_foreground())
         .hover(|d| d.bg(theme::accent_hover()))
         .child(label)
         .on_click(
@@ -2286,16 +2287,23 @@ fn armable_button<F>(
 where
     F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
 {
-    let (label, bg) = if armed {
-        (armed_label, theme::caution_red())
+    // Armed uses the (dark) caution red, where white reads best;
+    // idle uses the accent, where the foreground follows the
+    // accent's luma.
+    let (label, bg, fg) = if armed {
+        (armed_label, theme::caution_red(), theme::text_primary())
     } else {
-        (idle_label, theme::accent())
+        (idle_label, theme::accent(), theme::accent_foreground())
     };
-    styled_button(id).bg(bg).child(label).on_click(cx.listener(
-        move |this: &mut AppView, _: &ClickEvent, _, cx| {
-            on_click(this, cx);
-        },
-    ))
+    styled_button(id)
+        .bg(bg)
+        .text_color(fg)
+        .child(label)
+        .on_click(
+            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+                on_click(this, cx);
+            }),
+        )
 }
 
 /// Shared button skeleton (sizing, rounding, text color, layout).

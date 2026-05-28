@@ -66,18 +66,26 @@ pub fn workshop_glass_strong() -> Hsla {
 /// at and the fallback the swatches compare against.
 pub const DEFAULT_ACCENT_HEX: u32 = 0x0A84FF;
 
-/// Curated accent presets shown as swatches in Settings. All chosen
-/// to keep white button labels legible on top. Stored as
-/// `(name, 0xRRGGBB)`; the name is the swatch tooltip.
-pub const ACCENT_PRESETS: &[(&str, u32)] = &[
-    ("Blue", 0x0A84FF),
-    ("Purple", 0xBF5AF2),
-    ("Pink", 0xFF375F),
-    ("Red", 0xFF453A),
-    ("Orange", 0xFF9F0A),
-    ("Green", 0x30D158),
-    ("Teal", 0x40CBE0),
-    ("Graphite", 0x8E8E93),
+/// Curated accent presets shown as swatches in Settings. Stored as
+/// `(name, 0xRRGGBB, dark_text)`; the name is the swatch tooltip and
+/// `dark_text` picks near-black vs near-white button labels.
+///
+/// The foreground is an explicit per-preset choice rather than pure
+/// luma because the two don't agree: saturated red / pink read
+/// better with dark text than their (fairly low) luminance predicts,
+/// while they're actually *darker* than purple / graphite — so a
+/// single luma threshold can't give red/pink dark text without
+/// dragging purple/graphite along. `accent_foreground` falls back to
+/// luma only for a hypothetical accent not in this list.
+pub const ACCENT_PRESETS: &[(&str, u32, bool)] = &[
+    ("Blue", 0x0A84FF, false),
+    ("Purple", 0xBF5AF2, false),
+    ("Pink", 0xFF375F, true),
+    ("Red", 0xFF453A, true),
+    ("Orange", 0xFF9F0A, true),
+    ("Green", 0x30D158, true),
+    ("Teal", 0x40CBE0, true),
+    ("Graphite", 0x8E8E93, false),
 ];
 
 /// Current accent, stored as a hex RGB. A process-global rather than
@@ -120,6 +128,30 @@ pub fn accent_tint() -> Hsla {
     let mut h = accent();
     h.a = 0.25;
     h
+}
+
+/// Readable text / icon color to lay over the accent: near-black on
+/// the presets flagged `dark_text` (orange, teal, green, red, pink),
+/// near-white on the rest (blue, purple, graphite). Uses the
+/// per-preset flag; for an accent not in `ACCENT_PRESETS` it falls
+/// back to a Rec.601 luma threshold.
+pub fn accent_foreground() -> Hsla {
+    let hex = accent_hex();
+    let dark_text = ACCENT_PRESETS
+        .iter()
+        .find(|(_, h, _)| *h == hex)
+        .map(|(_, _, dark)| *dark)
+        .unwrap_or_else(|| {
+            let r = ((hex >> 16) & 0xFF) as f32;
+            let g = ((hex >> 8) & 0xFF) as f32;
+            let b = (hex & 0xFF) as f32;
+            0.299 * r + 0.587 * g + 0.114 * b > 145.0
+        });
+    if dark_text {
+        from_rgb(0x0B0B0D, 0.92)
+    } else {
+        from_rgb(0xFFFFFF, 0.95)
+    }
 }
 
 /// Background tint for selected hex bytes. Neutral (white-ish) so
