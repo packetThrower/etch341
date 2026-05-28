@@ -98,6 +98,14 @@ pub enum Command {
     /// addressing directly from the chip without a DB lookup, so
     /// you can read a brand-new chip that isn't in chips.toml yet.
     Sfdp,
+    /// Read the chip's one-time-programmable security registers.
+    /// W25Q / GD25Q convention (opcode 0x48): three 256-byte
+    /// registers commonly holding serial numbers, MAC addresses,
+    /// or vendor keys. Read-only for now.
+    Otp {
+        #[command(subcommand)]
+        action: OtpAction,
+    },
     /// I²C EEPROM operations (24Cxx family).
     I2c {
         #[command(subcommand)]
@@ -143,6 +151,14 @@ pub struct SearchArgs {
     /// Bytes of surrounding context to print with each hit. 0 disables.
     #[arg(long, default_value_t = 16)]
     pub context: usize,
+}
+
+#[derive(Subcommand)]
+pub enum OtpAction {
+    /// Dump the security registers (read-only). Program / erase are
+    /// deliberately not implemented yet: those opcodes are one-time
+    /// and warrant their own arm/confirm flow.
+    Read,
 }
 
 #[derive(Subcommand)]
@@ -346,6 +362,19 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
             }
             Ok(ops::sfdp(&global)?)
         }
+
+        Command::Otp { action } => match action {
+            OtpAction::Read => {
+                if global.dry_run {
+                    println!(
+                        "[dry-run] would open CH341A at {} kHz and read the security registers",
+                        speed
+                    );
+                    return Ok(());
+                }
+                Ok(ops::otp(&global)?)
+            }
+        },
 
         Command::Read(args) => {
             if global.dry_run {

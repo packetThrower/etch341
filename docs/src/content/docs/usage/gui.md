@@ -19,8 +19,9 @@ The window is split into three regions:
   **stepper** showing the canonical SPI workflow (Detect → Read →
   Erase → Write → Verify); click any step at any time, no
   enforced ordering. Below a thin divider sit the inspection /
-  diagnostic tools (**Blank check**, **Status regs**, **Hex
-  viewer**), and **⚙ Settings** is pinned to the bottom.
+  diagnostic tools (**Blank check**, **Status regs**, **Security
+  regs**, **Hex viewer**), and **⚙ Settings** is pinned to the
+  bottom.
 - **Main pane** (top right) — the current pane's controls and
   content.
 - **Activity log** (bottom) — chronological log of operations,
@@ -116,6 +117,18 @@ bits set) or "quad mode not enabled" (QE clear). SR1 works on any
 SPI NOR chip; SR2 / SR3 follow the W25Q convention and show
 "didn't respond" on chips that don't implement them. Raw hex
 shown for every register so you can cross-check the datasheet.
+
+## Security regs
+
+Reads the chip's three one-time-programmable security registers
+(Winbond W25Q / GigaDevice GD25Q convention, opcode `0x48`) and
+shows each as an offset / hex / ASCII dump — the same output as the
+[`etch341 otp read` CLI command](/etch341/usage/cli/#security--otp-registers).
+These commonly hold serial numbers, MAC addresses, or vendor keys.
+A register that's still blank reads back all `0xFF` and collapses
+to a one-line note. The card's Copy button puts the full dump on
+the clipboard. Read-only — programming the OTP region is a one-time
+operation and isn't exposed yet.
 
 ## Settings
 

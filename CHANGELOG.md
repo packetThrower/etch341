@@ -7,6 +7,19 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **OTP / security register read** (`etch341 otp read` + a
+  Security-regs pane in the GUI). Reads the three 256-byte
+  one-time-programmable security registers carried by the
+  Winbond W25Q / GigaDevice GD25Q families (opcode `0x48`) and
+  dumps them as offset / hex / ASCII. These commonly hold serial
+  numbers, MAC addresses, or vendor keys. Blank (all-`0xFF`)
+  registers collapse to a one-line note instead of 16 identical
+  rows; the GUI card has a Copy button that yields the same text
+  as the CLI. Read-only for now — program (`0x42`) / erase
+  (`0x44`) are one-time and will get their own arm/confirm flow.
+
 ## [0.4.1] — 2026-05-27
 
 Emergency point release. The 750 kHz `-s` default in 0.4.0 (and

@@ -374,6 +374,109 @@ fn human_size(n: u64) -> String {
     }
 }
 
+/// Byte size of one security register on the 0x48-convention
+/// families (W25Q / GD25Q). Three of them, each 256 bytes.
+pub const OTP_REGISTER_SIZE: usize = 256;
+/// 1-based register indices. Register N is read at address N << 12
+/// (0x1000 / 0x2000 / 0x3000).
+pub const OTP_REGISTER_INDICES: [u8; 3] = [1, 2, 3];
+
+/// One security (OTP) register's contents plus the metadata needed
+/// to label it. Shared between the CLI hexdump and the GUI pane.
+#[derive(Clone, Debug)]
+pub struct OtpRegister {
+    /// 1-based register number as printed on datasheets.
+    pub index: u8,
+    /// The 24-bit register-select address the bytes were read from.
+    pub addr: u32,
+    /// Raw register bytes (`OTP_REGISTER_SIZE` of them).
+    pub data: Vec<u8>,
+}
+
+impl OtpRegister {
+    /// True when every byte is `0xFF` — an erased / unprogrammed
+    /// register. The common case, worth collapsing in output rather
+    /// than printing 16 identical lines.
+    pub fn is_blank(&self) -> bool {
+        self.data.iter().all(|&b| b == 0xFF)
+    }
+}
+
+/// Read the three security registers (256 bytes each) via the 0x48
+/// opcode. Hardware-agnostic so the GUI can call it on its own
+/// transport. Returns them in index order (1, 2, 3).
+pub fn read_otp_registers(spi: &mut dyn SpiTransport) -> Result<Vec<OtpRegister>> {
+    let mut out = Vec::with_capacity(OTP_REGISTER_INDICES.len());
+    for &index in &OTP_REGISTER_INDICES {
+        let addr = (index as u32) << 12;
+        let data = spi::read_security_register(spi, addr, OTP_REGISTER_SIZE)?;
+        out.push(OtpRegister { index, addr, data });
+    }
+    Ok(out)
+}
+
+/// `etch341 otp read`: dump the security registers. Same JEDEC-first
+/// guard as `status` / `sfdp` so a floating bus surfaces a clean
+/// "no chip" message instead of three registers of meaningless
+/// `0xFF`.
+pub fn otp(global: &GlobalOpts) -> Result<()> {
+    let mut ch = Ch341::open(global.verbose)?;
+    let detect = run_detect(&mut ch)?;
+    println!("JEDEC ID : 0x{}", detect.jedec_string());
+    match &detect.diagnosis {
+        Diagnosis::MisoStuckLow => {
+            println!("Chip     : MISO stuck low: target board likely fighting us.");
+            println!("           Lift pin 8 (VCC) or remove the chip from the board.");
+            return Ok(());
+        }
+        Diagnosis::MisoFloatsHigh => {
+            println!("Chip     : MISO floats high: no chip detected.");
+            println!("           Check clip orientation, VCC jumper (3.3V), and chip power.");
+            return Ok(());
+        }
+        Diagnosis::Known(c) => println!("Chip     : {}", c.name),
+        Diagnosis::UnknownChip => {
+            println!("Chip     : (JEDEC ID not in DB; reading security registers anyway)")
+        }
+    }
+    println!();
+    println!("Security registers (Winbond/GigaDevice 0x48 convention, 3 x 256 B):");
+    let regs = read_otp_registers(&mut ch)?;
+    for reg in &regs {
+        println!();
+        println!("Register {} @ 0x{:06X}:", reg.index, reg.addr);
+        if reg.is_blank() {
+            println!("  all 0xFF (blank / unprogrammed)");
+        } else {
+            print_hexdump(&reg.data, reg.addr);
+        }
+    }
+    Ok(())
+}
+
+/// 16-byte-per-line offset / hex / ASCII dump. `base` is added to
+/// each row's offset so the printed address matches the region's
+/// own address space.
+fn print_hexdump(data: &[u8], base: u32) {
+    for (i, chunk) in data.chunks(16).enumerate() {
+        let off = base as usize + i * 16;
+        let hex: Vec<String> = chunk.iter().map(|b| format!("{b:02X}")).collect();
+        let ascii: String = chunk
+            .iter()
+            .map(|&b| {
+                if (0x20..0x7F).contains(&b) {
+                    b as char
+                } else {
+                    '.'
+                }
+            })
+            .collect();
+        // 47 = 16 bytes * 2 hex chars + 15 separating spaces; left-pad
+        // a short final row so the ASCII column stays aligned.
+        println!("  {off:06X}  {:<47}  |{ascii}|", hex.join(" "));
+    }
+}
+
 /// Pick a chip via `--chip <NAME>` if given, else by reading JEDEC
 /// ID and falling back to SFDP when JEDEC isn't in the bundled DB.
 /// The SFDP path lets etch341 read/write a brand-new chip that we

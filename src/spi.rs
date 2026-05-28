@@ -25,6 +25,15 @@ pub mod opcode {
     /// info without a DB lookup. Wire format is opcode + 3-byte
     /// big-endian SFDP address + 1 dummy byte, then read N bytes.
     pub const READ_SFDP: u8 = 0x5A;
+    /// Read Security Register (Winbond W25Q / GigaDevice GD25Q
+    /// convention). Same wire shape as SFDP: opcode + 3-byte
+    /// big-endian address + 1 dummy byte, then read N bytes. The
+    /// address's bits A13..A8 select the register (0x1000 / 0x2000 /
+    /// 0x3000 for registers 1 / 2 / 3) and A7..A0 the byte offset
+    /// inside it. Macronix uses a different opcode (0x2B) for its
+    /// single security register, so this read is meaningful only on
+    /// the 0x48-convention families.
+    pub const READ_SECURITY_REG: u8 = 0x48;
     pub const WRITE_ENABLE: u8 = 0x06;
     pub const CHIP_ERASE: u8 = 0xC7;
     // Standard 3-byte addressing opcodes (chips ≤ 16 MB).
@@ -253,6 +262,30 @@ pub fn read_sfdp(spi: &mut dyn SpiTransport, offset: u32, len: usize) -> Result<
     Ok(rx)
 }
 
+/// Read `len` bytes from a security register starting at `addr`
+/// (the register-selecting 24-bit address, e.g. `0x1000` for
+/// register 1). Wire format matches SFDP: opcode + 3-byte address +
+/// 1 dummy byte, then the payload. The leading 5 command/dummy
+/// bytes are stripped. Read-only — the program/erase opcodes
+/// (`0x42` / `0x44`) are deliberately not implemented yet because
+/// they're one-time and want their own arm/confirm flow.
+pub fn read_security_register(
+    spi: &mut dyn SpiTransport,
+    addr: u32,
+    len: usize,
+) -> Result<Vec<u8>> {
+    let mut cmd = Vec::with_capacity(5 + len);
+    cmd.push(opcode::READ_SECURITY_REG);
+    cmd.push((addr >> 16) as u8);
+    cmd.push((addr >> 8) as u8);
+    cmd.push(addr as u8);
+    cmd.push(0); // dummy
+    cmd.resize(5 + len, 0);
+    let mut rx = spi.spi_transfer(&cmd)?;
+    rx.drain(..5);
+    Ok(rx)
+}
+
 /// Read all three status registers in a single op. SR2/SR3 reads
 /// against a chip that doesn't implement them return `0xFF` (MISO
 /// pulled high while the chip ignores the opcode); `StatusRegisters`
@@ -458,6 +491,22 @@ mod tests {
         assert_eq!(
             read_data(&mut mock, Addressing::FourByte, 0x01234567, 3).unwrap(),
             vec![0xCA, 0xFE, 0xBA]
+        );
+        mock.assert_drained();
+    }
+
+    #[test]
+    fn read_security_register_sends_48_plus_addr_plus_dummy_and_strips_header() {
+        // Register 1 lives at 0x001000: opcode 0x48, 3-byte address,
+        // 1 dummy byte, then `len` read bytes. The 5-byte header is
+        // stripped from the returned payload.
+        let mut mock = MockSpi::new([(
+            vec![0x48, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00],
+            vec![0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xDE, 0xAD, 0xBE],
+        )]);
+        assert_eq!(
+            read_security_register(&mut mock, 0x1000, 3).unwrap(),
+            vec![0xDE, 0xAD, 0xBE]
         );
         mock.assert_drained();
     }

@@ -37,6 +37,7 @@ etch341 erase --range 0x10000:0x10000       # erase one 64 KB block
 etch341 verify -i bios.bin                  # readback compare
 etch341 blank-check                         # confirm all 0xFF
 etch341 sr                                  # dump SR1/SR2/SR3 with decoded bits
+etch341 otp read                            # dump the security/OTP registers
 ```
 
 Address parsing accepts decimal (`65536`) or `0x`-prefixed hex
@@ -47,6 +48,25 @@ For chips bigger than 16 MB, etch341 automatically switches to
 4-byte addressing (opcodes `0x13` / `0x12` / `0x21` / `0xDC`) so the
 operations work transparently up to the maximum 32-bit address
 space.
+
+## Security / OTP registers
+
+```sh
+etch341 otp read                            # dump the 3 security registers
+```
+
+Most Winbond W25Q and GigaDevice GD25Q parts carry three 256-byte
+one-time-programmable "security registers" separate from the main
+array, read via opcode `0x48`. They commonly hold serial numbers,
+MAC addresses, or vendor keys. `otp read` dumps all three as
+offset / hex / ASCII; a register that's still blank (all `0xFF`)
+collapses to a one-line note rather than 16 identical rows.
+
+This is the same convention used by the W25Q / GD25Q families.
+Macronix uses a different opcode for its single security register
+and isn't covered yet. Read-only for now — program and erase of
+the OTP region are one-time operations and will land behind an
+explicit confirm step.
 
 ## I²C EEPROM commands
 

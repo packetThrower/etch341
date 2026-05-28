@@ -44,6 +44,9 @@ pub struct PaneInputs<'a> {
     /// before the user clicks "Read"; populated by
     /// `AppView::start_read_status` once the chip has responded.
     pub status_regs: Option<crate::spi::StatusRegisters>,
+    /// Security (OTP) registers from the most recent OTP-pane read.
+    /// `None` before the user clicks "Read security registers".
+    pub otp_regs: Option<&'a [crate::ops::OtpRegister]>,
     /// Save directory for Read pane dumps. `None` means "$HOME"
     /// (the original fallback). Settings exposes a Browse button
     /// to set it; the Read pane body surfaces the current value
@@ -85,6 +88,7 @@ pub fn render(
         Pane::Verify => verify_pane(inputs.verify_path, cx).into_any_element(),
         Pane::Blank => blank_pane(cx).into_any_element(),
         Pane::Status => status_pane(inputs.status_regs, cx).into_any_element(),
+        Pane::Otp => otp_pane(inputs.otp_regs, cx).into_any_element(),
         Pane::Hex => hex_pane(
             inputs.hex_path,
             inputs.hex_bytes,
@@ -1487,6 +1491,105 @@ fn status_register_block(
         grid = grid.child(div().child(format!("{label}={v}")));
     }
     div().flex().flex_col().gap_1().child(header).child(grid)
+}
+
+/// OTP / security-register pane. Mirrors `etch341 otp read`: a
+/// button reads the three security registers in the background and
+/// the result renders as a copyable hexdump card.
+fn otp_pane(
+    regs: Option<&[crate::ops::OtpRegister]>,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
+    let mut col = op_pane(
+        "Security registers",
+        "Reads the chip's one-time-programmable security registers \
+         (Winbond / GigaDevice 0x48 convention: three 256-byte \
+         registers). These commonly hold serial numbers, MAC \
+         addresses, or vendor keys. Read-only.",
+    );
+    col = col.child(action_button_for(
+        "Read security registers",
+        "read-otp",
+        cx,
+        |this, cx| this.start_read_otp(cx),
+    ));
+    if let Some(regs) = regs {
+        let mut card = card_with_copy(format_otp_for_copy(regs), "copy-otp", cx);
+        for reg in regs {
+            card = card.child(otp_register_block(reg));
+        }
+        col = col.child(card);
+    }
+    col
+}
+
+/// Hexdump one register as offset / hex / ASCII text lines, matching
+/// the CLI `otp read` layout. Blank (all-0xFF) registers collapse to
+/// a single note line instead of 16 identical rows. Shared by the
+/// visual block and the clipboard text so the two never drift.
+fn otp_hexdump_lines(reg: &crate::ops::OtpRegister) -> Vec<String> {
+    if reg.is_blank() {
+        return vec!["all 0xFF (blank / unprogrammed)".to_string()];
+    }
+    reg.data
+        .chunks(16)
+        .enumerate()
+        .map(|(i, chunk)| {
+            let off = reg.addr as usize + i * 16;
+            let hex: Vec<String> = chunk.iter().map(|b| format!("{b:02X}")).collect();
+            let ascii: String = chunk
+                .iter()
+                .map(|&b| {
+                    if (0x20..0x7F).contains(&b) {
+                        b as char
+                    } else {
+                        '.'
+                    }
+                })
+                .collect();
+            format!("{off:06X}  {:<47}  |{ascii}|", hex.join(" "))
+        })
+        .collect()
+}
+
+/// One register block inside the OTP card: a small-caps header plus
+/// the monospace hexdump lines.
+fn otp_register_block(reg: &crate::ops::OtpRegister) -> gpui::Div {
+    let header = div()
+        .text_size(px(11.0))
+        .text_color(theme::text_tertiary())
+        .child(format!("REGISTER {} @ 0x{:06X}", reg.index, reg.addr));
+    let mut body = div()
+        .flex()
+        .flex_col()
+        .text_size(px(12.0))
+        .font_family(theme::MONO_FONT)
+        .text_color(if reg.is_blank() {
+            theme::text_tertiary()
+        } else {
+            theme::text_secondary()
+        });
+    for line in otp_hexdump_lines(reg) {
+        body = body.child(div().whitespace_nowrap().child(line));
+    }
+    div().flex().flex_col().gap_1().child(header).child(body)
+}
+
+/// Plain-text hexdump of all registers for the card's Copy button —
+/// matches the CLI `otp read` output so a paste-into-issue reads the
+/// same as a terminal session.
+fn format_otp_for_copy(regs: &[crate::ops::OtpRegister]) -> String {
+    let mut s = String::new();
+    for reg in regs {
+        s.push_str(&format!("Register {} @ 0x{:06X}:\n", reg.index, reg.addr));
+        for line in otp_hexdump_lines(reg) {
+            s.push_str("  ");
+            s.push_str(&line);
+            s.push('\n');
+        }
+        s.push('\n');
+    }
+    s
 }
 
 /// Build the card that renders a decoded SFDP table: header line,

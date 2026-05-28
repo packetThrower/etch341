@@ -85,15 +85,14 @@ priority order.
       Read Device ID) and `0x90` (Read Manufacturer / Device ID,
       with address bytes) when `0x9F` returns garbage. Some older
       chips don't respond to `0x9F`. ~1-2 hr.
-- [ ] **OTP / security register access** — most modern SPI NOR
-      chips carry a separate 256-3072 byte one-time-programmable
-      region behind dedicated opcodes (`0x48` read security
-      register, `0x42` program, `0x44` erase on W25Q-family).
-      Common uses: per-board serial numbers, MAC addresses,
-      vendor keys. Start with read-only access (`etch341 otp
-      read`) since the program/erase paths are genuinely
-      one-time-only and warrant their own arm/confirm flow.
-      ~2-3 hr.
+- [ ] **OTP / security register program + erase** — read-only
+      access shipped (`etch341 otp read` + GUI Security-regs pane,
+      0x48 convention). The remaining half is the write side:
+      program (`0x42`) and erase (`0x44`). These are genuinely
+      one-time-only, so they need their own arm/confirm flow (like
+      Erase/Write) and probably a typed confirmation rather than a
+      single re-click. ~1-2 hr on top of the read plumbing that's
+      already in place.
 ### Big effort, big payoff (when there's a real need)
 
 - [ ] **Region / layout support** — `etch341 read --region BIOS`,

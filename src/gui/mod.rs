@@ -240,6 +240,7 @@ pub enum Pane {
     Verify,
     Blank,
     Status,
+    Otp,
     Hex,
     Settings,
 }
@@ -361,6 +362,9 @@ pub struct AppView {
     /// shares the same decoded view (`StatusRegisters::wip` etc.)
     /// the CLI's `ops::status` uses.
     pub status_regs: Option<crate::spi::StatusRegisters>,
+    /// Security (OTP) registers from the most recent OTP-pane read.
+    /// `None` before the user clicks "Read security registers".
+    pub otp_regs: Option<Vec<ops::OtpRegister>>,
     /// Result of the most recent Detect run. `chip` is `Some` when
     /// JEDEC matched a DB entry OR SFDP synthesised one; `None` for
     /// MISO-stuck states or a chip with no SFDP fallback. The Detect
@@ -494,6 +498,7 @@ impl AppView {
             selected: Pane::Detect,
             connection: Connection::Disconnected,
             status_regs: None,
+            otp_regs: None,
             detect_result: None,
             detect_sfdp: None,
             log_lines: vec![LogLine {
@@ -705,12 +710,12 @@ impl AppView {
             );
             match opened {
                 Ok(handle) => {
-                    let _ = app.update(cx, |this, _| this.log_window = Some(handle));
+                    app.update(cx, |this, _| this.log_window = Some(handle));
                 }
                 Err(e) => {
                     // Couldn't open — undo the inline-hidden state so
                     // the user isn't left with no log at all.
-                    let _ = app.update(cx, |this, cx| {
+                    app.update(cx, |this, cx| {
                         this.log_popped_out = false;
                         this.push_log(format!("pop-out log failed: {e}"));
                         cx.notify();
@@ -1715,6 +1720,55 @@ impl AppView {
         .detach();
     }
 
+    /// Read the three security (OTP) registers in the background and
+    /// stash them in `self.otp_regs` for the OTP pane. Mirrors
+    /// `start_read_status` — same JEDEC-first guard, no progress bar
+    /// (three 256-byte reads finish well under the poll interval).
+    pub fn start_read_otp(&mut self, cx: &mut Context<Self>) {
+        self.push_log("→ security registers".into());
+        cx.notify();
+        let speed = self.prefs.spi_speed_khz;
+        cx.spawn(async move |weak, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
+                    let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
+                    match detect.diagnosis {
+                        Diagnosis::MisoStuckLow => {
+                            return Err("MISO stuck low (target board contention)".into());
+                        }
+                        Diagnosis::MisoFloatsHigh => {
+                            return Err("MISO floats high (no chip / HOLD# grounded)".into());
+                        }
+                        _ => {}
+                    }
+                    ops::read_otp_registers(&mut ch).map_err(|e| format!("{e}"))
+                })
+                .await;
+
+            weak.update(cx, |this, cx| {
+                match outcome {
+                    Ok(regs) => {
+                        let blank = regs.iter().filter(|r| r.is_blank()).count();
+                        this.push_log(format!(
+                            "Security registers OK: {} read, {blank} blank (0xFF)",
+                            regs.len()
+                        ));
+                        this.otp_regs = Some(regs);
+                    }
+                    Err(err) => {
+                        this.push_log(format!("Security registers FAIL: {err}"));
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     pub fn start_blank_check(&mut self, cx: &mut Context<Self>) {
         self.push_log("→ blank check".into());
         cx.notify();
@@ -1907,6 +1961,7 @@ impl Render for AppView {
                                     restore_window_bounds: self.prefs.restore_window_bounds,
                                     prefs_path: prefs_path_buf.as_deref(),
                                     status_regs: self.status_regs,
+                                    otp_regs: self.otp_regs.as_deref(),
                                     read_output_dir: self.prefs.read_output_dir.as_deref(),
                                     detect_result: self.detect_result.as_ref(),
                                     detect_sfdp: self.detect_sfdp.as_ref(),
