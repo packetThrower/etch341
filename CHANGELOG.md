@@ -7,6 +7,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-05-27
+
+Emergency point release. The 750 kHz `-s` default in 0.4.0 (and
+every prior version) is ~2× the spec'd max for every chip in the
+24Cxx family and was confirmed to brick an M24C02-R mid-write
+during bring-up. Upgrade if you use any `i2c *` subcommand.
+
 ### Changed
 
 - **I²C clock defaults to 100 kHz** (was 750 kHz, which is
