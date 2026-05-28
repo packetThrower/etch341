@@ -18,6 +18,8 @@ gui = [
     "dep:gpui_platform",
     "dep:gpui-component",
     "dep:gpui-component-assets",
+    "dep:ureq",
+    "dep:semver",
 ]
 # Gates hardware-touching integration tests so CI without a CH341A
 # attached still passes. Tag tests with `#[cfg(feature = "hardware")]`.
@@ -46,6 +48,14 @@ sha2 = "0.10"
 # preference can render existing UTC-stored log entries against the
 # system's offset.
 time = { version = "0.3", features = ["local-offset"] }
+
+# GUI-only: the boot-time "newer release available" check. Detection
+# only — queries the GitHub Releases API and compares the tag to
+# CARGO_PKG_VERSION. Optional + gated behind the `gui` feature so the
+# CLI-only build (`--no-default-features`) doesn't pull in a TLS
+# stack. `json` for the response parse, `tls` for HTTPS.
+ureq = { version = "2", features = ["json", "tls"], optional = true }
+semver = { version = "1", optional = true }
 
 # Native file-picker dialogs (NSOpenPanel on macOS, GTK on Linux,
 # IFileOpenDialog on Windows). Used by the GUI's Write / Verify

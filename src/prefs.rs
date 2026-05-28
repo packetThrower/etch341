@@ -50,6 +50,11 @@ pub struct Prefs {
     /// → Appearance swatches. Drives both etch341's own accent and
     /// the embedded gpui-component widgets' primary color.
     pub accent_color: u32,
+    /// Opt out of the boot-time "newer release available" check
+    /// (Settings → Updates). Off by default — the check is
+    /// detection-only (no download/install) and just paints a dot on
+    /// the Settings sidebar item when a newer GitHub release exists.
+    pub disable_update_check: bool,
 }
 
 /// On-disk snapshot of the window's position + size. Stored as
@@ -92,6 +97,7 @@ impl Default for Prefs {
             // (kept in sync by hand — prefs is the non-GUI layer and
             // can't reach the feature-gated theme module).
             accent_color: 0x0A84FF,
+            disable_update_check: false,
         }
     }
 }

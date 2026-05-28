@@ -78,6 +78,10 @@ pub struct PaneInputs<'a> {
     /// zone (true) or UTC (false, default). Surfaces in Settings →
     /// Log timestamps; storage stays raw UTC seconds either way.
     pub timestamp_local: bool,
+    /// User-facing "check for updates on launch" state (the inverse
+    /// of `prefs.disable_update_check`). Drives the Settings →
+    /// Updates toggle.
+    pub update_check_enabled: bool,
 }
 
 pub fn render(
@@ -131,6 +135,7 @@ pub fn render(
             inputs.hex_font_size,
             inputs.strings_font_size,
             inputs.timestamp_local,
+            inputs.update_check_enabled,
             cx,
         )
         .into_any_element(),
@@ -275,6 +280,7 @@ fn settings_pane(
     hex_font_size: f32,
     strings_font_size: f32,
     timestamp_local: bool,
+    update_check_enabled: bool,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     // Matches `ch341::SUPPORTED_SPEEDS_KHZ` — the set the CH341A
@@ -467,6 +473,60 @@ fn settings_pane(
             |this, cx| this.set_timestamp_local(!this.prefs.timestamp_local, cx),
         ));
 
+    // Updates section: the on/off toggle, a version status line, and
+    // View-release / Check-now buttons. The available update (if any)
+    // is read straight from the updater global.
+    let available = crate::gui::updater::available(cx);
+    let mut updates_box = GroupBox::new()
+        .id("settings-updates")
+        .outline()
+        .title("Updates")
+        .child(body(
+            "Checks the project's GitHub releases for a newer version when \
+             etch341 launches, and marks the Settings sidebar item with a \
+             dot if one exists. Detection only — it never downloads or \
+             installs anything.",
+        ))
+        .child(toggle_row(
+            "Check for updates on launch",
+            "toggle-update-check",
+            update_check_enabled,
+            cx,
+            // Flip: new enabled = !current = the current
+            // `disable_update_check` value.
+            |this, cx| this.set_update_check_enabled(this.prefs.disable_update_check, cx),
+        ));
+    updates_box = updates_box.child(match &available {
+        Some(up) => div()
+            .text_color(theme::text_primary())
+            .whitespace_normal()
+            .child(format!(
+                "Version {} is available — you have v{}.",
+                up.version,
+                env!("CARGO_PKG_VERSION")
+            )),
+        None => div()
+            .text_size(px(12.0))
+            .text_color(theme::text_tertiary())
+            .child(format!("Installed: v{}", env!("CARGO_PKG_VERSION"))),
+    });
+    let mut update_buttons = div().flex().flex_row().gap_3();
+    if available.is_some() {
+        update_buttons = update_buttons.child(action_button_for(
+            "View release",
+            "open-release",
+            cx,
+            |this, cx| this.open_release_page(cx),
+        ));
+    }
+    update_buttons = update_buttons.child(action_button_for(
+        "Check now",
+        "check-updates",
+        cx,
+        |this, cx| this.check_for_updates_now(cx),
+    ));
+    updates_box = updates_box.child(update_buttons);
+
     // Preferences file section. Button hidden when there's no real
     // path — nothing useful to open if $HOME wasn't set.
     let path_text = prefs_path
@@ -553,6 +613,7 @@ fn settings_pane(
                     .child(appearance_box)
                     .child(hex_box)
                     .child(log_box)
+                    .child(updates_box)
                     .child(prefs_box),
             ),
         )

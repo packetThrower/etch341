@@ -89,6 +89,7 @@ mod log;
 mod panes;
 mod sidebar;
 mod theme;
+pub mod updater;
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let app = gpui_platform::application().with_assets(gpui_component_assets::Assets);
@@ -163,6 +164,30 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         // Must run after `Theme::change` above (which resets colors).
         theme::set_accent_hex(prefs_at_open.accent_color);
         apply_accent_to_component_theme(cx);
+
+        // Boot-time update check — fire-and-forget, detection only.
+        // Respects the Settings → Updates opt-out. The blocking HTTP
+        // call runs on the background pool; once it resolves we set
+        // the UpdateState global and refresh all windows so the
+        // Settings sidebar dot paints on the next frame.
+        cx.set_global(updater::UpdateState::default());
+        if !prefs_at_open.disable_update_check {
+            cx.spawn(async move |cx_async| {
+                let result = cx_async
+                    .background_executor()
+                    .spawn(async move { updater::check_for_update(env!("CARGO_PKG_VERSION")) })
+                    .await;
+                if let Ok(Some(available)) = result {
+                    cx_async.update(|cx| {
+                        cx.set_global(updater::UpdateState {
+                            available: Some(available),
+                        });
+                        cx.refresh_windows();
+                    });
+                }
+            })
+            .detach();
+        }
         let bounds = prefs_at_open
             .restore_window_bounds
             .then(|| {
@@ -680,6 +705,75 @@ impl AppView {
         apply_accent_to_component_theme(cx);
         if let Err(e) = self.prefs.save() {
             self.push_log(format!("accent save failed: {e}"));
+        }
+        cx.notify();
+    }
+
+    /// Settings → Updates toggle. `enabled` is the user-facing
+    /// "check on launch" switch; we persist its inverse
+    /// (`disable_update_check`). Enabling also kicks an immediate
+    /// check so the user gets feedback without relaunching.
+    pub fn set_update_check_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        self.prefs.disable_update_check = !enabled;
+        if let Err(e) = self.prefs.save() {
+            self.push_log(format!("update-check pref save failed: {e}"));
+        }
+        if enabled {
+            self.check_for_updates_now(cx);
+        } else {
+            cx.notify();
+        }
+    }
+
+    /// Settings → Updates → "Check now". Re-runs the GitHub check in
+    /// the background and updates the global; the sidebar dot +
+    /// Updates row repaint when it resolves.
+    pub fn check_for_updates_now(&mut self, cx: &mut Context<Self>) {
+        self.push_log("→ checking for updates".into());
+        cx.notify();
+        cx.spawn(async move |_weak, cx_async| {
+            let result = cx_async
+                .background_executor()
+                .spawn(async move { updater::check_for_update(env!("CARGO_PKG_VERSION")) })
+                .await;
+            cx_async.update(|cx| {
+                let available = result.ok().flatten();
+                cx.set_global(updater::UpdateState { available });
+                cx.refresh_windows();
+            });
+        })
+        .detach();
+    }
+
+    /// Open the pending release's GitHub page in the default browser.
+    /// No-op (with a log line) if no update is currently pending.
+    pub fn open_release_page(&mut self, cx: &mut Context<Self>) {
+        let Some(update) = updater::available(cx) else {
+            self.push_log("no update pending".into());
+            cx.notify();
+            return;
+        };
+        // Same per-OS launcher as `open_prefs_folder`; all three
+        // accept a URL and hand it to the default browser.
+        #[cfg(target_os = "macos")]
+        let cmd = "open";
+        #[cfg(target_os = "windows")]
+        let cmd = "explorer";
+        #[cfg(target_os = "linux")]
+        let cmd = "xdg-open";
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+        let cmd: &str = "";
+        if cmd.is_empty() {
+            self.push_log("open release page: unsupported platform".into());
+            cx.notify();
+            return;
+        }
+        match std::process::Command::new(cmd)
+            .arg(&update.html_url)
+            .spawn()
+        {
+            Ok(_) => self.push_log(format!("Opened {}", update.html_url)),
+            Err(e) => self.push_log(format!("open release page: {e}")),
         }
         cx.notify();
     }
@@ -2177,6 +2271,7 @@ impl Render for AppView {
                                     hex_font_size: self.prefs.hex_font_size,
                                     strings_font_size: self.prefs.strings_font_size,
                                     timestamp_local: self.prefs.timestamp_local,
+                                    update_check_enabled: !self.prefs.disable_update_check,
                                 };
                                 let outer = div().flex_1().min_h(px(0.0)).min_w(px(0.0));
                                 // Settings has no op activity worth a log

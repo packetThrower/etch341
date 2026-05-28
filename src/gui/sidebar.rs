@@ -143,12 +143,18 @@ pub fn render(selected: Pane, cx: &mut Context<AppView>) -> impl IntoElement {
                 .mb_1()
                 .bg(theme::workshop_glass_strong()),
         )
-        .child(item(Pane::Blank, "Blank check", selected, cx))
-        .child(item(Pane::Status, "Status regs", selected, cx))
-        .child(item(Pane::Otp, "Security regs", selected, cx))
-        .child(item(Pane::Hex, "Hex viewer", selected, cx))
+        .child(item(Pane::Blank, "Blank check", selected, false, cx))
+        .child(item(Pane::Status, "Status regs", selected, false, cx))
+        .child(item(Pane::Otp, "Security regs", selected, false, cx))
+        .child(item(Pane::Hex, "Hex viewer", selected, false, cx))
         .child(div().flex_1())
-        .child(item(Pane::Settings, "⚙ Settings", selected, cx))
+        .child(item(
+            Pane::Settings,
+            "⚙ Settings",
+            selected,
+            super::updater::available(cx).is_some(),
+            cx,
+        ))
 }
 
 /// Flat sidebar row used for the non-workflow entries (Hex /
@@ -158,13 +164,20 @@ fn item(
     pane: Pane,
     label: &'static str,
     selected: Pane,
+    dot: bool,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let active = pane == selected;
+    // `justify_between` pushes the label left; with `dot` a small
+    // amber indicator rides the right edge (the "newer release
+    // available" signal on the Settings row). Without a dot the
+    // single label child just sits at the start, unchanged.
     let mut row = div()
         .id(label)
         .flex()
+        .flex_row()
         .items_center()
+        .justify_between()
         .px_3()
         .py_2()
         .rounded(px(6.0))
@@ -175,6 +188,15 @@ fn item(
             theme::text_secondary()
         })
         .child(label.to_string())
+        .when(dot, |row| {
+            row.child(
+                div()
+                    .w(px(8.0))
+                    .h(px(8.0))
+                    .rounded_full()
+                    .bg(theme::warning_amber()),
+            )
+        })
         .hover(|d| d.bg(theme::workshop_glass_strong()))
         .on_click(
             cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
