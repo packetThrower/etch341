@@ -52,21 +52,36 @@ space.
 ## Security / OTP registers
 
 ```sh
-etch341 otp read                            # dump the 3 security registers
+etch341 otp read                                  # dump the 3 security registers
+etch341 otp erase --register 1 --yes              # erase register 1 back to 0xFF
+etch341 otp write -i serial.bin --register 1 --yes        # program from a file
+etch341 otp write -i mac.bin --register 2 --start 0x10 --yes   # at an offset
 ```
 
 Most Winbond W25Q and GigaDevice GD25Q parts carry three 256-byte
-one-time-programmable "security registers" separate from the main
-array, read via opcode `0x48`. They commonly hold serial numbers,
-MAC addresses, or vendor keys. `otp read` dumps all three as
-offset / hex / ASCII; a register that's still blank (all `0xFF`)
-collapses to a one-line note rather than 16 identical rows.
+"security registers" separate from the main array, read via opcode
+`0x48`. They commonly hold serial numbers, MAC addresses, or vendor
+keys. `otp read` dumps all three as offset / hex / ASCII; a register
+that's still blank (all `0xFF`) collapses to a one-line note rather
+than 16 identical rows.
 
-This is the same convention used by the W25Q / GD25Q families.
-Macronix uses a different opcode for its single security register
-and isn't covered yet. Read-only for now — program and erase of
-the OTP region are one-time operations and will land behind an
-explicit confirm step.
+`otp erase` clears one register back to `0xFF`; `otp write` programs
+one register from a file at an optional `--start` offset. Both are
+read-back verified and both require `--yes` to run. Programming only
+clears bits (`1`→`0`), so **erase the register first** for an
+arbitrary write — `otp write` does not erase implicitly, and the
+verify step will flag a write that didn't land because the target
+bytes weren't blank.
+
+Erase and write are repeatable: etch341 never sets a register's
+one-time lock bit, so a register only becomes permanently frozen if
+something else locks it. (etch341 has no command to set those lock
+bits — that's a deliberate non-goal.)
+
+This is the W25Q / GD25Q `0x48` convention. Macronix uses a
+different opcode for its single security register and isn't covered.
+On chips bigger than 16 MB the security registers are still accessed
+with 3-byte addresses, which is what etch341 sends.
 
 ## I²C EEPROM commands
 

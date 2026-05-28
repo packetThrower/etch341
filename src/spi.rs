@@ -34,6 +34,13 @@ pub mod opcode {
     /// single security register, so this read is meaningful only on
     /// the 0x48-convention families.
     pub const READ_SECURITY_REG: u8 = 0x48;
+    /// Program Security Register (0x42) and Erase Security Register
+    /// (0x44), same 0x48-convention families. Both need a Write
+    /// Enable first and are polled via SR1.WIP. Repeatable until the
+    /// register's lock bit (LB in SR2) is set — etch341 never sets
+    /// that bit, so erase + reprogram stays available.
+    pub const PROGRAM_SECURITY_REG: u8 = 0x42;
+    pub const ERASE_SECURITY_REG: u8 = 0x44;
     pub const WRITE_ENABLE: u8 = 0x06;
     pub const CHIP_ERASE: u8 = 0xC7;
     // Standard 3-byte addressing opcodes (chips ≤ 16 MB).
@@ -398,6 +405,38 @@ pub fn page_program(
     Ok(())
 }
 
+/// Erase one security register (opcode 0x44) back to 0xFF. `addr` is
+/// the register-select address (0x1000 / 0x2000 / 0x3000). Issues
+/// Write Enable first; the caller polls SR1.WIP for completion.
+/// Always 3-byte addressed — the security-register window is tiny
+/// and well inside 24 bits even on >16 MB parts.
+pub fn erase_security_register(spi: &mut dyn SpiTransport, addr: u32) -> Result<()> {
+    write_enable(spi)?;
+    let mut cmd = Vec::with_capacity(4);
+    cmd.push(opcode::ERASE_SECURITY_REG);
+    cmd.extend(addr24_be(addr));
+    spi.spi_transfer(&cmd)?;
+    Ok(())
+}
+
+/// Program up to 256 bytes into a security register (opcode 0x42)
+/// starting at `addr`. Like any program it only clears bits
+/// (1 -> 0), so the register wants an erase first for a clean write.
+/// Issues Write Enable first; the caller polls SR1.WIP. 3-byte
+/// addressed for the same reason as [`erase_security_register`].
+pub fn program_security_register(spi: &mut dyn SpiTransport, addr: u32, data: &[u8]) -> Result<()> {
+    if data.is_empty() {
+        return Ok(());
+    }
+    write_enable(spi)?;
+    let mut cmd = Vec::with_capacity(4 + data.len());
+    cmd.push(opcode::PROGRAM_SECURITY_REG);
+    cmd.extend(addr24_be(addr));
+    cmd.extend_from_slice(data);
+    spi.spi_transfer(&cmd)?;
+    Ok(())
+}
+
 fn addr24_be(addr: u32) -> [u8; 3] {
     [(addr >> 16) as u8, (addr >> 8) as u8, addr as u8]
 }
@@ -508,6 +547,38 @@ mod tests {
             read_security_register(&mut mock, 0x1000, 3).unwrap(),
             vec![0xDE, 0xAD, 0xBE]
         );
+        mock.assert_drained();
+    }
+
+    #[test]
+    fn erase_security_register_sends_wren_then_44_plus_addr() {
+        // Register 2 lives at 0x002000.
+        let mut mock = MockSpi::new([
+            (vec![0x06], vec![0x00]),
+            (vec![0x44, 0x00, 0x20, 0x00], vec![0x00; 4]),
+        ]);
+        erase_security_register(&mut mock, 0x2000).unwrap();
+        mock.assert_drained();
+    }
+
+    #[test]
+    fn program_security_register_sends_wren_then_42_plus_addr_plus_data() {
+        // Register 3 @ 0x003000, offset 0x10 → 0x003010.
+        let mut mock = MockSpi::new([
+            (vec![0x06], vec![0x00]),
+            (
+                vec![0x42, 0x00, 0x30, 0x10, 0xDE, 0xAD, 0xBE, 0xEF],
+                vec![0x00; 8],
+            ),
+        ]);
+        program_security_register(&mut mock, 0x3010, &[0xDE, 0xAD, 0xBE, 0xEF]).unwrap();
+        mock.assert_drained();
+    }
+
+    #[test]
+    fn program_security_register_empty_is_noop() {
+        let mut mock = MockSpi::new([]);
+        program_security_register(&mut mock, 0x1000, &[]).unwrap();
         mock.assert_drained();
     }
 

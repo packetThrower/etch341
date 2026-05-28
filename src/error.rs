@@ -69,6 +69,9 @@ pub enum Error {
 
     #[error("I²C device at 0x{slave_7bit:02X} did not ACK")]
     I2cNack { slave_7bit: u8 },
+
+    #[error("OTP/security register: {0}")]
+    Otp(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

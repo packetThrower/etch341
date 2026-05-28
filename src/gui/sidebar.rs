@@ -92,6 +92,8 @@ pub fn render(selected: Pane, cx: &mut Context<AppView>) -> impl IntoElement {
                 if this.selected != pane {
                     this.erase_armed = false;
                     this.write_armed = false;
+                    this.otp_erase_armed = false;
+                    this.otp_write_armed = false;
                 }
                 this.selected = pane;
                 ctx.notify();
@@ -179,6 +181,8 @@ fn item(
                 if this.selected != pane {
                     this.erase_armed = false;
                     this.write_armed = false;
+                    this.otp_erase_armed = false;
+                    this.otp_write_armed = false;
                 }
                 this.selected = pane;
                 cx.notify();

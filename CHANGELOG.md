@@ -9,16 +9,28 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ### Added
 
-- **OTP / security register read** (`etch341 otp read` + a
-  Security-regs pane in the GUI). Reads the three 256-byte
-  one-time-programmable security registers carried by the
-  Winbond W25Q / GigaDevice GD25Q families (opcode `0x48`) and
-  dumps them as offset / hex / ASCII. These commonly hold serial
-  numbers, MAC addresses, or vendor keys. Blank (all-`0xFF`)
-  registers collapse to a one-line note instead of 16 identical
-  rows; the GUI card has a Copy button that yields the same text
-  as the CLI. Read-only for now — program (`0x42`) / erase
-  (`0x44`) are one-time and will get their own arm/confirm flow.
+- **OTP / security register access** (`etch341 otp read` /
+  `otp erase` / `otp write` + a Security-regs pane in the GUI).
+  Reads, erases, and programs the three 256-byte security
+  registers carried by the Winbond W25Q / GigaDevice GD25Q
+  families (opcodes `0x48` / `0x44` / `0x42`). These commonly hold
+  serial numbers, MAC addresses, or vendor keys.
+  - **Read** dumps all three as offset / hex / ASCII; blank
+    (all-`0xFF`) registers collapse to a one-line note. The GUI
+    card's Copy button yields the same text as the CLI.
+  - **Erase / write** target one register. Both are read-back
+    verified, and `write` does *not* erase first (programs only
+    clear bits — erase the register first for a clean write). The
+    CLI gates them behind `--yes`; the GUI uses the same two-stage
+    arm/confirm as the Erase / Write panes.
+  - Erase + reprogram stay repeatable: etch341 never sets the
+    one-time lock bits (LB in SR2), so locking a register closed
+    is a deliberate non-goal.
+  - GUI parity note: the GUI writes from offset 0 of the selected
+    register; use the CLI's `otp write --start` for a partial
+    write at an offset.
+  - W25Q / GD25Q `0x48` convention only — Macronix's single
+    security register (opcode `0x2B`) isn't covered.
 
 ## [0.4.1] — 2026-05-27
 

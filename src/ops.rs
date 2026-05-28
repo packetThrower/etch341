@@ -415,6 +415,93 @@ pub fn read_otp_registers(spi: &mut dyn SpiTransport) -> Result<Vec<OtpRegister>
     Ok(out)
 }
 
+/// Bail with a clear error if no chip is driving MISO. Run before a
+/// destructive OTP op so "no chip / board contention" surfaces as a
+/// message instead of a confusing verify failure after a write that
+/// never reached silicon.
+pub fn ensure_chip_present(spi: &mut dyn SpiTransport) -> Result<()> {
+    match run_detect(spi)?.diagnosis {
+        Diagnosis::MisoStuckLow => Err(Error::Otp(
+            "MISO stuck low (board contention); lift pin 8 (VCC) or remove the chip".into(),
+        )),
+        Diagnosis::MisoFloatsHigh => Err(Error::Otp(
+            "MISO floats high (no chip detected); check clip orientation, VCC, and power".into(),
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Validate a 1-based register index and return its select address
+/// (N << 12). Keeps the bounds check in one place for both the CLI
+/// and GUI write/erase paths.
+fn otp_register_addr(register: u8) -> Result<u32> {
+    if !OTP_REGISTER_INDICES.contains(&register) {
+        return Err(Error::Otp(format!(
+            "register {register} out of range (valid: 1, 2, 3)"
+        )));
+    }
+    Ok((register as u32) << 12)
+}
+
+/// Erase one security register back to `0xFF`, then read it back to
+/// confirm. Repeatable as long as the register's lock bit is clear
+/// (etch341 never sets it). The read-back catches a silently-failed
+/// erase (e.g. the register was already locked) instead of leaving
+/// the caller to assume success.
+pub fn otp_erase(spi: &mut dyn SpiTransport, register: u8) -> Result<()> {
+    let addr = otp_register_addr(register)?;
+    spi::erase_security_register(spi, addr)?;
+    spi::wait_until_ready(spi, SECTOR_ERASE_TIMEOUT)?;
+    let back = spi::read_security_register(spi, addr, OTP_REGISTER_SIZE)?;
+    if let Some(pos) = back.iter().position(|&b| b != 0xFF) {
+        return Err(Error::Otp(format!(
+            "erase of register {register} didn't take (byte 0x{pos:02X} read 0x{:02X}, \
+             not 0xFF); the register may be locked",
+            back[pos]
+        )));
+    }
+    Ok(())
+}
+
+/// Program `data` into a security register starting at byte offset
+/// `start`, then read it back and verify. Does *not* erase first —
+/// program only clears bits (1 -> 0), so the target bytes must
+/// already be `0xFF` for an arbitrary write to land. The read-back
+/// verify turns a not-erased / locked register into a clear error
+/// rather than silent corruption.
+pub fn otp_write(
+    spi: &mut dyn SpiTransport,
+    register: u8,
+    start: usize,
+    data: &[u8],
+) -> Result<()> {
+    let base = otp_register_addr(register)?;
+    if start + data.len() > OTP_REGISTER_SIZE {
+        return Err(Error::Otp(format!(
+            "write of {} byte(s) at offset 0x{start:02X} overflows the {OTP_REGISTER_SIZE}-byte \
+             register {register}",
+            data.len()
+        )));
+    }
+    if data.is_empty() {
+        return Ok(());
+    }
+    let addr = base + start as u32;
+    spi::program_security_register(spi, addr, data)?;
+    spi::wait_until_ready(spi, PAGE_PROGRAM_TIMEOUT)?;
+    let back = spi::read_security_register(spi, addr, data.len())?;
+    if let Some(pos) = back.iter().zip(data).position(|(g, w)| g != w) {
+        return Err(Error::Otp(format!(
+            "verify failed at register {register} offset 0x{:02X}: wrote 0x{:02X}, read 0x{:02X} \
+             (was the register erased first?)",
+            start + pos,
+            data[pos],
+            back[pos]
+        )));
+    }
+    Ok(())
+}
+
 /// `etch341 otp read`: dump the security registers. Same JEDEC-first
 /// guard as `status` / `sfdp` so a floating bus surfaces a clean
 /// "no chip" message instead of three registers of meaningless
@@ -840,6 +927,84 @@ mod tests {
         assert_eq!(got, body);
         mock.assert_drained();
         let _ = std::fs::remove_file(&tmp);
+    }
+
+    /// Security-register read step: 0x48 + 3-byte addr + dummy, then
+    /// `n` payload bytes behind the 5-byte header.
+    fn otp_read_step(addr: u32, body: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
+        let n = body.len();
+        let mut tx = vec![
+            0x48,
+            (addr >> 16) as u8,
+            (addr >> 8) as u8,
+            addr as u8,
+            0x00,
+        ];
+        tx.resize(5 + n, 0);
+        let mut rx = vec![0u8; 5];
+        rx.extend(body);
+        (tx, rx)
+    }
+
+    #[test]
+    fn otp_erase_erases_reg1_and_verifies_blank() {
+        let mut mock = MockSpi::new([
+            (vec![0x06], vec![0x00]),
+            (vec![0x44, 0x00, 0x10, 0x00], vec![0x00; 4]),
+            wip_clear_step(),
+            otp_read_step(0x1000, vec![0xFF; OTP_REGISTER_SIZE]),
+        ]);
+        otp_erase(&mut mock, 1).unwrap();
+        mock.assert_drained();
+    }
+
+    #[test]
+    fn otp_erase_errors_when_register_not_blank_after() {
+        let mut not_blank = vec![0xFF; OTP_REGISTER_SIZE];
+        not_blank[3] = 0x00; // a stuck / locked byte
+        let mut mock = MockSpi::new([
+            (vec![0x06], vec![0x00]),
+            (vec![0x44, 0x00, 0x10, 0x00], vec![0x00; 4]),
+            wip_clear_step(),
+            otp_read_step(0x1000, not_blank),
+        ]);
+        assert!(matches!(
+            otp_erase(&mut mock, 1).unwrap_err(),
+            Error::Otp(_)
+        ));
+        mock.assert_drained();
+    }
+
+    #[test]
+    fn otp_write_programs_reg2_and_verifies() {
+        let mut mock = MockSpi::new([
+            (vec![0x06], vec![0x00]),
+            (vec![0x42, 0x00, 0x20, 0x00, 0xDE, 0xAD], vec![0x00; 6]),
+            wip_clear_step(),
+            otp_read_step(0x2000, vec![0xDE, 0xAD]),
+        ]);
+        otp_write(&mut mock, 2, 0, &[0xDE, 0xAD]).unwrap();
+        mock.assert_drained();
+    }
+
+    #[test]
+    fn otp_write_rejects_overflow() {
+        let mut mock = MockSpi::new([]);
+        assert!(matches!(
+            otp_write(&mut mock, 1, 250, &[0u8; 10]).unwrap_err(),
+            Error::Otp(_)
+        ));
+        mock.assert_drained();
+    }
+
+    #[test]
+    fn otp_erase_rejects_bad_register() {
+        let mut mock = MockSpi::new([]);
+        assert!(matches!(
+            otp_erase(&mut mock, 4).unwrap_err(),
+            Error::Otp(_)
+        ));
+        mock.assert_drained();
     }
 
     #[test]

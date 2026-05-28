@@ -120,15 +120,24 @@ shown for every register so you can cross-check the datasheet.
 
 ## Security regs
 
-Reads the chip's three one-time-programmable security registers
-(Winbond W25Q / GigaDevice GD25Q convention, opcode `0x48`) and
-shows each as an offset / hex / ASCII dump — the same output as the
-[`etch341 otp read` CLI command](/etch341/usage/cli/#security--otp-registers).
+Reads, erases, and programs the chip's three security registers
+(Winbond W25Q / GigaDevice GD25Q convention, opcodes `0x48` /
+`0x44` / `0x42`) — the same operations as the
+[`etch341 otp` CLI commands](/etch341/usage/cli/#security--otp-registers).
 These commonly hold serial numbers, MAC addresses, or vendor keys.
-A register that's still blank reads back all `0xFF` and collapses
-to a one-line note. The card's Copy button puts the full dump on
-the clipboard. Read-only — programming the OTP region is a one-time
-operation and isn't exposed yet.
+
+**Read** dumps all three as offset / hex / ASCII; a register that's
+still blank reads back all `0xFF` and collapses to a one-line note.
+The card's Copy button puts the full dump on the clipboard.
+
+The **Modify** section targets one register (the radio selector)
+and offers Erase and Write-from-file, each behind the same
+two-stage arm/confirm as the Erase / Write panes — first click
+arms, second fires. Both are read-back verified. Programming only
+clears bits, so erase the register first for a clean write. The GUI
+writes from offset 0; for a partial write at an offset, use the
+CLI's `otp write --start`. Erase and write are repeatable — etch341
+never sets the one-time lock bits.
 
 ## Settings
 

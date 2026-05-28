@@ -47,6 +47,12 @@ pub struct PaneInputs<'a> {
     /// Security (OTP) registers from the most recent OTP-pane read.
     /// `None` before the user clicks "Read security registers".
     pub otp_regs: Option<&'a [crate::ops::OtpRegister]>,
+    /// Target register (1/2/3) for the OTP pane's erase / write
+    /// controls, the selected file, and the two arm flags.
+    pub otp_target_register: u8,
+    pub otp_write_path: Option<&'a Path>,
+    pub otp_erase_armed: bool,
+    pub otp_write_armed: bool,
     /// Save directory for Read pane dumps. `None` means "$HOME"
     /// (the original fallback). Settings exposes a Browse button
     /// to set it; the Read pane body surfaces the current value
@@ -88,7 +94,15 @@ pub fn render(
         Pane::Verify => verify_pane(inputs.verify_path, cx).into_any_element(),
         Pane::Blank => blank_pane(cx).into_any_element(),
         Pane::Status => status_pane(inputs.status_regs, cx).into_any_element(),
-        Pane::Otp => otp_pane(inputs.otp_regs, cx).into_any_element(),
+        Pane::Otp => otp_pane(
+            inputs.otp_regs,
+            inputs.otp_target_register,
+            inputs.otp_write_path,
+            inputs.otp_erase_armed,
+            inputs.otp_write_armed,
+            cx,
+        )
+        .into_any_element(),
         Pane::Hex => hex_pane(
             inputs.hex_path,
             inputs.hex_bytes,
@@ -1493,19 +1507,26 @@ fn status_register_block(
     div().flex().flex_col().gap_1().child(header).child(grid)
 }
 
-/// OTP / security-register pane. Mirrors `etch341 otp read`: a
-/// button reads the three security registers in the background and
-/// the result renders as a copyable hexdump card.
+/// OTP / security-register pane. Mirrors `etch341 otp read` /
+/// `otp erase` / `otp write`: read dumps the three registers as a
+/// copyable hexdump card; erase / write target one register behind
+/// the same two-stage arm/confirm the Erase and Write panes use.
 fn otp_pane(
     regs: Option<&[crate::ops::OtpRegister]>,
+    target_register: u8,
+    write_path: Option<&Path>,
+    erase_armed: bool,
+    write_armed: bool,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let mut col = op_pane(
         "Security registers",
-        "Reads the chip's one-time-programmable security registers \
-         (Winbond / GigaDevice 0x48 convention: three 256-byte \
-         registers). These commonly hold serial numbers, MAC \
-         addresses, or vendor keys. Read-only.",
+        "The chip's security registers (Winbond / GigaDevice 0x48 \
+         convention: three 256-byte registers) commonly hold serial \
+         numbers, MAC addresses, or vendor keys. Read dumps all \
+         three. Erase / write target one register — programming only \
+         clears bits, so erase first for a clean write. Macronix \
+         parts use a different opcode and aren't covered.",
     );
     col = col.child(action_button_for(
         "Read security registers",
@@ -1520,7 +1541,130 @@ fn otp_pane(
         }
         col = col.child(card);
     }
+
+    // Destructive controls live below a divider, split into two
+    // separate outlined boxes so erase and write don't read as one
+    // cluster. The target register lives with erase (you pick a
+    // register and can wipe it there); write gets its own box. Both
+    // act on the same selected register; both are capped at 680px to
+    // match the Settings pane's content width.
+    col = col.child(otp_divider());
+
+    let selected_idx = (target_register as usize).checked_sub(1);
+    let mut target_box = GroupBox::new()
+        .id("otp-target-box")
+        .outline()
+        .max_w(px(680.0))
+        .title("Target register")
+        .child(
+            RadioGroup::horizontal("otp-target")
+                .selected_index(selected_idx)
+                .on_click(cx.listener(|this: &mut AppView, ix: &usize, _, cx| {
+                    this.set_otp_target_register(*ix as u8 + 1, cx);
+                }))
+                .children(
+                    crate::ops::OTP_REGISTER_INDICES
+                        .iter()
+                        .map(|n| format!("Register {n}")),
+                ),
+        );
+    if erase_armed {
+        target_box = target_box.child(armed_warning(
+            "Armed: next click erases the selected register to 0xFF.",
+        ));
+    }
+    target_box = target_box.child(armable_button(
+        "Erase selected register",
+        "Click again to erase",
+        "otp-erase",
+        erase_armed,
+        cx,
+        |this, cx| this.arm_or_fire_otp_erase(cx),
+    ));
+
+    let mut write_box = GroupBox::new()
+        .id("otp-write-box")
+        .outline()
+        .max_w(px(680.0))
+        .title("Write from file")
+        .child(otp_file_row(write_path, cx));
+    if write_armed && write_path.is_some() {
+        write_box = write_box.child(armed_warning(
+            "Armed: next click programs the selected register from the file (offset 0).",
+        ));
+    }
+    write_box = write_box.child(armable_button(
+        "Write selected register from file",
+        "Click again to write",
+        "otp-write",
+        write_armed,
+        cx,
+        |this, cx| this.arm_or_fire_otp_write(cx),
+    ));
+
+    col = col.child(target_box).child(write_box);
     col
+}
+
+/// Hairline divider separating the read output from the destructive
+/// modify boxes below it. `my_2` adds margin on top of the pane's
+/// 16px flex gap so the read↔modify boundary reads as a real
+/// section break rather than just another row.
+///
+/// `flex_shrink_0` is load-bearing: the pane is a scrolling flex
+/// column, and at the default window height the content overflows.
+/// Flexbox then shrinks children to fit — a 1px divider with no
+/// content shrinks straight to 0 and vanishes (the buttons / boxes
+/// survive because they have a min-content height). Pinning shrink
+/// to 0 keeps the line at its 1px height regardless of overflow.
+fn otp_divider() -> impl IntoElement {
+    div()
+        .flex_shrink_0()
+        .my_2()
+        .h(px(1.0))
+        .bg(theme::workshop_glass_strong())
+}
+
+/// File-path display + Browse button for the OTP write source.
+/// Unlike the shared `file_picker_row`, the path sits in a bordered,
+/// input-style box so it reads as "the file goes here" rather than
+/// loose text floating next to a button.
+fn otp_file_row(path: Option<&Path>, cx: &mut Context<AppView>) -> impl IntoElement {
+    let display = path
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "(no file selected)".to_string());
+    let path_color = if path.is_some() {
+        theme::text_primary()
+    } else {
+        theme::text_tertiary()
+    };
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .px_3()
+                .py_2()
+                .rounded(px(6.0))
+                .border_1()
+                .border_color(theme::workshop_glass_strong())
+                .bg(theme::bench_black())
+                .whitespace_normal()
+                .text_color(path_color)
+                .text_size(px(12.0))
+                .font_family(theme::MONO_FONT)
+                .child(display),
+        )
+        .child(action_button_for(
+            "Browse…",
+            "pick-otp",
+            cx,
+            |this, cx| this.pick_otp_file(cx),
+        ))
 }
 
 /// Hexdump one register as offset / hex / ASCII text lines, matching

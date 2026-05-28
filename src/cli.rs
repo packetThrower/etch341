@@ -155,10 +155,45 @@ pub struct SearchArgs {
 
 #[derive(Subcommand)]
 pub enum OtpAction {
-    /// Dump the security registers (read-only). Program / erase are
-    /// deliberately not implemented yet: those opcodes are one-time
-    /// and warrant their own arm/confirm flow.
+    /// Dump the security registers (read-only).
     Read,
+    /// Erase one security register back to 0xFF. Repeatable unless
+    /// the register's lock bit is set (etch341 never sets it).
+    /// Requires `--yes`.
+    Erase(OtpEraseArgs),
+    /// Program one security register from a file. Programs only
+    /// clear bits, so erase the register first for a clean write;
+    /// the write is read-back verified. Requires `--yes`.
+    Write(OtpWriteArgs),
+}
+
+#[derive(Args)]
+pub struct OtpEraseArgs {
+    /// Which security register to erase (1, 2, or 3).
+    #[arg(long, value_parser = clap::value_parser!(u8).range(1..=3))]
+    pub register: u8,
+    /// Confirm the destructive op. Without this the command refuses
+    /// to run.
+    #[arg(long)]
+    pub yes: bool,
+}
+
+#[derive(Args)]
+pub struct OtpWriteArgs {
+    /// Input binary file. Must fit within the register from `--start`
+    /// (registers are 256 bytes).
+    #[arg(short = 'i', long)]
+    pub input: PathBuf,
+    /// Which security register to program (1, 2, or 3).
+    #[arg(long, value_parser = clap::value_parser!(u8).range(1..=3))]
+    pub register: u8,
+    /// Byte offset within the register to start at (default 0).
+    #[arg(long, value_parser = parse_addr, default_value = "0")]
+    pub start: u32,
+    /// Confirm the destructive op. Without this the command refuses
+    /// to run.
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Subcommand)]
@@ -373,6 +408,65 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                     return Ok(());
                 }
                 Ok(ops::otp(&global)?)
+            }
+            OtpAction::Erase(args) => {
+                if global.dry_run {
+                    println!(
+                        "[dry-run] would erase security register {} back to 0xFF",
+                        args.register
+                    );
+                    return Ok(());
+                }
+                if !args.yes {
+                    return Err(format!(
+                        "refusing to erase security register {} without --yes. This clears the \
+                         register to 0xFF; re-run with --yes to confirm.",
+                        args.register
+                    )
+                    .into());
+                }
+                let mut ch = Ch341::open(global.verbose)?;
+                ch.set_clock(speed)?;
+                ops::ensure_chip_present(&mut ch)?;
+                ops::otp_erase(&mut ch, args.register)?;
+                println!("OTP erase OK: register {} back to 0xFF", args.register);
+                Ok(())
+            }
+            OtpAction::Write(args) => {
+                // Read the file in both paths so dry-run still flags a
+                // missing/unreadable file.
+                let data = std::fs::read(&args.input)?;
+                if global.dry_run {
+                    println!(
+                        "[dry-run] would program {} byte(s) from {} into security register {} \
+                         at offset 0x{:02X}",
+                        data.len(),
+                        args.input.display(),
+                        args.register,
+                        args.start
+                    );
+                    return Ok(());
+                }
+                if !args.yes {
+                    return Err(format!(
+                        "refusing to program security register {} without --yes. Programming \
+                         only clears bits (1->0); erase the register first for a clean write. \
+                         Re-run with --yes to confirm.",
+                        args.register
+                    )
+                    .into());
+                }
+                let mut ch = Ch341::open(global.verbose)?;
+                ch.set_clock(speed)?;
+                ops::ensure_chip_present(&mut ch)?;
+                ops::otp_write(&mut ch, args.register, args.start as usize, &data)?;
+                println!(
+                    "OTP write OK: {} byte(s) into register {} at offset 0x{:02X} (read-back verified)",
+                    data.len(),
+                    args.register,
+                    args.start
+                );
+                Ok(())
             }
         },
 

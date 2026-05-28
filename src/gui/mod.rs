@@ -365,6 +365,16 @@ pub struct AppView {
     /// Security (OTP) registers from the most recent OTP-pane read.
     /// `None` before the user clicks "Read security registers".
     pub otp_regs: Option<Vec<ops::OtpRegister>>,
+    /// Target register (1/2/3) for the OTP pane's erase / write
+    /// controls. Read always covers all three; only the destructive
+    /// ops need a target.
+    pub otp_target_register: u8,
+    /// File selected for `otp write` via the OTP pane's Browse button.
+    pub otp_write_path: Option<std::path::PathBuf>,
+    /// Two-stage arm flags for the OTP pane's erase / write buttons,
+    /// same pattern as `erase_armed` / `write_armed`.
+    pub otp_erase_armed: bool,
+    pub otp_write_armed: bool,
     /// Result of the most recent Detect run. `chip` is `Some` when
     /// JEDEC matched a DB entry OR SFDP synthesised one; `None` for
     /// MISO-stuck states or a chip with no SFDP fallback. The Detect
@@ -499,6 +509,10 @@ impl AppView {
             connection: Connection::Disconnected,
             status_regs: None,
             otp_regs: None,
+            otp_target_register: 1,
+            otp_write_path: None,
+            otp_erase_armed: false,
+            otp_write_armed: false,
             detect_result: None,
             detect_sfdp: None,
             log_lines: vec![LogLine {
@@ -1769,6 +1783,159 @@ impl AppView {
         .detach();
     }
 
+    /// Set the target register (1/2/3) for the OTP erase / write
+    /// controls. Re-disarms both since the target changed under them.
+    pub fn set_otp_target_register(&mut self, register: u8, cx: &mut Context<Self>) {
+        self.otp_target_register = register;
+        self.otp_erase_armed = false;
+        self.otp_write_armed = false;
+        cx.notify();
+    }
+
+    /// File picker for the OTP write source. Reuses the Write pane's
+    /// last-directory memory so the two share a starting folder.
+    pub fn pick_otp_file(&mut self, cx: &mut Context<Self>) {
+        let start_dir = self.prefs.last_write_dir.clone();
+        cx.spawn(async move |weak, cx| {
+            let mut dialog = rfd::AsyncFileDialog::new()
+                .add_filter("Binary", &["bin", "rom"])
+                .add_filter("All files", &["*"]);
+            if let Some(dir) = start_dir {
+                dialog = dialog.set_directory(dir);
+            }
+            let Some(handle) = dialog.pick_file().await else {
+                return;
+            };
+            let path = handle.path().to_path_buf();
+            weak.update(cx, |this, cx| {
+                this.push_log(format!("Picked for OTP write: {}", path.display()));
+                if let Some(parent) = path.parent() {
+                    this.prefs.last_write_dir = Some(parent.to_path_buf());
+                    let _ = this.prefs.save();
+                }
+                this.otp_write_path = Some(path);
+                this.otp_write_armed = false;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Two-stage erase trigger for the OTP pane. First click arms,
+    /// second fires.
+    pub fn arm_or_fire_otp_erase(&mut self, cx: &mut Context<Self>) {
+        if self.otp_erase_armed {
+            self.otp_erase_armed = false;
+            self.start_otp_erase(cx);
+        } else {
+            self.otp_erase_armed = true;
+            self.push_log(format!(
+                "⚠ OTP erase armed (register {}): click again to confirm",
+                self.otp_target_register
+            ));
+            cx.notify();
+        }
+    }
+
+    fn start_otp_erase(&mut self, cx: &mut Context<Self>) {
+        let register = self.otp_target_register;
+        self.push_log(format!("→ erase security register {register}"));
+        cx.notify();
+        let speed = self.prefs.spi_speed_khz;
+        cx.spawn(async move |weak, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
+                    ops::ensure_chip_present(&mut ch).map_err(|e| format!("{e}"))?;
+                    ops::otp_erase(&mut ch, register).map_err(|e| format!("{e}"))?;
+                    // Re-read so the result card reflects the erase.
+                    ops::read_otp_registers(&mut ch).map_err(|e| format!("{e}"))
+                })
+                .await;
+            weak.update(cx, |this, cx| {
+                match outcome {
+                    Ok(regs) => {
+                        this.otp_regs = Some(regs);
+                        this.push_log(format!("Security register {register} erased to 0xFF"));
+                    }
+                    Err(err) => this.push_log(format!("OTP erase FAIL: {err}")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Two-stage write trigger for the OTP pane. Writes from offset 0
+    /// of the selected register; use the CLI `--start` for a partial
+    /// write. Requires a file to be picked first.
+    pub fn arm_or_fire_otp_write(&mut self, cx: &mut Context<Self>) {
+        if self.otp_write_path.is_none() {
+            self.push_log("OTP write FAIL: no input file selected".into());
+            cx.notify();
+            return;
+        }
+        if self.otp_write_armed {
+            self.otp_write_armed = false;
+            self.start_otp_write(cx);
+        } else {
+            self.otp_write_armed = true;
+            self.push_log(format!(
+                "⚠ OTP write armed (register {}): click again to confirm",
+                self.otp_target_register
+            ));
+            cx.notify();
+        }
+    }
+
+    fn start_otp_write(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = self.otp_write_path.clone() else {
+            self.push_log("OTP write FAIL: no input file selected".into());
+            cx.notify();
+            return;
+        };
+        let register = self.otp_target_register;
+        self.push_log(format!(
+            "→ write security register {register} from {}",
+            path.display()
+        ));
+        cx.notify();
+        let speed = self.prefs.spi_speed_khz;
+        cx.spawn(async move |weak, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let data = std::fs::read(&path).map_err(|e| format!("read input: {e}"))?;
+                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
+                    ops::ensure_chip_present(&mut ch).map_err(|e| format!("{e}"))?;
+                    ops::otp_write(&mut ch, register, 0, &data).map_err(|e| format!("{e}"))?;
+                    let len = data.len();
+                    let regs = ops::read_otp_registers(&mut ch).map_err(|e| format!("{e}"))?;
+                    Ok::<_, String>((len, regs))
+                })
+                .await;
+            weak.update(cx, |this, cx| {
+                match outcome {
+                    Ok((len, regs)) => {
+                        this.otp_regs = Some(regs);
+                        this.push_log(format!(
+                            "Security register {register} written ({len} byte(s), read-back verified)"
+                        ));
+                    }
+                    Err(err) => this.push_log(format!("OTP write FAIL: {err}")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     pub fn start_blank_check(&mut self, cx: &mut Context<Self>) {
         self.push_log("→ blank check".into());
         cx.notify();
@@ -1962,6 +2129,10 @@ impl Render for AppView {
                                     prefs_path: prefs_path_buf.as_deref(),
                                     status_regs: self.status_regs,
                                     otp_regs: self.otp_regs.as_deref(),
+                                    otp_target_register: self.otp_target_register,
+                                    otp_write_path: self.otp_write_path.as_deref(),
+                                    otp_erase_armed: self.otp_erase_armed,
+                                    otp_write_armed: self.otp_write_armed,
                                     read_output_dir: self.prefs.read_output_dir.as_deref(),
                                     detect_result: self.detect_result.as_ref(),
                                     detect_sfdp: self.detect_sfdp.as_ref(),

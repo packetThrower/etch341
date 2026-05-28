@@ -85,14 +85,6 @@ priority order.
       Read Device ID) and `0x90` (Read Manufacturer / Device ID,
       with address bytes) when `0x9F` returns garbage. Some older
       chips don't respond to `0x9F`. ~1-2 hr.
-- [ ] **OTP / security register program + erase** — read-only
-      access shipped (`etch341 otp read` + GUI Security-regs pane,
-      0x48 convention). The remaining half is the write side:
-      program (`0x42`) and erase (`0x44`). These are genuinely
-      one-time-only, so they need their own arm/confirm flow (like
-      Erase/Write) and probably a typed confirmation rather than a
-      single re-click. ~1-2 hr on top of the read plumbing that's
-      already in place.
 ### Big effort, big payoff (when there's a real need)
 
 - [ ] **Region / layout support** — `etch341 read --region BIOS`,
@@ -125,6 +117,13 @@ priority order.
   and from 24Cxx I²C. Small audience; `eeprom-prog` or
   `minipro` cover this.
 - **JTAG / SVF flashing** — different domain.
+- **Setting the OTP lock bits** (LB1-3 in SR2) — deliberately not
+  implemented. Locking a security register closed is genuinely
+  one-time and irreversible (no erase, no reprogram, ever). OTP
+  read / erase / write are all repeatable precisely because we
+  never touch these bits. If this is ever added it needs a far
+  stronger gate than the `--yes` flag (typed confirmation at
+  minimum) and very loud docs.
 
 ---
 
