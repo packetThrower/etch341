@@ -7,6 +7,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+## [0.5.0-beta.1] — 2026-05-28
+
+First beta of the 0.5.0 line — a big GUI pass plus OTP support.
+Pre-release: not picked up by the Homebrew tap / Scoop bucket (they
+track stable) or the in-app update check. Grab it from the Releases
+page if you want to try it.
+
 ### Added
 
 - **OTP / security register access** (`etch341 otp read` /
@@ -31,6 +38,32 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
     write at an offset.
   - W25Q / GD25Q `0x48` convention only — Macronix's single
     security register (opcode `0x2B`) isn't covered.
+- **Selectable accent color** (Settings → Appearance). Pick from
+  eight curated swatches; the whole UI recolors live — buttons,
+  selections, toggles, radio dots, sidebar — and the choice
+  persists. Button labels switch between dark and light per accent
+  so they stay legible.
+- **New-version check** — on launch etch341 checks the project's
+  GitHub releases and, if a newer stable version exists, paints a
+  dot on the ⚙ Settings sidebar item. Settings → Updates has the
+  status, a "View release" link, a "Check now" button, and an
+  on/off toggle. Detection only — it never downloads or installs.
+- **Pop-out activity log** — a ⧉ chip detaches the log into its own
+  window that stays live (and follows new lines); a × chip clears
+  it.
+- **Activity-log timezone toggle** (Settings → Log timestamps) —
+  render timestamps in local time or UTC; storage stays UTC.
+- **Hex viewer font sizing** — Cmd/Ctrl + `=` / `-` / `0` zoom the
+  hex and strings views independently, with size controls in
+  Settings.
+- The installed **version** now shows next to the Settings heading.
+
+### Changed
+
+- **GUI restyle** — Settings, the OTP pane, and the Write / Verify
+  panes now group their controls in outlined cards with bordered,
+  input-style file fields and capped content width. CTA buttons are
+  a notch smaller. Consistent visual language across the app.
 
 ## [0.4.1] — 2026-05-27
 
