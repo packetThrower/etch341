@@ -48,15 +48,33 @@ pub fn render(
 pub struct LogWindow {
     app: WeakEntity<AppView>,
     scroll: ScrollHandle,
+    /// Log-line count at the last render, so the observer can scroll
+    /// to the bottom only when a *new* line arrives — not on every
+    /// unrelated AppView notify (accent change, pane switch, …),
+    /// which would otherwise yank a user who'd scrolled up to read
+    /// history.
+    last_len: usize,
     _observe: Subscription,
 }
 
 impl LogWindow {
     pub fn new(app: Entity<AppView>, cx: &mut Context<Self>) -> Self {
-        let observe = cx.observe(&app, |_this, _app, cx| cx.notify());
+        let last_len = app.read(cx).log_lines.len();
+        // Open showing the tail, mirroring the inline log.
+        let scroll = ScrollHandle::new();
+        scroll.scroll_to_bottom();
+        let observe = cx.observe(&app, |this, app, cx| {
+            let len = app.read(cx).log_lines.len();
+            if len != this.last_len {
+                this.last_len = len;
+                this.scroll.scroll_to_bottom();
+            }
+            cx.notify();
+        });
         Self {
             app: app.downgrade(),
-            scroll: ScrollHandle::new(),
+            scroll,
+            last_len,
             _observe: observe,
         }
     }
