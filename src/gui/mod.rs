@@ -63,6 +63,17 @@ fn uniform_list_top_index(handle: &UniformListScrollHandle, row_height_px: f32) 
     ((-offset_y / row_height_px).max(0.0)) as usize
 }
 
+/// Push the current accent into the embedded gpui-component theme so
+/// its widgets (RadioGroup dots, Input focus rings) track our accent
+/// instead of staying on the library's default blue. Reads
+/// `theme::accent*`, so call after `theme::set_accent_hex`.
+fn apply_accent_to_component_theme(cx: &mut App) {
+    let t = Theme::global_mut(cx);
+    t.primary = theme::accent();
+    t.primary_hover = theme::accent_hover();
+    t.primary_active = theme::accent_active();
+}
+
 // The search-pattern parsing, string extraction, and byte-level
 // match logic live in the shared `crate::inspect` module so the CLI
 // can use the same code. Re-exported here for the convenience of
@@ -142,6 +153,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         // the `on_window_should_close` handler to avoid persisting a
         // stale snapshot if the user toggled the pref mid-session.
         let prefs_at_open = Prefs::load();
+        // Seed the accent from prefs before the first paint: our own
+        // palette global, plus the embedded gpui-component theme's
+        // primary so its widgets (radio dots, focus rings) match.
+        // Must run after `Theme::change` above (which resets colors).
+        theme::set_accent_hex(prefs_at_open.accent_color);
+        apply_accent_to_component_theme(cx);
         let bounds = prefs_at_open
             .restore_window_bounds
             .then(|| {
@@ -644,6 +661,23 @@ impl AppView {
             self.hex_scroll.scroll_to_item(top, ScrollStrategy::Top);
         }
         self.persist_font_size(cx);
+    }
+
+    /// Settings → Appearance accent swatch. Updates our palette
+    /// global + the gpui-component theme primary, persists the
+    /// choice, and re-renders. The pop-out log window picks it up
+    /// for free via its observe subscription on this AppView.
+    pub fn set_accent(&mut self, hex: u32, cx: &mut Context<Self>) {
+        if self.prefs.accent_color == hex {
+            return;
+        }
+        self.prefs.accent_color = hex;
+        theme::set_accent_hex(hex);
+        apply_accent_to_component_theme(cx);
+        if let Err(e) = self.prefs.save() {
+            self.push_log(format!("accent save failed: {e}"));
+        }
+        cx.notify();
     }
 
     /// Settings → Log timestamps toggle. Storage stays UTC; this

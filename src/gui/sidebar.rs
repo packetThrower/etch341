@@ -189,7 +189,7 @@ fn item(
             }),
         );
     if active {
-        row = row.bg(theme::accent_blue_tint());
+        row = row.bg(theme::accent_tint());
     }
     row
 }

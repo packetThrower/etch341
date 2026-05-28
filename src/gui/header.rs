@@ -41,8 +41,8 @@ pub fn render(conn: &Connection, progress: &SharedProgress) -> impl IntoElement 
             .px_2()
             .py_0p5()
             .rounded(px(4.0))
-            .bg(theme::accent_blue_tint())
-            .text_color(theme::accent_blue())
+            .bg(theme::accent_tint())
+            .text_color(theme::accent())
             .child(activity)
     } else {
         div().text_color(theme::text_tertiary()).child(activity)

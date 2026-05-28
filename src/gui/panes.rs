@@ -7,6 +7,7 @@ use gpui::{
 use gpui_component::group_box::{GroupBox, GroupBoxVariants as _};
 use gpui_component::input::{Input, InputState};
 use gpui_component::radio::{Radio, RadioGroup};
+use gpui_component::tooltip::Tooltip;
 use gpui_component::{Sizable as _, Size};
 use std::collections::HashSet;
 use std::path::Path;
@@ -367,6 +368,25 @@ fn settings_pane(
             |this, cx| this.toggle_restore_window_bounds(cx),
         ));
 
+    // Appearance section: accent-color swatches. The selected
+    // swatch is read straight from the theme global (set_accent
+    // updates it before the re-render), so it needn't be threaded
+    // through PaneInputs.
+    let current_accent = theme::accent_hex();
+    let mut swatches = div().flex().flex_row().flex_wrap().gap_3();
+    for &(name, hex) in theme::ACCENT_PRESETS {
+        swatches = swatches.child(accent_swatch(name, hex, hex == current_accent, cx));
+    }
+    let appearance_box = GroupBox::new()
+        .id("settings-appearance")
+        .outline()
+        .title("Appearance")
+        .child(body(
+            "Accent color used across buttons, selections, toggles, and \
+             controls. Click a swatch.",
+        ))
+        .child(swatches);
+
     // Hex viewer section: two font-size rows (hex grid + strings
     // list). Mirrors the Cmd/Ctrl + / - / 0 keybindings — both
     // surfaces mutate the same prefs values, so changes round-trip
@@ -530,6 +550,7 @@ fn settings_pane(
                     .child(speed_box)
                     .child(read_box)
                     .child(window_box)
+                    .child(appearance_box)
                     .child(hex_box)
                     .child(log_box)
                     .child(prefs_box),
@@ -549,6 +570,41 @@ fn section_label(text: &'static str) -> impl IntoElement {
         .child(text)
 }
 
+/// One accent-color swatch in Settings → Appearance: a filled circle
+/// that gains a white halo ring (a 2px gap + 2px border) when it's
+/// the active accent. `name` is the tooltip and the element id.
+fn accent_swatch(
+    name: &'static str,
+    hex: u32,
+    selected: bool,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
+    div()
+        .id(name)
+        .p_0p5()
+        .rounded_full()
+        .border_2()
+        .border_color(if selected {
+            theme::text_primary()
+        } else {
+            gpui::transparent_black()
+        })
+        .cursor_pointer()
+        .child(
+            div()
+                .w(px(22.0))
+                .h(px(22.0))
+                .rounded_full()
+                .bg(theme::swatch_color(hex)),
+        )
+        .tooltip(move |window, cx| Tooltip::new(name).build(window, cx))
+        .on_click(
+            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+                this.set_accent(hex, cx);
+            }),
+        )
+}
+
 /// Switch-style row: label on the left, a small pill on the right
 /// that fills when `active`. Mirrors `speed_row`'s shape (clickable
 /// the whole way across, hover tint, accent-blue when on) so the
@@ -565,7 +621,7 @@ where
 {
     let knob_x = if active { px(18.0) } else { px(2.0) };
     let track_bg = if active {
-        theme::accent_blue()
+        theme::accent()
     } else {
         theme::workshop_glass_strong()
     };
@@ -677,8 +733,8 @@ where
         .rounded(px(4.0))
         .text_size(px(13.0))
         .text_color(theme::text_primary())
-        .bg(theme::accent_blue())
-        .hover(|d| d.bg(theme::accent_blue_hover()))
+        .bg(theme::accent())
+        .hover(|d| d.bg(theme::accent_hover()))
         .cursor_pointer()
         .child(label)
         .on_click(
@@ -976,7 +1032,7 @@ where
             }),
         );
     if active {
-        btn = btn.bg(theme::accent_blue_tint());
+        btn = btn.bg(theme::accent_tint());
     } else {
         btn = btn.hover(|d| d.bg(theme::workshop_glass_strong()));
     }
@@ -1015,7 +1071,7 @@ fn strings_view(
                     .hover(|d| d.bg(theme::workshop_glass_strong()))
                     .child(
                         div()
-                            .text_color(theme::accent_blue())
+                            .text_color(theme::accent())
                             .child(format!("{:08X}", offset_val)),
                     )
                     .child(highlight_string_row(s, &needle))
@@ -1081,7 +1137,7 @@ fn highlight_string_row(haystack: &str, needle: &str) -> impl IntoElement {
     row.children(segments.into_iter().map(|(text, hit)| {
         div()
             .text_color(if hit {
-                theme::accent_blue()
+                theme::accent()
             } else {
                 theme::text_primary()
             })
@@ -1137,7 +1193,7 @@ fn hex_view(
                     weak.clone(),
                 );
                 if Some(i) == highlight_line {
-                    row.bg(theme::accent_blue_tint())
+                    row.bg(theme::accent_tint())
                 } else if (i / 8) % 2 == 1 {
                     row.bg(theme::workshop_glass())
                 } else {
@@ -1277,7 +1333,7 @@ fn byte_cell(
     weak: WeakEntity<AppView>,
 ) -> gpui::Stateful<gpui::Div> {
     let color = if is_match {
-        theme::accent_blue()
+        theme::accent()
     } else {
         base_color
     };
@@ -1290,7 +1346,7 @@ fn byte_cell(
     if is_selected {
         d = d.bg(theme::selection_tint());
     } else if is_match {
-        d = d.bg(theme::accent_blue_tint());
+        d = d.bg(theme::accent_tint());
     }
     let weak_down = weak.clone();
     let weak_move = weak;
@@ -2203,8 +2259,8 @@ where
     F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
 {
     styled_button(id)
-        .bg(theme::accent_blue())
-        .hover(|d| d.bg(theme::accent_blue_hover()))
+        .bg(theme::accent())
+        .hover(|d| d.bg(theme::accent_hover()))
         .child(label)
         .on_click(
             cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
@@ -2233,7 +2289,7 @@ where
     let (label, bg) = if armed {
         (armed_label, theme::caution_red())
     } else {
-        (idle_label, theme::accent_blue())
+        (idle_label, theme::accent())
     };
     styled_button(id).bg(bg).child(label).on_click(cx.listener(
         move |this: &mut AppView, _: &ClickEvent, _, cx| {

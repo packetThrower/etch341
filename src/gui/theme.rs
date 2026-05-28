@@ -2,6 +2,7 @@
 //! theme only.
 
 use gpui::{Hsla, Rgba};
+use std::sync::RwLock;
 
 /// Cross-platform monospace family for hex / address columns / log
 /// timestamps / preferences path display / anywhere we want
@@ -60,20 +61,70 @@ pub fn workshop_glass_strong() -> Hsla {
     from_rgb(0xFFFFFF, 0.10)
 }
 
-/// Single accent. Used sparingly — one blue per visible region.
-pub fn accent_blue() -> Hsla {
-    from_rgb(0x0A84FF, 1.0)
+/// Default accent (Apple "blue"). The accent is user-selectable via
+/// Settings → Appearance; this is the value a fresh install starts
+/// at and the fallback the swatches compare against.
+pub const DEFAULT_ACCENT_HEX: u32 = 0x0A84FF;
+
+/// Curated accent presets shown as swatches in Settings. All chosen
+/// to keep white button labels legible on top. Stored as
+/// `(name, 0xRRGGBB)`; the name is the swatch tooltip.
+pub const ACCENT_PRESETS: &[(&str, u32)] = &[
+    ("Blue", 0x0A84FF),
+    ("Purple", 0xBF5AF2),
+    ("Pink", 0xFF375F),
+    ("Red", 0xFF453A),
+    ("Orange", 0xFF9F0A),
+    ("Green", 0x30D158),
+    ("Teal", 0x40CBE0),
+    ("Graphite", 0x8E8E93),
+];
+
+/// Current accent, stored as a hex RGB. A process-global rather than
+/// threaded through every render call: the palette functions are
+/// called all over the render tree and only ever read on the (single)
+/// UI thread. `gui::run` seeds it from prefs at startup and
+/// `AppView::set_accent` updates it when the user picks a swatch.
+static ACCENT_HEX: RwLock<u32> = RwLock::new(DEFAULT_ACCENT_HEX);
+
+pub fn accent_hex() -> u32 {
+    *ACCENT_HEX.read().unwrap()
 }
-pub fn accent_blue_hover() -> Hsla {
-    from_rgb(0x409CFF, 1.0)
+pub fn set_accent_hex(hex: u32) {
+    *ACCENT_HEX.write().unwrap() = hex;
 }
-pub fn accent_blue_tint() -> Hsla {
-    from_rgb(0x007AFF, 0.25)
+
+/// Opaque color from a hex RGB — used to paint the preset swatches.
+pub fn swatch_color(hex: u32) -> Hsla {
+    from_rgb(hex, 1.0)
+}
+
+/// Single accent. Used sparingly — one accent per visible region.
+/// Reads the user's chosen color; hover / active / tint are derived
+/// from it so any accent gets a consistent lighter-on-hover,
+/// darker-on-press, and translucent-tint treatment.
+pub fn accent() -> Hsla {
+    from_rgb(accent_hex(), 1.0)
+}
+pub fn accent_hover() -> Hsla {
+    let mut h = accent();
+    h.l = (h.l + 0.12).min(1.0);
+    h
+}
+pub fn accent_active() -> Hsla {
+    let mut h = accent();
+    h.l = (h.l - 0.08).max(0.0);
+    h
+}
+pub fn accent_tint() -> Hsla {
+    let mut h = accent();
+    h.a = 0.25;
+    h
 }
 
 /// Background tint for selected hex bytes. Neutral (white-ish) so
 /// it reads as "selected" rather than "matched" — search matches
-/// already use accent_blue_tint, and the two need to be visually
+/// already use `accent_tint`, and the two need to be visually
 /// distinct when a selection covers a match.
 pub fn selection_tint() -> Hsla {
     from_rgb(0xFFFFFF, 0.18)

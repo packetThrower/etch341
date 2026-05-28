@@ -46,6 +46,10 @@ pub struct Prefs {
     /// behaviour and is what shows up in any log files we'd add
     /// later.
     pub timestamp_local: bool,
+    /// Accent color as a `0xRRGGBB` value, chosen from the Settings
+    /// → Appearance swatches. Drives both etch341's own accent and
+    /// the embedded gpui-component widgets' primary color.
+    pub accent_color: u32,
 }
 
 /// On-disk snapshot of the window's position + size. Stored as
@@ -84,6 +88,10 @@ impl Default for Prefs {
             hex_font_size: HEX_FONT_DEFAULT,
             strings_font_size: HEX_FONT_DEFAULT,
             timestamp_local: false,
+            // Apple "blue"; mirrors gui::theme::DEFAULT_ACCENT_HEX
+            // (kept in sync by hand — prefs is the non-GUI layer and
+            // can't reach the feature-gated theme module).
+            accent_color: 0x0A84FF,
         }
     }
 }
