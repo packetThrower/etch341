@@ -2307,20 +2307,20 @@ fn styled_button(id: &'static str) -> gpui::Stateful<gpui::Div> {
     // for visual consistency, while longer labels (Run blank check)
     // grow to fit. `self_start` opts the button out of the parent
     // `flex_col` cross-axis stretch so it hugs its intrinsic width +
-    // padding rather than filling the pane. Tightened from the
-    // original `px_4`/`py_2` + default text size — the bulky CTAs
-    // read as out of proportion against the rest of the chrome.
+    // padding rather than filling the pane. Sized down a notch from
+    // the previous `py_1p5` + 13px + 96px floor — the CTAs read a
+    // touch big against the rest of the chrome.
     div()
         .id(id)
         .self_start()
         .flex()
         .items_center()
         .justify_center()
-        .min_w(px(96.0))
+        .min_w(px(84.0))
         .px_3()
-        .py_1p5()
+        .py_1()
         .rounded(px(6.0))
-        .text_size(px(13.0))
+        .text_size(px(12.0))
         .text_color(theme::text_primary())
         .cursor_pointer()
 }
