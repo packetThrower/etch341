@@ -267,8 +267,7 @@ fn settings_pane(
             }
         }));
     for &(_, label) in speeds {
-        radio_group =
-            radio_group.child(Radio::new(label).label(label).with_size(Size::Small));
+        radio_group = radio_group.child(Radio::new(label).label(label).with_size(Size::Small));
     }
     let speed_box = GroupBox::new()
         .id("settings-speed")
@@ -376,31 +375,25 @@ fn settings_pane(
             // Right-aligned reset chip. Sized to match the +/- chips
             // (24px tall, padded for the longer label) so the
             // GroupBox doesn't get a chunky CTA at the bottom.
-            div()
-                .flex()
-                .flex_row()
-                .justify_end()
-                .child(
-                    div()
-                        .id("hex-font-reset")
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .h(px(24.0))
-                        .px_3()
-                        .rounded(px(4.0))
-                        .text_size(px(12.0))
-                        .text_color(theme::text_primary())
-                        .bg(theme::workshop_glass_strong())
-                        .hover(|d| d.bg(theme::workshop_glass()))
-                        .cursor_pointer()
-                        .child("Reset to defaults")
-                        .on_click(cx.listener(
-                            |this: &mut AppView, _: &ClickEvent, _, cx| {
-                                this.reset_hex_fonts(cx);
-                            },
-                        )),
-                ),
+            div().flex().flex_row().justify_end().child(
+                div()
+                    .id("hex-font-reset")
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .h(px(24.0))
+                    .px_3()
+                    .rounded(px(4.0))
+                    .text_size(px(12.0))
+                    .text_color(theme::text_primary())
+                    .bg(theme::workshop_glass_strong())
+                    .hover(|d| d.bg(theme::workshop_glass()))
+                    .cursor_pointer()
+                    .child("Reset to defaults")
+                    .on_click(cx.listener(|this: &mut AppView, _: &ClickEvent, _, cx| {
+                        this.reset_hex_fonts(cx);
+                    })),
+            ),
         );
 
     // Preferences file section. Button hidden when there's no real
@@ -452,28 +445,23 @@ fn settings_pane(
         .min_h(px(0.0))
         .overflow_y_scroll()
         .child(
-            div()
-                .w_full()
-                .flex()
-                .flex_row()
-                .justify_center()
-                .child(
-                    div()
-                        .flex_1()
-                        .max_w(px(680.0))
-                        .min_w(px(0.0))
-                        .flex()
-                        .flex_col()
-                        .gap_4()
-                        .px_5()
-                        .py_5()
-                        .child(heading("Settings"))
-                        .child(speed_box)
-                        .child(read_box)
-                        .child(window_box)
-                        .child(hex_box)
-                        .child(prefs_box),
-                ),
+            div().w_full().flex().flex_row().justify_center().child(
+                div()
+                    .flex_1()
+                    .max_w(px(680.0))
+                    .min_w(px(0.0))
+                    .flex()
+                    .flex_col()
+                    .gap_4()
+                    .px_5()
+                    .py_5()
+                    .child(heading("Settings"))
+                    .child(speed_box)
+                    .child(read_box)
+                    .child(window_box)
+                    .child(hex_box)
+                    .child(prefs_box),
+            ),
         )
 }
 

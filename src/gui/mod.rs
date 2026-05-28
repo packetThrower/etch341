@@ -535,15 +535,12 @@ impl AppView {
     /// different row at the new row height and the viewport "jumps."
     /// The row-height arithmetic mirrors `hex_view`'s `+5` formula.
     pub fn nudge_hex_font(&mut self, delta: f32, cx: &mut Context<Self>) {
-        let next = (self.prefs.hex_font_size + delta).clamp(
-            crate::prefs::HEX_FONT_MIN,
-            crate::prefs::HEX_FONT_MAX,
-        );
+        let next = (self.prefs.hex_font_size + delta)
+            .clamp(crate::prefs::HEX_FONT_MIN, crate::prefs::HEX_FONT_MAX);
         if (next - self.prefs.hex_font_size).abs() < f32::EPSILON {
             return;
         }
-        let top =
-            uniform_list_top_index(&self.hex_scroll, self.prefs.hex_font_size + 5.0);
+        let top = uniform_list_top_index(&self.hex_scroll, self.prefs.hex_font_size + 5.0);
         self.prefs.hex_font_size = next;
         self.hex_scroll.scroll_to_item(top, ScrollStrategy::Top);
         self.persist_font_size(cx);
@@ -557,17 +554,12 @@ impl AppView {
     /// produces with default line-height for mono fonts in the
     /// 8-24px range.
     pub fn nudge_strings_font(&mut self, delta: f32, cx: &mut Context<Self>) {
-        let next = (self.prefs.strings_font_size + delta).clamp(
-            crate::prefs::HEX_FONT_MIN,
-            crate::prefs::HEX_FONT_MAX,
-        );
+        let next = (self.prefs.strings_font_size + delta)
+            .clamp(crate::prefs::HEX_FONT_MIN, crate::prefs::HEX_FONT_MAX);
         if (next - self.prefs.strings_font_size).abs() < f32::EPSILON {
             return;
         }
-        let top = uniform_list_top_index(
-            &self.strings_scroll,
-            self.prefs.strings_font_size + 4.0,
-        );
+        let top = uniform_list_top_index(&self.strings_scroll, self.prefs.strings_font_size + 4.0);
         self.prefs.strings_font_size = next;
         self.strings_scroll.scroll_to_item(top, ScrollStrategy::Top);
         self.persist_font_size(cx);
@@ -607,16 +599,12 @@ impl AppView {
             return;
         }
         if self.hex_show_strings {
-            let top = uniform_list_top_index(
-                &self.strings_scroll,
-                self.prefs.strings_font_size + 4.0,
-            );
-            self.prefs.strings_font_size = crate::prefs::HEX_FONT_DEFAULT;
-            self.strings_scroll
-                .scroll_to_item(top, ScrollStrategy::Top);
-        } else {
             let top =
-                uniform_list_top_index(&self.hex_scroll, self.prefs.hex_font_size + 5.0);
+                uniform_list_top_index(&self.strings_scroll, self.prefs.strings_font_size + 4.0);
+            self.prefs.strings_font_size = crate::prefs::HEX_FONT_DEFAULT;
+            self.strings_scroll.scroll_to_item(top, ScrollStrategy::Top);
+        } else {
+            let top = uniform_list_top_index(&self.hex_scroll, self.prefs.hex_font_size + 5.0);
             self.prefs.hex_font_size = crate::prefs::HEX_FONT_DEFAULT;
             self.hex_scroll.scroll_to_item(top, ScrollStrategy::Top);
         }
