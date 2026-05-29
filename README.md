@@ -367,10 +367,11 @@ src/
 ├── prefs.rs      ~/.config/etch341/prefs.toml load/save (GUI settings)
 └── gui/          GPUI frontend; behind the `gui` cargo feature (default-on)
 
-chips/chips.toml      62 SPI NOR entries across Winbond (W25X, W25Q,
+chips/chips.toml      70 SPI NOR entries across Winbond (W25X, W25Q,
                       W25Q*JW 1.8V), Macronix (MX25L, MX25U 1.8V),
                       GigaDevice (GD25Q, GD25LQ 1.8V), SST25VF,
-                      Adesto AT25DN/SF, EON EN25QH, PUYA P25Q, ISSI IS25LP
+                      Adesto AT25 (SF/DF/SL 1.8V/DN), EON EN25QH,
+                      PUYA P25Q, ISSI IS25LP
 chips/i2c_chips.toml  10 I²C EEPROM entries (24C01 .. 24C512)
 ```
 

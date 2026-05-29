@@ -13,6 +13,14 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
   2.3V, dual-read, JEDEC `1F6501`). This part exposes no SFDP
   table, so it needs an explicit database entry to be recognized
   by name — silicon-confirmed against a real chip.
+- **Eight more Adesto / Atmel AT25 parts** rounding out the
+  family: AT25SF321 (4 Mbit); the AT25DF series AT25DF041A /
+  081A / 161 / 321A / 641 (4–64 Mbit, 3.3V); and the 1.8V
+  AT25SL321 / AT25SL128A (32 / 128 Mbit). JEDEC IDs were
+  cross-referenced across independent published vendor ID tables
+  (datasheet-sourced, not yet silicon-tested — `detect` flags them
+  as such in the notes). The 1.8V SL parts need a 1.8V-capable
+  programmer. SPI NOR database is now 70 entries.
 
 ### Changed
 

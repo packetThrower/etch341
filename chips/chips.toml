@@ -467,7 +467,9 @@ sector_size = 4096
 erase_time_ms = 25
 notes = "SST 64 Mbit"
 
-# --- Adesto / Atmel AT25SF (manufacturer 0x1F) --------------------
+# --- Adesto / Atmel AT25 (SF/DF 3.3V, SL 1.8V, DN low-V; mfr 0x1F) ---
+# JEDEC IDs for the SF/DF/SL parts are cross-referenced from published
+# vendor ID tables, not yet silicon-confirmed (only AT25DN512C is).
 
 [[chip]]
 name = "AT25SF041"
@@ -497,6 +499,15 @@ erase_time_ms = 50
 notes = "Adesto 16 Mbit"
 
 [[chip]]
+name = "AT25SF321"
+jedec_id = "1F8701"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Adesto 32 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
 name = "AT25DN512C"
 jedec_id = "1F6501"
 size_kb = 64
@@ -504,6 +515,71 @@ page_size = 256
 sector_size = 4096
 erase_time_ms = 50
 notes = "Adesto/Atmel 512 Kbit, 2.3V, dual-read; no SFDP. Silicon-confirmed JEDEC 1F6501."
+
+# AT25DF (3.3V, older DataFlash-branded standard SPI NOR)
+[[chip]]
+name = "AT25DF041A"
+jedec_id = "1F4401"
+size_kb = 512
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Adesto/Atmel 4 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "AT25DF081A"
+jedec_id = "1F4501"
+size_kb = 1024
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Adesto/Atmel 8 Mbit, 3.3V (also sold as AT26DF081A). Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "AT25DF161"
+jedec_id = "1F4602"
+size_kb = 2048
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Adesto/Atmel 16 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "AT25DF321A"
+jedec_id = "1F4701"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Adesto/Atmel 32 Mbit, 3.3V — very common on routers/embedded. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "AT25DF641"
+jedec_id = "1F4800"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Adesto/Atmel 64 Mbit, 3.3V (641 and 641A share this ID). Datasheet-sourced JEDEC (not silicon-tested)."
+
+# AT25SL (1.8V — needs a 1.8V-capable programmer)
+[[chip]]
+name = "AT25SL321"
+jedec_id = "1F4216"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Adesto/Atmel 32 Mbit, 1.8V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "AT25SL128A"
+jedec_id = "1F4218"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Adesto/Atmel 128 Mbit, 1.8V. Datasheet-sourced JEDEC (not silicon-tested)."
 
 # --- EON EN25Q / EN25QH (manufacturer 0x1C) -----------------------
 # Eon Silicon Solution. The QH variant is Winbond-compatible —

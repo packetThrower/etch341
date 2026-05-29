@@ -8,7 +8,7 @@ etch341's chip database lives in two TOML files at the repo root,
 embedded into the binary at build time via `include_str!`. Running
 `etch341 chips` from the CLI lists the live, in-binary set.
 
-## SPI NOR (62 entries)
+## SPI NOR (70 entries)
 
 Source: `chips/chips.toml`. Listed `jedec_id` is the 3-byte
 response to opcode `0x9F`, formatted as 6 uppercase hex chars.
@@ -91,6 +91,29 @@ Common in newer Intel + AMD BIOS chips and M.2 modules. Needs a
 | GD25LQ64 | C86017 | 8 MB | 1.8V |
 | GD25LQ128 | C86018 | 16 MB | 1.8V |
 
+### Adesto / Atmel AT25 (manufacturer 0x1F)
+
+Adesto's AT25 line spans three voltage classes: the **SF** and
+**DF** families are 3.3V, the **SL** family is 1.8V (needs a
+1.8V-capable programmer), and the low-voltage **DN** part runs
+from 2.3V. Only AT25DN512C is silicon-confirmed; the rest carry
+JEDEC IDs cross-referenced from published vendor ID tables.
+
+| Chip | JEDEC | Size | Voltage | Notes |
+|---|---|---|---|---|
+| AT25SF041 | 1F8401 | 512 KB | 3.3V | |
+| AT25SF081 | 1F8501 | 1 MB | 3.3V | |
+| AT25SF161 | 1F8601 | 2 MB | 3.3V | |
+| AT25SF321 | 1F8701 | 4 MB | 3.3V | |
+| AT25DF041A | 1F4401 | 512 KB | 3.3V | |
+| AT25DF081A | 1F4501 | 1 MB | 3.3V | also sold as AT26DF081A |
+| AT25DF161 | 1F4602 | 2 MB | 3.3V | |
+| AT25DF321A | 1F4701 | 4 MB | 3.3V | very common on routers / embedded |
+| AT25DF641 | 1F4800 | 8 MB | 3.3V | 641 and 641A share this ID |
+| AT25SL321 | 1F4216 | 4 MB | 1.8V | |
+| AT25SL128A | 1F4218 | 16 MB | 1.8V | |
+| AT25DN512C | 1F6501 | 64 KB | 2.3V | no SFDP; silicon-confirmed |
+
 ### Other 3.3V families
 
 | Chip | JEDEC | Size | Manufacturer |
@@ -98,10 +121,6 @@ Common in newer Intel + AMD BIOS chips and M.2 modules. Needs a
 | SST25VF016B | BF2541 | 2 MB | SST (AAI word-program) |
 | SST25VF032B | BF254A | 4 MB | SST |
 | SST25VF064C | BF254B | 8 MB | SST |
-| AT25DN512C | 1F6501 | 64 KB | Adesto (no SFDP) |
-| AT25SF041 | 1F8401 | 512 KB | Adesto |
-| AT25SF081 | 1F8501 | 1 MB | Adesto |
-| AT25SF161 | 1F8601 | 2 MB | Adesto |
 | EN25QH32 | 1C7016 | 4 MB | EON |
 | EN25QH64 | 1C7017 | 8 MB | EON |
 | EN25QH128 | 1C7018 | 16 MB | EON |

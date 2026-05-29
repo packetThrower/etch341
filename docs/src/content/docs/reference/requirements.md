@@ -32,7 +32,7 @@ requirements and runs on any of the OSes above.
 | **Connection** | SOIC-8 clip for in-circuit programming, or insert the chip directly into the ZIF socket. Both work. |
 
 The chip itself can be SPI NOR flash (any of the
-[62 entries in the chip database](/etch341/reference/chips/), plus
+[70 entries in the chip database](/etch341/reference/chips/), plus
 unknown chips via `--chip` override) or a 24Cxx I²C EEPROM (10
 families in the database).
 
