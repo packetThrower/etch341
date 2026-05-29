@@ -753,6 +753,20 @@ impl AppView {
             cx.notify();
             return;
         };
+        // Defense-in-depth: the URL comes from the GitHub API JSON,
+        // and we hand it to the OS opener. There's no shell (it's a
+        // `Command` arg, not `sh -c`), so no command injection — but
+        // a tampered response (e.g. a defeated-TLS MITM) could swap
+        // in a non-web scheme like `file:` / `smb:` that the opener
+        // would happily launch. Require https:// before spawning.
+        if !update.html_url.starts_with("https://") {
+            self.push_log(format!(
+                "refusing to open release URL with unexpected scheme: {}",
+                update.html_url
+            ));
+            cx.notify();
+            return;
+        }
         // Same per-OS launcher as `open_prefs_folder`; all three
         // accept a URL and hand it to the default browser.
         #[cfg(target_os = "macos")]
