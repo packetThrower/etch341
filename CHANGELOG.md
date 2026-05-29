@@ -7,6 +7,26 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+### Changed
+
+- **GUI read dumps get human-readable filenames** —
+  `etch341-read-<date>_<time>.bin` in local time (e.g.
+  `etch341-read-2026-05-29_14-03-07.bin`) instead of the raw
+  seconds-since-epoch suffix. Sorts chronologically, uses hyphens
+  (not colons) so it's legal on Windows and tidy in Finder.
+
+### Fixed
+
+- **Pop-out activity log now re-docks on Linux/X11** when its
+  window is closed. The re-dock was wired through
+  `on_window_should_close`, which gpui doesn't route from the X11
+  window manager's close button; it's now tied to the log window's
+  entity teardown, which fires however the window closed. (#1)
+- **Activity log stays pinned to the newest line when the log pane
+  is resized.** Dragging the splitter changed the viewport height
+  without re-requesting the paint-time scroll-to-bottom, so the
+  view drifted off the latest entry. (#2)
+
 ## [0.5.0-beta.1] — 2026-05-28
 
 First beta of the 0.5.0 line — a big GUI pass plus OTP support.

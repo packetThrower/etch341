@@ -55,9 +55,11 @@ host controller is actively pulling the line low. See
 
 ## Read
 
-Picks a known chip, reads its full contents to a file. The file
-goes to a timestamped path under `~` by default; the Hex pane can
-then open that file for inspection.
+Picks a known chip, reads its full contents to a file. The file is
+named `etch341-read-<date>_<time>.bin` (local time, e.g.
+`etch341-read-2026-05-29_14-03-07.bin`) and lands in your home
+directory by default — change the folder in Settings → Read save
+location. The Hex pane can then open that file for inspection.
 
 ## Erase, Write, Verify
 

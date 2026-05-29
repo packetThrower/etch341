@@ -47,7 +47,8 @@ priority order.
       ~1-2 hr. Pairs naturally with the `etch341 diff` work above
       since both walk the same page-by-page comparison.
 - [ ] **Auto-backup before destructive ops** — snapshot the chip
-      to `<read-output-dir>/etch341-backup-<unix>.bin` before any
+      to `<read-output-dir>/etch341-backup-<date>_<time>.bin`
+      (same local-time naming as read dumps) before any
       `erase` or `write` op runs, controlled by a Settings toggle
       (and an `--auto-backup` / `--no-backup` CLI flag). Cheap
       insurance against the "I forgot to Read first" foot-gun;

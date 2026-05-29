@@ -2143,17 +2143,28 @@ impl AppView {
 
 /// Pick a filename for the next read dump. Uses the directory the
 /// user set in Settings (`prefs.read_output_dir`) if any, otherwise
-/// `$HOME` so the dump persists past reboots. The seconds-since-epoch
-/// suffix makes consecutive reads land in distinct files.
+/// `$HOME` so the dump persists past reboots. The local-time
+/// `YYYY-MM-DD_HH-MM-SS` suffix makes consecutive reads land in
+/// distinct, human-readable files that still sort chronologically.
+/// Hyphens (not colons) in the time so the name is legal on Windows
+/// and tidy in Finder.
 fn read_output_path(prefs: &Prefs) -> std::path::PathBuf {
     let dir = prefs.read_output_dir.clone().unwrap_or_else(|| {
         std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()))
     });
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    dir.join(format!("etch341-read-{secs}.bin"))
+    // Local wall-clock; fall back to UTC if the offset can't be
+    // determined (the `time` crate's documented thread edge case).
+    let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    let stamp = format!(
+        "{:04}-{:02}-{:02}_{:02}-{:02}-{:02}",
+        now.year(),
+        now.month() as u8,
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second(),
+    );
+    dir.join(format!("etch341-read-{stamp}.bin"))
 }
 
 impl Render for AppView {
