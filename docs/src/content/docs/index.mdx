@@ -73,6 +73,12 @@ GUI, any subcommand runs in CLI mode.
     (24C01) to 64 KB (24C512). Handles the bit-stuffing convention
     for the 24C04 / 08 / 16 sub-families automatically.
   </Card>
+  <Card title="Security registers" icon="puzzle">
+    Read, erase, and program the W25Q / GD25Q one-time-programmable
+    security registers (the `0x48` family) — serial numbers, MAC
+    addresses, vendor keys. Decode the SFDP parameter table and the
+    SR1/2/3 status bits too.
+  </Card>
   <Card title="Cross-platform" icon="setting">
     macOS (arm64 + amd64), Windows (amd64 + arm64), Linux (amd64 +
     arm64). Native installers per platform — `.dmg`, `.msi`, `.deb`,
@@ -81,8 +87,9 @@ GUI, any subcommand runs in CLI mode.
   <Card title="CLI + GUI" icon="laptop">
     The same binary opens a GPUI desktop window when you double-click
     it and runs as a CLI when you give it a subcommand. Hex viewer
-    with find / jump / byte selection / copy, live progress for long
-    ops, persistent prefs.
+    with find / jump / byte selection / copy, a pop-out activity log,
+    a selectable accent color, an on-launch update check, and
+    persistent prefs.
   </Card>
 </CardGrid>
 

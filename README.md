@@ -59,17 +59,23 @@ match) to the original VBIOS.
 | Write (with erase + verify) | ✅ | ✅ (arm/confirm + file picker) |
 | Verify | ✅ | ✅ (file picker) |
 | Blank check | ✅ | ✅ |
-| Settings (clock speed, etc.) | ✅ (`--speed`) | ✅ |
+| Status registers (SR1/2/3 decode) | ✅ (`sr`) | ✅ |
+| SFDP parameter table | ✅ (`sfdp`) | ✅ (Detect pane) |
+| Security registers / OTP (read / erase / write) | ✅ (`otp`) | ✅ (arm/confirm) |
+| Settings (clock, accent, updates, …) | ✅ (`--speed`) | ✅ |
 | 4-byte addressing (>16 MB chips) | ✅ | ✅ |
 | I²C scan / read / write / verify / blank-check / erase | ⚠️ \* | — |
 
-> \* Implemented and unit-tested against a mock transport, but **not
-> yet validated against a real 24Cxx chip**. A couple of CH341A
-> protocol details (ACK-bit polarity for the probe path) are
-> documented assumptions in the code that may need a flip when
-> someone runs it on silicon. Reports welcome via GitHub Issues.
+> \* **Scan + read are silicon-validated** against a real 24C02
+> (the probe ACK-bit polarity assumption held — the chip ACKed at
+> `0x50` and round-tripped a 256-byte read). The **write / erase
+> path is still owed a clean-chip validation**: the first attempt
+> bricked a part by clocking it past spec, which is why I²C now
+> defaults to 100 kHz and refuses anything above 400 kHz. Reports
+> from a healthy chip welcome via GitHub Issues.
 
-52 unit tests covering the SPI / I²C protocols, the high-level ops,
+66 unit tests covering the SPI / I²C protocols (including the SFDP
+parser and the OTP / security-register ops), the high-level ops,
 and the inspect/search primitives, all running against mock transports
 or pure inputs. Hardware-touching tests are gated behind
 `--features hardware`.
@@ -90,18 +96,16 @@ JEDEC `detect` on a chip and the response decodes correctly to a
 named entry, the rest of the operations are very likely to work
 (they're chip-agnostic at the protocol level).
 
-### Not yet hardware-validated
+### Partially hardware-validated
 
-- **I²C / 24Cxx EEPROMs.** The protocol layer, the CH341A I²C
-  transport, the CLI subcommands, and the chip database are all
-  in place and pass 16 mock-transport unit tests, but the only
-  attempts at running them on physical hardware have hit chips that
-  turned out to be buck regulators rather than EEPROMs. The first
-  real-EEPROM run is likely to surface a CH341A ACK-bit polarity
-  question (the probe path makes a documented assumption that may
-  need to flip — see comments in `src/ch341.rs`). If you try it
-  against a real chip, please open an issue with whatever `etch341
-  -v i2c scan` prints.
+- **I²C / 24Cxx EEPROMs.** `scan` and `read` are confirmed against a
+  real 24C02 — the chip ACKed at `0x50` and round-tripped a 256-byte
+  read, which validated the probe ACK-bit polarity assumption. The
+  **write / erase path hasn't had a clean-chip run yet**: the first
+  attempt locked up the part by clocking it past its 400 kHz spec
+  (etch341 now defaults I²C to 100 kHz and rejects anything above
+  400). A write-then-read-back loop on a healthy chip is still owed.
+  If you run it, please open an issue with the result.
 
 ## Install
 
@@ -209,6 +213,8 @@ etch341 erase --range 0x10000:0x10000   # erase one 64 KB block
 etch341 verify -i bios.bin           # compare without writing
 etch341 blank-check                  # confirm all 0xFF
 etch341 sr                           # dump SR1/SR2/SR3 with decoded bits
+etch341 sfdp                         # decode the chip's SFDP table
+etch341 otp read                     # dump the security / OTP registers
 ```
 
 I²C EEPROMs (24Cxx family) use the nested `i2c` subcommand.
@@ -240,7 +246,6 @@ for their high memory bits; this is handled automatically.
 
 Supported families: 24C01 / 02 / 04 / 08 / 16 / 32 / 64 / 128 / 256 /
 512. Other 24Cxx chips work if you add an entry to `chips/i2c_chips.toml`.
-```
 
 The CLI also has three offline inspection commands that work on flash
 dump files (no hardware required):
@@ -274,8 +279,10 @@ Global flags:
   chip name from `chips/chips.toml` (e.g. `W25Q128JV`). For I²C and
   for `--dry-run` it's **required** (there's no JEDEC equivalent on
   I²C, and dry-run has no hardware to autodetect).
-- `-s, --speed <KHZ>` — bus clock speed for both SPI and I²C.
-  Supported rates on the CH341A: 20, 100, 400, 750 (default 750).
+- `-s, --speed <KHZ>` — bus clock speed. Supported rates on the
+  CH341A: 20, 100, 400, 750. SPI defaults to 750; **I²C defaults to
+  100 and rejects anything above 400** (the 24Cxx family is spec'd
+  at 400 kHz max — over-clocking one bricked a part during bring-up).
 - `-n, --dry-run` — for hardware-touching commands, validate
   everything possible (chip name in DB, input file is readable,
   start + length fits the chip) and print a `[dry-run]` summary of

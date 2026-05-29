@@ -27,6 +27,8 @@ The window is split into three regions:
 - **Activity log** (bottom) — chronological log of operations,
   results, and errors. Resizable: drag the splitter to give it more
   or less vertical space. The height is persisted across launches.
+  Two chips in its top-right corner: **⧉** pops the log out into its
+  own window, and **×** clears it (see [Activity log](#activity-log)).
 
 The window's own size + position is also persisted, so it opens
 where you left it.
@@ -107,6 +109,12 @@ clipboard. Cmd+C only fires when the Hex pane is the visible pane
 | **Cmd+F** (Ctrl+F on Linux/Windows) | Focus the Find input |
 | **Cmd+G** / **Cmd+Shift+G** | Next / previous match |
 | **Cmd+C** | Copy hex selection (Hex pane only) |
+| **Cmd+=** / **Cmd+-** | Zoom the active view's font in / out |
+| **Cmd+0** | Reset the active view's font size |
+
+(Ctrl on Linux/Windows for all of the above.) The Hex and Strings
+views have independent font sizes — the shortcut zooms whichever is
+visible, and the sizes also have controls in Settings → Hex viewer.
 
 ## Status regs
 
@@ -142,23 +150,66 @@ never sets the one-time lock bits.
 ## Settings
 
 The pane is configuration-only — the activity log is hidden while
-Settings is the active pane so the body has room to breathe.
-Three sections:
+Settings is the active pane so the body has room to breathe. The
+installed version is shown next to the heading, and a small amber
+dot rides the ⚙ Settings sidebar item when a newer release is
+available (see [Updates](#updates) below). Every setting saves
+immediately. The sections:
 
-- **SPI clock speed** selector — 20 / 100 / 400 / 750 kHz. Picks
-  the bus rate every CH341A op uses; saved immediately, the next
-  op picks up the new value when it opens the device.
+- **SPI clock speed** — 20 / 100 / 400 / 750 kHz. The bus rate
+  every CH341A op uses; the next op picks up the new value when it
+  opens the device. (I²C ops cap at 400 kHz regardless — see the
+  [I²C page](/etch341/usage/i2c/#clock-speed).)
+- **Read save location** — where the Read pane writes its dumps.
+  Defaults to your home directory; **Browse** to pick another.
 - **Window — restore window position on startup** toggle. Off by
   default; when on, the window's last bounds are snapshotted on
   graceful close and restored on next launch.
+- **Appearance** — accent color. Pick one of eight swatches; the
+  whole UI recolors live (buttons, selections, toggles, radio dots,
+  sidebar). Button labels switch between dark and light per accent
+  so they stay readable.
+- **Hex viewer** — independent font sizes for the Hex and Strings
+  views, with `−` / `+` steppers and a reset. Mirrors the
+  Cmd/Ctrl + `=` / `-` / `0` shortcuts.
+- **Log timestamps** — show activity-log times in your local time
+  zone or UTC. Storage is always UTC; this only changes the
+  display, and it re-formats existing lines too.
+- **Updates** — toggle the boot-time new-version check, see the
+  current status, and **View release** / **Check now**. Detection
+  only — it never downloads or installs. See [Updates](#updates).
 - **Preferences file** displays the on-disk prefs path
   (`~/.config/etch341/prefs.toml` on Linux/macOS,
   `%APPDATA%\etch341\prefs.toml` on Windows) with an **Open
   folder** button that pops the containing directory in the OS
   file manager (`open` / `explorer` / `xdg-open`).
 
+## Updates
+
+On launch (unless you turn it off in Settings → Updates), etch341
+checks the project's GitHub releases for a newer stable version. If
+one exists, a small amber dot appears on the ⚙ Settings sidebar
+item, and Settings → Updates shows the available version with a
+**View release** button that opens the release page in your browser.
+
+It's **detection only** — etch341 never downloads or replaces
+anything on disk; you choose whether and when to install. The check
+runs on a background thread, so a slow or offline network never
+stalls the UI (it just finds nothing). **Check now** re-runs it on
+demand. Pre-releases are ignored — only stable releases trigger the
+dot.
+
 ## Activity log
 
-Every operation logs `[HH:MM:SS] message` lines, scrollable, with
-the most recent at the bottom. Long lines wrap. Drag the splitter
-above the log to resize it; the height persists.
+Every operation logs `HH:MM:SS message` lines, scrollable, with the
+most recent at the bottom. Long lines wrap. Drag the splitter above
+the log to resize it; the height persists. Timestamps render in UTC
+by default — flip Settings → Log timestamps to local time.
+
+Two chips sit in the log's top-right corner:
+
+- **⧉ Pop out** detaches the log into its own window. It stays live
+  — new lines stream into it and it follows the tail (unless you've
+  scrolled up to read history). Closing the window re-docks the log;
+  while it's popped out, the active pane takes the full height.
+- **×** clears the log.
