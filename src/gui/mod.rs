@@ -839,17 +839,25 @@ impl AppView {
                     let app = app.clone();
                     move |window, cx| {
                         window.set_client_inset(px(10.0));
-                        // Closing the pop-out restores the inline log.
+                        let log_view = cx.new(|cx| log::LogWindow::new(app.clone(), cx));
+                        // Re-dock the inline log when the pop-out closes.
+                        // `observe_release` fires when the LogWindow entity
+                        // tears down — which happens however the window was
+                        // closed (close button, Cmd/Ctrl+W, OS). The earlier
+                        // `on_window_should_close` approach worked on macOS
+                        // but not on X11, where gpui doesn't route the
+                        // window-manager close through that callback, so the
+                        // inline log never came back (issue #1). Tying it to
+                        // entity lifecycle instead is platform-agnostic.
                         let close_app = app.downgrade();
-                        window.on_window_should_close(cx, move |_window, cx| {
+                        cx.observe_release(&log_view, move |_, cx| {
                             let _ = close_app.update(cx, |this, cx| {
                                 this.log_popped_out = false;
                                 this.log_window = None;
                                 cx.notify();
                             });
-                            true
-                        });
-                        let log_view = cx.new(|cx| log::LogWindow::new(app.clone(), cx));
+                        })
+                        .detach();
                         cx.new(|cx| Root::new(log_view, window, cx))
                     }
                 },
@@ -2298,11 +2306,21 @@ impl Render for AppView {
                                                     return;
                                                 };
                                                 let new_h = f32::from(log_size);
-                                                let _ = weak.update(cx, |this, _| {
+                                                let _ = weak.update(cx, |this, cx| {
                                                     if this.prefs.log_panel_height != Some(new_h) {
                                                         this.prefs.log_panel_height = Some(new_h);
                                                         let _ = this.prefs.save();
                                                     }
+                                                    // Keep the log pinned to the newest
+                                                    // line as the pane grows / shrinks.
+                                                    // Resizing changes the viewport height
+                                                    // without appending a line, so the
+                                                    // paint-time scroll-to-bottom flag set
+                                                    // by push_log is stale and the bottom
+                                                    // drifts out of view (issue #2). Re-
+                                                    // request it on every resize tick.
+                                                    this.log_scroll.scroll_to_bottom();
+                                                    cx.notify();
                                                 });
                                             })
                                             .child(resizable_panel().child(
