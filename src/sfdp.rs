@@ -241,7 +241,18 @@ fn parse_bfpt(data: &[u8], header: ParameterHeader) -> Option<Bfpt> {
     let size_bits = if dw2 & 0x8000_0000 == 0 {
         u64::from(dw2) + 1
     } else {
-        1u64 << (dw2 & 0x7FFF_FFFF)
+        // bit-31-set form: capacity = 2^exp bits. Guard the shift —
+        // `exp >= 64` overflows u64 (panics in debug, wraps to a
+        // garbage size in release, which could drive a later read
+        // into a huge allocation). Any real SPI NOR capacity fits
+        // far under 2^63 bits, so an exponent this large means a
+        // corrupt or hostile SFDP table: treat it as "no usable
+        // size" and decline to decode the BFPT.
+        let exp = dw2 & 0x7FFF_FFFF;
+        if exp >= 63 {
+            return None;
+        }
+        1u64 << exp
     };
     let size_bytes = size_bits / 8;
 
@@ -467,5 +478,32 @@ mod tests {
         // 2^32 bits / 8 = 2^29 bytes = 512 MB. That's our expected
         // size for a 4 Gbit part.
         assert_eq!(bfpt.size_bytes, 1u64 << 29);
+    }
+
+    /// A corrupt / hostile SFDP table can set the bit-31 density
+    /// form with an absurd exponent. `1u64 << exp` for `exp >= 64`
+    /// would overflow (panic in debug, garbage size in release);
+    /// the parser must decline to decode the BFPT instead.
+    #[test]
+    fn oversized_density_exponent_yields_no_bfpt() {
+        // (1 << 31) | 0x7FFF_FFFF → bit-31 set, exponent = 0x7FFFFFFF.
+        let dw2 = 0xFFFF_FFFFu32;
+        let mut d = vec![0u8; 256];
+        d[0..4].copy_from_slice(b"SFDP");
+        d[6] = 0x00;
+        d[7] = 0xFF;
+        d[8] = 0x00;
+        d[11] = 16;
+        d[12] = 0x40;
+        d[15] = 0xFF;
+        d[0x40..0x44].fill(0);
+        d[0x44..0x48].copy_from_slice(&dw2.to_le_bytes());
+        let s = parse(&d);
+        // Header + parameter header still parse; only the BFPT bails.
+        assert!(s.header.valid);
+        assert!(
+            s.bfpt.is_none(),
+            "an out-of-range density exponent must not decode (and must not panic)"
+        );
     }
 }
