@@ -46,6 +46,9 @@ pub enum Error {
         source: toml::de::Error,
     },
 
+    #[error("Chip DB invalid: {0}")]
+    ChipDbInvalid(String),
+
     #[error("Timed out waiting for chip to become ready (WIP stayed set)")]
     Timeout,
 

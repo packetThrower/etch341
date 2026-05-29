@@ -58,6 +58,7 @@ impl ChipDb {
             path: path.display().to_string(),
             source,
         })?;
+        validate_chips(&parsed.chip).map_err(Error::ChipDbInvalid)?;
         Ok(Self { chips: parsed.chip })
     }
 
@@ -67,6 +68,8 @@ impl ChipDb {
         const TOML: &str = include_str!("../chips/chips.toml");
         let parsed: ChipFile = toml::from_str(TOML)
             .expect("embedded chips/chips.toml failed to parse (build-time bug)");
+        validate_chips(&parsed.chip)
+            .unwrap_or_else(|e| panic!("embedded chips/chips.toml invalid (build-time bug): {e}"));
         Self { chips: parsed.chip }
     }
 
@@ -132,6 +135,9 @@ impl I2cChipDb {
         const TOML: &str = include_str!("../chips/i2c_chips.toml");
         let parsed: I2cChipFile = toml::from_str(TOML)
             .expect("embedded chips/i2c_chips.toml failed to parse (build-time bug)");
+        validate_i2c_chips(&parsed.chip).unwrap_or_else(|e| {
+            panic!("embedded chips/i2c_chips.toml invalid (build-time bug): {e}")
+        });
         Self { chips: parsed.chip }
     }
 
@@ -144,6 +150,49 @@ impl I2cChipDb {
     pub fn iter(&self) -> impl Iterator<Item = &I2cChip> {
         self.chips.iter()
     }
+}
+
+/// Reject SPI chip entries that would later panic or divide-by-zero
+/// at the op layer: `page_size` / `sector_size` are denominators in
+/// the size arithmetic (`ops::print_chip_facts`) and a zero
+/// `size_kb` is meaningless. The bundled DB is validated at
+/// `load_embedded` (a bad edit fails CI), and any future
+/// file-loaded DB fails with a typed error rather than panicking
+/// deep in an operation.
+fn validate_chips(chips: &[Chip]) -> std::result::Result<(), String> {
+    for c in chips {
+        if c.size_kb == 0 {
+            return Err(format!("{}: size_kb must be non-zero", c.name));
+        }
+        if c.page_size == 0 {
+            return Err(format!("{}: page_size must be non-zero", c.name));
+        }
+        if c.sector_size == 0 {
+            return Err(format!("{}: sector_size must be non-zero", c.name));
+        }
+    }
+    Ok(())
+}
+
+/// Reject I²C entries with an `addr_width` the protocol layer can't
+/// encode (`i2c::addr_bytes` only handles 1 or 2 and panics
+/// otherwise) or a zero size / page.
+fn validate_i2c_chips(chips: &[I2cChip]) -> std::result::Result<(), String> {
+    for c in chips {
+        if !matches!(c.addr_width, 1 | 2) {
+            return Err(format!(
+                "{}: addr_width must be 1 or 2, got {}",
+                c.name, c.addr_width
+            ));
+        }
+        if c.size_bytes == 0 {
+            return Err(format!("{}: size_bytes must be non-zero", c.name));
+        }
+        if c.page_size == 0 {
+            return Err(format!("{}: page_size must be non-zero", c.name));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -202,5 +251,52 @@ mod tests {
             db.find_by_jedec(&first.jedec_id.to_ascii_uppercase())
                 .is_some()
         );
+    }
+
+    /// The bundled DBs must satisfy the runtime invariants — this is
+    /// the CI gate that turns a bad catalogue edit into a failing
+    /// test instead of a panic / divide-by-zero in an op. Both
+    /// `load_embedded` calls panic on a bad entry, so reaching the
+    /// asserts means they validated.
+    #[test]
+    fn bundled_dbs_pass_validation() {
+        assert!(!ChipDb::load_embedded().is_empty());
+        assert!(I2cChipDb::load_embedded().iter().next().is_some());
+    }
+
+    #[test]
+    fn rejects_zero_page_or_sector() {
+        let mut chips = vec![Chip {
+            name: "BAD".into(),
+            jedec_id: "AABBCC".into(),
+            size_kb: 1024,
+            page_size: 0,
+            sector_size: 4096,
+            erase_time_ms: 0,
+            notes: String::new(),
+        }];
+        assert!(
+            validate_chips(&chips).is_err(),
+            "zero page_size must reject"
+        );
+        chips[0].page_size = 256;
+        chips[0].sector_size = 0;
+        assert!(
+            validate_chips(&chips).is_err(),
+            "zero sector_size must reject"
+        );
+    }
+
+    #[test]
+    fn rejects_bad_i2c_addr_width() {
+        let chips = vec![I2cChip {
+            name: "BAD".into(),
+            size_bytes: 256,
+            page_size: 8,
+            addr_width: 3,
+            slave_addr_bits: 0,
+            write_cycle_ms: 5,
+        }];
+        assert!(validate_i2c_chips(&chips).is_err());
     }
 }
