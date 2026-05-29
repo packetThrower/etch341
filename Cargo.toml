@@ -35,7 +35,7 @@ hardware = []
 rusb = { version = "0.9", features = ["vendored"] }
 clap = { version = "4", features = ["derive"] }
 thiserror = "1"
-indicatif = "0.17"
+indicatif = "0.18"
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }
 hex = "0.4"
