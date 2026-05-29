@@ -107,6 +107,53 @@ priority order.
       GPIO. Useful for dual-BIOS motherboards. The standard
       CH341A breakout only exposes one CS, so this needs the user
       to wire an external switch — limited audience. ~2 hr.
+- [ ] **UEFI Setup explorer (read-only)** — surface a BIOS dump's
+      Setup options as a *searchable, human-readable* list
+      ("Wake on LAN — currently Disabled; values Disabled/Enabled")
+      so users don't have to decipher hex to see what a setting is
+      or where it lives. The hard part isn't the value — it's that
+      the label and the value sit in different places in the image
+      and have to be joined:
+      - The value is a few bytes inside a UEFI NVRAM variable
+        (usually the one literally named `Setup`) in the variable
+        store (`$VSS` / `NVAR` region) — an opaque blob, no labels.
+      - The label + mapping live in **IFR** (the compiled Setup-form
+        bytecode) inside the firmware volumes, which says "question
+        'Wake on LAN' is a checkbox backed by `Setup` at offset
+        0xNNN, 0=off / 1=on"; the actual text is in separate **HII
+        string packages** keyed by string-ID.
+      Pipeline: walk firmware volumes → FFS files → decompress
+      sections (Tiano / LZMA) → parse IFR opcodes (OneOf / Checkbox /
+      Numeric / VarStore …) → resolve HII string-IDs to text → join
+      into `label → variable + offset + width + value options`, then
+      read the current value out of the NVRAM variable store. Present
+      it in the GUI (a searchable settings pane) and CLI
+      (`etch341 bios settings [--find "wake on lan"]`). This is the
+      80% of the value with ~0% brick risk. Big: FV/FFS + IFR + HII
+      parsing is multi-day, and AMI / Insyde / Phoenix differ enough
+      to need per-vendor handling. Applies only to real UEFI BIOS
+      images (8-32 MB Intel-platform chips with FVs) — not MCU / EC
+      firmware. ~2-4 days for a first vendor (AMI), more to broaden.
+- [ ] **UEFI Setup *write* + reflash** — the editing half of the
+      explorer above: toggle a setting, recompute the Setup
+      variable's checksum / store integrity, repack, write back.
+      Much harder and riskier than the read side, kept separate on
+      purpose:
+      - Checksums that auto-revert: many platforms re-checksum the
+        `Setup` variable at boot and silently reset to defaults on a
+        mismatch, so a naive byte edit just disappears.
+      - Secure Boot / measured boot: on signed / attested firmware
+        (any locked-down OEM device), editing the dump and
+        reflashing can break attestation or trip recovery → brick.
+      - OEM lockdown: vendors grey-out / suppress / hard-lock the
+        very settings people want (IFR `GrayOut` / `Suppress`
+        conditions), so the option is in the data but the device
+        refuses it.
+      Gate behind the auto-backup + arm/confirm machinery, default
+      to a dry-run that shows the exact byte delta, and lean on the
+      `--verify-read` / region-layout work so a write never strays
+      outside the variable store. Per-vendor research treadmill;
+      only attempt after the read explorer is solid.
 
 ### Low value / out of scope
 
