@@ -8,7 +8,7 @@ etch341's chip database lives in two TOML files at the repo root,
 embedded into the binary at build time via `include_str!`. Running
 `etch341 chips` from the CLI lists the live, in-binary set.
 
-## SPI NOR (58 entries)
+## SPI NOR (62 entries)
 
 Source: `chips/chips.toml`. Listed `jedec_id` is the 3-byte
 response to opcode `0x9F`, formatted as 6 uppercase hex chars.
@@ -54,6 +54,9 @@ Common in newer Intel + AMD BIOS chips and M.2 modules. Needs a
 
 | Chip | JEDEC | Size |
 |---|---|---|
+| MX25L1006E | C22011 | 128 KB |
+| MX25L2006E | C22012 | 256 KB |
+| MX25L4006E | C22013 | 512 KB |
 | MX25L8005 | C22014 | 1 MB |
 | MX25L1606E | C22015 | 2 MB |
 | MX25L3206E | C22016 | 4 MB |
@@ -95,6 +98,7 @@ Common in newer Intel + AMD BIOS chips and M.2 modules. Needs a
 | SST25VF016B | BF2541 | 2 MB | SST (AAI word-program) |
 | SST25VF032B | BF254A | 4 MB | SST |
 | SST25VF064C | BF254B | 8 MB | SST |
+| AT25DN512C | 1F6501 | 64 KB | Adesto (no SFDP) |
 | AT25SF041 | 1F8401 | 512 KB | Adesto |
 | AT25SF081 | 1F8501 | 1 MB | Adesto |
 | AT25SF161 | 1F8601 | 2 MB | Adesto |

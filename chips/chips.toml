@@ -496,6 +496,15 @@ sector_size = 4096
 erase_time_ms = 50
 notes = "Adesto 16 Mbit"
 
+[[chip]]
+name = "AT25DN512C"
+jedec_id = "1F6501"
+size_kb = 64
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Adesto/Atmel 512 Kbit, 2.3V, dual-read; no SFDP. Silicon-confirmed JEDEC 1F6501."
+
 # --- EON EN25Q / EN25QH (manufacturer 0x1C) -----------------------
 # Eon Silicon Solution. The QH variant is Winbond-compatible —
 # same opcodes, same page/sector sizes; common in low-end routers

@@ -7,6 +7,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **AT25DN512C** in the chip database (Adesto/Atmel 512 Kbit,
+  2.3V, dual-read, JEDEC `1F6501`). This part exposes no SFDP
+  table, so it needs an explicit database entry to be recognized
+  by name — silicon-confirmed against a real chip.
+
 ### Changed
 
 - **GUI read dumps get human-readable filenames** —
