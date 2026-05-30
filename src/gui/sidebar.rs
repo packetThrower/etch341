@@ -157,10 +157,7 @@ fn stepper_rail(
             let pane = *pane;
             let _ = weak.update(cx_app, |this: &mut AppView, ctx| {
                 if this.selected != pane {
-                    this.erase_armed = false;
-                    this.write_armed = false;
-                    this.otp_erase_armed = false;
-                    this.otp_write_armed = false;
+                    this.disarm_all();
                 }
                 this.selected = pane;
                 ctx.notify();
@@ -238,10 +235,7 @@ fn item(
         .on_click(
             cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
                 if this.selected != pane {
-                    this.erase_armed = false;
-                    this.write_armed = false;
-                    this.otp_erase_armed = false;
-                    this.otp_write_armed = false;
+                    this.disarm_all();
                 }
                 this.selected = pane;
                 cx.notify();

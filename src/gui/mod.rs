@@ -499,6 +499,13 @@ pub struct AppView {
     pub write_input_path: Option<std::path::PathBuf>,
     /// File selected via the Verify pane's Browse button.
     pub verify_input_path: Option<std::path::PathBuf>,
+    /// I²C Write / Verify file selections and the I²C Write / Erase arm
+    /// flags — the I²C analogues of `write_input_path` / `write_armed`
+    /// / `erase_armed`.
+    pub i2c_write_path: Option<std::path::PathBuf>,
+    pub i2c_verify_path: Option<std::path::PathBuf>,
+    pub i2c_write_armed: bool,
+    pub i2c_erase_armed: bool,
     /// File selected via the Hex pane's Browse button, plus its loaded
     /// contents. Held together so the renderer doesn't re-read the file
     /// on every paint.
@@ -629,6 +636,10 @@ impl AppView {
             write_armed: false,
             write_input_path: None,
             verify_input_path: None,
+            i2c_write_path: None,
+            i2c_verify_path: None,
+            i2c_write_armed: false,
+            i2c_erase_armed: false,
             hex_input_path: None,
             hex_bytes: None,
             hex_strings: None,
@@ -1021,11 +1032,20 @@ impl AppView {
         }
         self.bus = bus;
         self.selected = Pane::default_for(bus);
+        self.disarm_all();
+        cx.notify();
+    }
+
+    /// Reset every armed destructive trigger (SPI + OTP + I²C). Called
+    /// on any pane navigation and on a bus switch, so an armed action
+    /// can never fire on a stale click after the user moves away.
+    pub fn disarm_all(&mut self) {
         self.erase_armed = false;
         self.write_armed = false;
         self.otp_erase_armed = false;
         self.otp_write_armed = false;
-        cx.notify();
+        self.i2c_write_armed = false;
+        self.i2c_erase_armed = false;
     }
 
     /// I²C clock for ops. Standard mode (100 kHz) — the safe default
@@ -1126,6 +1146,291 @@ impl AppView {
                         this.push_log(format!("Saved   : {}", path.display()));
                     }
                     Err(err) => this.push_log(format!("Read FAIL: {err}")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Currently-selected I²C chip name, or `None` if the dropdown is
+    /// still on its placeholder.
+    fn i2c_chip_name(&self, cx: &mut Context<Self>) -> Option<String> {
+        self.i2c_chip_select
+            .read(cx)
+            .selected_value()
+            .map(|v| v.to_string())
+    }
+
+    /// File picker for the I²C Write pane (mirrors `pick_write_file`).
+    pub fn pick_i2c_write_file(&mut self, cx: &mut Context<Self>) {
+        let start_dir = self.prefs.last_write_dir.clone();
+        cx.spawn(async move |weak, cx| {
+            let mut dialog = rfd::AsyncFileDialog::new()
+                .add_filter("EEPROM dumps", &["bin", "rom", "eep"])
+                .add_filter("All files", &["*"]);
+            if let Some(dir) = start_dir {
+                dialog = dialog.set_directory(dir);
+            }
+            let Some(handle) = dialog.pick_file().await else {
+                return;
+            };
+            let path = handle.path().to_path_buf();
+            weak.update(cx, |this, cx| {
+                this.push_log(format!("Picked for i2c write: {}", path.display()));
+                if let Some(parent) = path.parent() {
+                    this.prefs.last_write_dir = Some(parent.to_path_buf());
+                    let _ = this.prefs.save();
+                }
+                this.i2c_write_path = Some(path);
+                this.i2c_write_armed = false;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// File picker for the I²C Verify pane.
+    pub fn pick_i2c_verify_file(&mut self, cx: &mut Context<Self>) {
+        let start_dir = self.prefs.last_write_dir.clone();
+        cx.spawn(async move |weak, cx| {
+            let mut dialog = rfd::AsyncFileDialog::new()
+                .add_filter("EEPROM dumps", &["bin", "rom", "eep"])
+                .add_filter("All files", &["*"]);
+            if let Some(dir) = start_dir {
+                dialog = dialog.set_directory(dir);
+            }
+            let Some(handle) = dialog.pick_file().await else {
+                return;
+            };
+            let path = handle.path().to_path_buf();
+            weak.update(cx, |this, cx| {
+                this.push_log(format!("Picked for i2c verify: {}", path.display()));
+                this.i2c_verify_path = Some(path);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// I²C Write — two-stage arm/confirm (destructive). Needs both a
+    /// file and a chip selection.
+    pub fn arm_or_fire_i2c_write(&mut self, cx: &mut Context<Self>) {
+        if self.i2c_write_path.is_none() {
+            self.push_log("i2c write: no input file selected".into());
+            cx.notify();
+            return;
+        }
+        if self.i2c_chip_name(cx).is_none() {
+            self.push_log("i2c write: pick a chip first".into());
+            cx.notify();
+            return;
+        }
+        if self.i2c_write_armed {
+            self.i2c_write_armed = false;
+            self.start_i2c_write(cx);
+        } else {
+            self.i2c_write_armed = true;
+            self.push_log("⚠ i2c write armed: click again to confirm".into());
+            cx.notify();
+        }
+    }
+
+    fn start_i2c_write(&mut self, cx: &mut Context<Self>) {
+        let (Some(path), Some(chip_name)) = (self.i2c_write_path.clone(), self.i2c_chip_name(cx))
+        else {
+            self.push_log("i2c write: need a chip and a file".into());
+            cx.notify();
+            return;
+        };
+        self.push_log(format!("→ i2c write ({chip_name}) ← {}", path.display()));
+        cx.notify();
+        self.spawn_progress_poller(cx);
+
+        let progress = self.progress.clone();
+        let speed = self.i2c_speed();
+        cx.spawn(async move |weak, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let data = std::fs::read(&path).map_err(|e| format!("read input: {e}"))?;
+                    let chip = crate::i2c_ops::resolve_chip(&chip_name)
+                        .map_err(|e| format!("chip: {e}"))?;
+                    if data.len() as u32 > chip.size_bytes {
+                        return Err(format!(
+                            "file is {} bytes but {} only holds {}",
+                            data.len(),
+                            chip.name,
+                            chip.size_bytes
+                        ));
+                    }
+                    let mut ch = Ch341::open_i2c(false).map_err(|e| format!("open: {e}"))?;
+                    ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
+                    let mut wsink = GuiSink::new(progress.clone(), "i2c-wr");
+                    crate::i2c_ops::write(&mut ch, &chip, 0, &data, 0, &mut wsink)
+                        .map_err(|e| format!("write: {e}"))?;
+                    // Verify-after-write, matching the SPI Write pane.
+                    let mut vsink = GuiSink::new(progress, "i2c-vfy");
+                    let mismatches =
+                        crate::i2c_ops::verify(&mut ch, &chip, &data, 0, 0, &mut vsink)
+                            .map_err(|e| format!("verify: {e}"))?;
+                    Ok::<_, String>((chip.name, data.len(), mismatches))
+                })
+                .await;
+            weak.update(cx, |this, cx| {
+                match outcome {
+                    Ok((name, n, 0)) => {
+                        this.push_log(format!("Write OK : {n} bytes to {name} (verified)"))
+                    }
+                    Ok((name, n, m)) => this.push_log(format!(
+                        "Write done ({n} bytes to {name}) but verify found {m} mismatch(es)"
+                    )),
+                    Err(err) => this.push_log(format!("Write FAIL: {err}")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// I²C Verify — read-only, no confirmation. Needs a file + chip.
+    pub fn start_i2c_verify(&mut self, cx: &mut Context<Self>) {
+        let (Some(path), Some(chip_name)) = (self.i2c_verify_path.clone(), self.i2c_chip_name(cx))
+        else {
+            self.push_log("i2c verify: need a chip and a file".into());
+            cx.notify();
+            return;
+        };
+        self.push_log(format!("→ i2c verify ({chip_name}) vs {}", path.display()));
+        cx.notify();
+        self.spawn_progress_poller(cx);
+
+        let progress = self.progress.clone();
+        let speed = self.i2c_speed();
+        cx.spawn(async move |weak, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let data = std::fs::read(&path).map_err(|e| format!("read input: {e}"))?;
+                    let chip = crate::i2c_ops::resolve_chip(&chip_name)
+                        .map_err(|e| format!("chip: {e}"))?;
+                    let mut ch = Ch341::open_i2c(false).map_err(|e| format!("open: {e}"))?;
+                    ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
+                    let mut sink = GuiSink::new(progress, "i2c-vfy");
+                    crate::i2c_ops::verify(&mut ch, &chip, &data, 0, 0, &mut sink)
+                        .map_err(|e| format!("verify: {e}"))
+                })
+                .await;
+            weak.update(cx, |this, cx| {
+                match outcome {
+                    Ok(0) => this.push_log("Verify OK : chip matches the file".into()),
+                    Ok(m) => this.push_log(format!("Verify    : {m} byte(s) differ")),
+                    Err(err) => this.push_log(format!("Verify FAIL: {err}")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// I²C Erase — two-stage arm/confirm (destructive: writes 0xFF
+    /// over the whole chip).
+    pub fn arm_or_fire_i2c_erase(&mut self, cx: &mut Context<Self>) {
+        if self.i2c_chip_name(cx).is_none() {
+            self.push_log("i2c erase: pick a chip first".into());
+            cx.notify();
+            return;
+        }
+        if self.i2c_erase_armed {
+            self.i2c_erase_armed = false;
+            self.start_i2c_erase(cx);
+        } else {
+            self.i2c_erase_armed = true;
+            self.push_log("⚠ i2c erase armed: click again to confirm".into());
+            cx.notify();
+        }
+    }
+
+    fn start_i2c_erase(&mut self, cx: &mut Context<Self>) {
+        let Some(chip_name) = self.i2c_chip_name(cx) else {
+            self.push_log("i2c erase: pick a chip first".into());
+            cx.notify();
+            return;
+        };
+        self.push_log(format!(
+            "→ i2c erase ({chip_name}) — writing 0xFF everywhere"
+        ));
+        cx.notify();
+        self.spawn_progress_poller(cx);
+
+        let progress = self.progress.clone();
+        let speed = self.i2c_speed();
+        cx.spawn(async move |weak, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let chip = crate::i2c_ops::resolve_chip(&chip_name)
+                        .map_err(|e| format!("chip: {e}"))?;
+                    let mut ch = Ch341::open_i2c(false).map_err(|e| format!("open: {e}"))?;
+                    ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
+                    let mut sink = GuiSink::new(progress, "i2c-erase");
+                    crate::i2c_ops::erase(&mut ch, &chip, 0, &mut sink)
+                        .map_err(|e| format!("erase: {e}"))?;
+                    Ok::<_, String>((chip.name, chip.size_bytes))
+                })
+                .await;
+            weak.update(cx, |this, cx| {
+                match outcome {
+                    Ok((name, size)) => {
+                        this.push_log(format!("Erase OK : {name} set to 0xFF ({size} bytes)"))
+                    }
+                    Err(err) => this.push_log(format!("Erase FAIL: {err}")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// I²C Blank check — confirm every byte reads 0xFF. Read-only.
+    pub fn start_i2c_blank_check(&mut self, cx: &mut Context<Self>) {
+        let Some(chip_name) = self.i2c_chip_name(cx) else {
+            self.push_log("i2c blank check: pick a chip first".into());
+            cx.notify();
+            return;
+        };
+        self.push_log(format!("→ i2c blank check ({chip_name})"));
+        cx.notify();
+        self.spawn_progress_poller(cx);
+
+        let progress = self.progress.clone();
+        let speed = self.i2c_speed();
+        cx.spawn(async move |weak, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let chip = crate::i2c_ops::resolve_chip(&chip_name)
+                        .map_err(|e| format!("chip: {e}"))?;
+                    let mut ch = Ch341::open_i2c(false).map_err(|e| format!("open: {e}"))?;
+                    ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
+                    let mut sink = GuiSink::new(progress, "i2c-blank");
+                    crate::i2c_ops::blank_check(&mut ch, &chip, 0, &mut sink)
+                        .map_err(|e| format!("{e}"))?;
+                    Ok::<_, String>((chip.name, chip.size_bytes))
+                })
+                .await;
+            weak.update(cx, |this, cx| {
+                match outcome {
+                    Ok((name, size)) => {
+                        this.push_log(format!("Blank check OK : {name} all 0xFF ({size} bytes)"))
+                    }
+                    Err(err) => this.push_log(format!("Blank check: {err}")),
                 }
                 cx.notify();
             })
@@ -2548,6 +2853,10 @@ impl Render for AppView {
                                     update_check_enabled: !self.prefs.disable_update_check,
                                     i2c_scan_results: self.i2c_scan_results.as_deref(),
                                     i2c_chip_select: &self.i2c_chip_select,
+                                    i2c_write_path: self.i2c_write_path.as_deref(),
+                                    i2c_verify_path: self.i2c_verify_path.as_deref(),
+                                    i2c_write_armed: self.i2c_write_armed,
+                                    i2c_erase_armed: self.i2c_erase_armed,
                                 };
                                 let outer = div().flex_1().min_h(px(0.0)).min_w(px(0.0));
                                 // Settings has no op activity worth a log
