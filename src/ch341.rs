@@ -290,12 +290,19 @@ impl I2cTransport for Ch341 {
     }
 
     fn i2c_probe(&mut self, slave_7bit: u8) -> Result<bool> {
-        // Address the slave for *read* and grab 1 byte. With no
-        // device present, SDA stays pulled-up between bits and we
-        // get 0xFF back; with a device present we typically get
-        // either real data or 0x00. The 0xFF heuristic is the same
-        // one most CH341 userspace tools (ch341eeprom, etc.) use
-        // because the CH341 doesn't expose NACK detection directly.
+        // Infer presence from a data byte read after addressing the
+        // slave for read: an empty bus floats SDA high → 0xFF.
+        //
+        // The CH341's stream mode never surfaces the I2C ACK bit — a
+        // write-address probe returns no status byte at all (verified
+        // on hardware: bulk_in just times out), so there's no way to
+        // tell "device NACKed" from "device ACKed". This data heuristic
+        // is the best available, with one unavoidable blind spot: a
+        // *blank* EEPROM (every byte 0xFF) is indistinguishable from an
+        // empty address, so `scan` won't list it. Reads / writes /
+        // blank-check still work against an explicit `--chip`; only the
+        // address scan is fooled. (This is why the scan's empty-result
+        // message points at `--chip`.)
         let buf = [
             CMD_I2C_STREAM,
             I2C_STM_STA,

@@ -42,6 +42,21 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ### Fixed
 
+- **I²C writes no longer always time out.** Every I²C `write` /
+  `erase` aborted with `Error: Timeout` because the post-page
+  "wait for write cycle to finish" step polled the chip through a
+  probe that infers presence from a data byte — and on a blank chip
+  (or any page whose next byte is `0xFF`) that read `0xFF` and
+  concluded "never ready". The CH341 never exposes the I²C ACK bit,
+  so there's nothing to poll; writes now wait out the worst-case
+  datasheet write-cycle time instead. This is the first time I²C
+  `write`/`erase` complete on real silicon (validated against an
+  AT24C02). *Known remaining issue:* multi-chunk reads can still
+  corrupt near the 31-byte transfer boundary — under investigation.
+- **`i2c scan` now explains the blank-chip blind spot.** A blank
+  EEPROM (all `0xFF`) is indistinguishable from an empty bus on the
+  CH341 (no ACK-bit readback), so `scan` can't list it; the
+  empty-result message now says so and points at `--chip`.
 - **Pop-out activity log now re-docks on Linux/X11** when its
   window is closed. The re-dock was wired through
   `on_window_should_close`, which gpui doesn't route from the X11

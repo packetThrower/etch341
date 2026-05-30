@@ -12,7 +12,7 @@
 use crate::chipdb::I2cChip;
 use crate::error::{Error, Result};
 use std::thread::sleep;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// 7-bit base address shared by every 24Cxx EEPROM. Pin straps and
 /// memory-high-bit stuffing modify the low three bits.
@@ -153,43 +153,27 @@ pub fn write(
         let slave = compute_slave(chip, addr, pin_straps);
         bus.i2c_transfer(slave, &tx, 0)?;
 
-        // The chip's internally-timed write cycle takes tWR
-        // milliseconds (5 ms typical for 24C02; can stretch to
-        // 10 ms under voltage/temp corners). Probe-via-USB has
-        // ~1-2 ms round-trip latency on macOS, so polling during
-        // the entire tWR window burns USB transactions on
-        // guaranteed NACKs and risks the next page-write
-        // starting while the chip is still committing. Two-stage
-        // approach: sleep through the datasheet tWR first
-        // (silicon is definitely busy), then ACK-poll the tail
-        // with a generous timeout window for any cycle-stretching.
-        // Without this, the v0.2.0 silicon test on an AT24C02
-        // wrote page 0 correctly then garbled pages 1-15: pages
-        // 1-6 hit the chip mid-cycle and were dropped; pages
-        // 7-15 landed during the messy ready-edge and produced
-        // shifted/zero'd data.
-        sleep(Duration::from_millis(chip.write_cycle_ms as u64));
-        wait_ready(bus, slave, Duration::from_millis(50))?;
+        // Wait out the chip's internally-timed write cycle (tWR)
+        // before touching the bus again. ACK-polling for "ready"
+        // would be faster, but the CH341's stream mode never exposes
+        // the I2C ACK bit — a write-address probe returns no status
+        // byte at all (see ch341::i2c_probe). The old `wait_ready`
+        // therefore read a *data* byte and treated a 0xFF readback as
+        // "still busy". After a page write the next byte is frequently
+        // 0xFF — and *always* 0xFF on a blank chip — so that poll
+        // timed out and the whole write failed with `Timeout`. A fixed
+        // worst-case sleep is slower per page but actually correct.
+        // `write_cycle_ms` is the datasheet tWR max (5 ms for 24C02);
+        // double it for headroom against voltage/temp cycle-stretching
+        // — under-waiting restarts the next page mid-cycle and garbles
+        // it (the v0.2.0 silicon failure on an AT24C02), so the margin
+        // is deliberate.
+        sleep(Duration::from_millis(
+            (chip.write_cycle_ms as u64).max(1) * 2,
+        ));
         offset += chunk_size;
     }
     Ok(())
-}
-
-/// Poll the chip's ACK after a write. 24Cxx datasheets specify this
-/// as the canonical "is the internal write done" check: while the
-/// chip is busy programming a page it ignores the bus; once it's
-/// ready it ACKs an empty addressed write again.
-pub fn wait_ready(bus: &mut dyn I2cTransport, slave_7bit: u8, timeout: Duration) -> Result<()> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if bus.i2c_probe(slave_7bit)? {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            return Err(Error::Timeout);
-        }
-        sleep(Duration::from_millis(1));
-    }
 }
 
 /// Probe every 7-bit address in `range` and return the ones that
@@ -461,12 +445,5 @@ mod tests {
         let mut mock = MockI2c::new([]);
         let err = write(&mut mock, &c, 250, &[0; 10], 0).unwrap_err();
         assert!(matches!(err, Error::AddressOutOfRange { .. }));
-    }
-
-    #[test]
-    fn wait_ready_polls_until_ack() {
-        // Three NACKs then an ACK — wait_ready should return Ok.
-        let mut mock = MockI2c::new([]).with_probes([false, false, false, true]);
-        wait_ready(&mut mock, 0x50, Duration::from_secs(1)).unwrap();
     }
 }

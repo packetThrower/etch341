@@ -142,13 +142,21 @@ if you're not sure.
 
 Most likely:
 
-1. **Clip wiring wrong** — see the
+1. **The chip is blank.** `scan` can't see an erased EEPROM (every
+   byte `0xFF`). The CH341 never exposes the I²C ACK bit, so presence
+   is inferred from a data byte — and a blank chip's `0xFF` reads
+   identically to an empty bus. This is a hard CH341 limitation, not a
+   wiring fault. If you know a chip is connected, skip `scan` and
+   address it directly: `etch341 -c 24C02 i2c blank-check` (or
+   `read`). Writing any non-`0xFF` byte makes it visible to `scan`
+   again.
+2. **Clip wiring wrong** — see the
    [Wiring page](/etch341/usage/wiring/). The CH341A uses different
    pins for I²C (`D0`=SCL, `D1`=SDA) than for SPI; if you have
    the clip still wired for an SPI flash, signals don't reach the
    EEPROM.
-2. **No power** — multimeter pin 8 to GND should read ~3.3V.
-3. **Chip isn't an I²C EEPROM at all** — on a board, the SOIC-8
+3. **No power** — multimeter pin 8 to GND should read ~3.3V.
+4. **Chip isn't an I²C EEPROM at all** — on a board, the SOIC-8
    you're clipped to might be a buck regulator or some other
    non-I²C-EEPROM part. The [Wiring page's "Is it really an EEPROM"
    section](/etch341/usage/wiring/#is-the-chip-really-an-i²c-eeprom)

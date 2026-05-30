@@ -864,6 +864,12 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
             let hits = i2c_ops::scan(&mut ch)?;
             if hits.is_empty() {
                 println!("No I²C devices responded on 0x08..0x77.");
+                println!(
+                    "Note: a *blank* EEPROM (all 0xFF) can't be detected by scan — the \
+                     CH341 doesn't expose the I²C ACK bit, so a blank chip is \
+                     indistinguishable from an empty bus. If you have one connected, \
+                     try it directly, e.g. `etch341 -c 24C02 i2c blank-check`."
+                );
             } else {
                 println!("I²C devices ACKing:");
                 for a in hits {
