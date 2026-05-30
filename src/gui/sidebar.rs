@@ -1,4 +1,4 @@
-use super::{AppView, Pane, theme};
+use super::{AppView, Bus, Pane, theme};
 use gpui::{
     ClickEvent, Context, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled as _, div, prelude::FluentBuilder as _, px,
@@ -6,13 +6,9 @@ use gpui::{
 use gpui_component::stepper::{Stepper, StepperItem};
 use gpui_component::{Sizable as _, Size};
 
-/// Workflow panes in the order users typically perform them. The
-/// position in this slice is the step index passed to / received
-/// from `Stepper`. Hex viewer / Blank check / Settings are
-/// inspection or diagnostic tools — not steps in the linear flow
-/// — so they sit below the stepper as flat items instead of
-/// adding "extra" trailing rungs that confuse the rail's reading
-/// as a workflow.
+/// SPI workflow steps, in order. The slice position is the Stepper
+/// step index. Blank check / Status / Security / Hex are tools, not
+/// steps, so they sit below the rail.
 const WORKFLOW: &[(Pane, &str)] = &[
     (Pane::Detect, "Detect"),
     (Pane::Read, "Read"),
@@ -21,56 +17,131 @@ const WORKFLOW: &[(Pane, &str)] = &[
     (Pane::Verify, "Verify"),
 ];
 
-pub fn render(selected: Pane, cx: &mut Context<AppView>) -> impl IntoElement {
-    // Map the currently-selected Pane to a step index. The Stepper
-    // widget can't represent "nothing selected" — any
-    // `checked_step >= 0` highlights at least step 0 — so when the
-    // user is on a non-workflow pane (Blank check / Hex viewer /
-    // Settings) we collapse to step 0 *and* dim the whole stepper
-    // (via the `off_workflow` opacity below) to signal "this is a
-    // reference for the canonical workflow, you're not in it
-    // right now". Previously we used `WORKFLOW.len()` here, which
-    // marked every workflow item as "passed" (white-filled) —
-    // misleading: it implied Verify had just completed when the
-    // user had simply navigated to Hex viewer.
-    let on_workflow = WORKFLOW.iter().any(|(p, _)| *p == selected);
-    let step = WORKFLOW
+/// I²C workflow steps — mirrors the SPI rail one-for-one (Scan stands
+/// in for Detect). Blank check is a tool below the rail, same as SPI.
+const I2C_WORKFLOW: &[(Pane, &str)] = &[
+    (Pane::I2cScan, "Scan"),
+    (Pane::I2cRead, "Read"),
+    (Pane::I2cErase, "Erase"),
+    (Pane::I2cWrite, "Write"),
+    (Pane::I2cVerify, "Verify"),
+];
+
+pub fn render(selected: Pane, bus: Bus, cx: &mut Context<AppView>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .w(px(180.0))
+        .h_full()
+        .bg(theme::workshop_glass())
+        // Just enough to clear the macOS traffic lights that float over
+        // the sidebar's top-left — the full-width toggle can't sit any
+        // higher without colliding with them.
+        .pt(px(30.0))
+        .pb_3()
+        .px_5()
+        .gap_2()
+        // SPI / I²C bus toggle — flips the whole workflow below it.
+        .child(bus_toggle(bus, cx))
+        .child(match bus {
+            Bus::Spi => spi_workflow(selected, cx).into_any_element(),
+            Bus::I2c => i2c_workflow(selected, cx).into_any_element(),
+        })
+        .child(div().flex_1())
+        .child(item(
+            Pane::Settings,
+            "⚙ Settings",
+            selected,
+            super::updater::available(cx).is_some(),
+            cx,
+        ))
+}
+
+/// Two-segment SPI / I²C toggle. The active segment wears the accent;
+/// clicking the other flips the bus via `AppView::set_bus`.
+fn bus_toggle(bus: Bus, cx: &mut Context<AppView>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_row()
+        .gap_1()
+        .p(px(2.0))
+        // Breathing room below the toggle, above the workflow (on top
+        // of the sidebar's `gap_2`).
+        .mb_3()
+        .rounded(px(8.0))
+        .bg(theme::workshop_glass_strong())
+        .child(bus_seg("SPI", Bus::Spi, bus, cx))
+        .child(bus_seg("I²C", Bus::I2c, bus, cx))
+}
+
+fn bus_seg(
+    label: &'static str,
+    target: Bus,
+    current: Bus,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
+    let active = target == current;
+    div()
+        .id(label)
+        .flex_1()
+        .flex()
+        .items_center()
+        .justify_center()
+        .py_1()
+        .rounded(px(6.0))
+        .text_size(px(12.0))
+        .cursor_pointer()
+        .text_color(if active {
+            theme::accent_foreground()
+        } else {
+            theme::text_secondary()
+        })
+        .when(active, |d| d.bg(theme::accent()))
+        .when(!active, |d| {
+            d.hover(|h| {
+                h.bg(theme::workshop_glass())
+                    .text_color(theme::text_primary())
+            })
+        })
+        .child(label)
+        .on_click(
+            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+                this.set_bus(target, cx);
+            }),
+        )
+}
+
+/// A thin horizontal rule separating sidebar groups.
+fn divider() -> impl IntoElement {
+    div()
+        .h(px(1.0))
+        .mt_2()
+        .mb_1()
+        .bg(theme::workshop_glass_strong())
+}
+
+/// The vertical Stepper rail for a workflow. Highlights the active
+/// step; when the selected pane is a tool (not in `workflow`) the rail
+/// collapses to step 0 and dims so it reads as a reference rather than
+/// a progress indicator. Shared by both buses so I²C looks like SPI.
+fn stepper_rail(
+    workflow: &'static [(Pane, &'static str)],
+    id: &'static str,
+    selected: Pane,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
+    let on_workflow = workflow.iter().any(|(p, _)| *p == selected);
+    let step = workflow
         .iter()
         .position(|(p, _)| *p == selected)
         .unwrap_or(0);
 
-    // The Stepper's `on_click` callback signature is `Fn(&usize,
-    // &mut Window, &mut App)` — no `Context<AppView>`. Use a
-    // downgraded weak entity to call back into AppView through
-    // `weak.update(cx_app, |this, ctx| ...)`. Pattern matches what
-    // we already do for `v_resizable.on_resize` in `gui::mod`.
     let weak = cx.entity().downgrade();
-    let stepper = Stepper::new("etch-workflow")
+    let stepper = Stepper::new(id)
         .vertical()
-        // `Size::Large` bumps the step glyph to 32px (default is
-        // 24px), which both reads better at our sidebar width and
-        // — more importantly — gives the absolute-positioned
-        // separator something to span. With default size and no
-        // per-item padding the items render touching, which hides
-        // the connecting rail and squishes the labels.
         .with_size(Size::Large)
         .selected_index(step)
-        .items(WORKFLOW.iter().map(|(_, label)| {
-            // Per-item bottom padding gives the connecting rail
-            // breathing room — `Large` glyphs are 32px, so the
-            // separator only paints when the item is taller than
-            // 32px.
-            //
-            // The label is wrapped in a 32px-tall flex container
-            // that vertically centers the text. The Stepper's
-            // built-in trigger lays out the glyph + label row
-            // with `items_start` (top-aligned across the gap-2
-            // gap), which leaves the shorter label visually
-            // floating near the top of the 32px circle. Giving
-            // the label its own equal-height box with
-            // `items_center` lines its baseline up with the
-            // middle of the glyph without us forking
-            // gpui-component's trigger.
+        .items(workflow.iter().map(|(_, label)| {
             StepperItem::new().pb(px(30.0)).child(
                 div()
                     .h(px(32.0))
@@ -80,15 +151,11 @@ pub fn render(selected: Pane, cx: &mut Context<AppView>) -> impl IntoElement {
             )
         }))
         .on_click(move |&step, _window, cx_app| {
-            let Some((pane, _)) = WORKFLOW.get(step) else {
+            let Some((pane, _)) = workflow.get(step) else {
                 return;
             };
             let pane = *pane;
             let _ = weak.update(cx_app, |this: &mut AppView, ctx| {
-                // Navigating away from any destructive pane re-disarms
-                // its trigger. Without this, an armed action could
-                // fire on a stale click if the user returns to the
-                // pane and accidentally clicks once more.
                 if this.selected != pane {
                     this.erase_armed = false;
                     this.write_armed = false;
@@ -100,80 +167,50 @@ pub fn render(selected: Pane, cx: &mut Context<AppView>) -> impl IntoElement {
             });
         });
 
+    div().when(!on_workflow, |d| d.opacity(0.4)).child(stepper)
+}
+
+/// SPI: the workflow rail, then the SPI-only diagnostics (Blank /
+/// Status / Security) and the shared Hex viewer.
+fn spi_workflow(selected: Pane, cx: &mut Context<AppView>) -> impl IntoElement {
     div()
         .flex()
         .flex_col()
-        // 180px down from the original 220px — the stepper's
-        // glyph + short labels ("Detect", "Read", "Erase",
-        // "Write", "Verify") leave ~80px of slack at 220px. The
-        // longest label below the divider is "Blank check" / "Hex
-        // viewer" / "⚙ Settings" at ~92px including the glyph,
-        // which fits comfortably at 180px while reclaiming 40px
-        // of horizontal real estate for the main pane.
-        .w(px(180.0))
-        .h_full()
-        .bg(theme::workshop_glass())
-        .pt(px(48.0))
-        .pb_3()
-        // px_5 (20px) matches the standard padding used by the
-        // operation panes on the right — same visual gutter on
-        // both sides of the splitter. The earlier `px_3` (12px)
-        // pushed the stepper glyphs almost against the window
-        // edge, which competed for the eye with the macOS
-        // traffic-light overlay above them.
-        .px_5()
         .gap_1()
-        // When the active pane isn't part of the linear workflow
-        // (Hex viewer / Blank check / Settings), dim the stepper
-        // so it reads as a reference rather than a progress
-        // indicator. Click-through still works at full opacity —
-        // GPUI's `opacity` is paint-only.
-        .child(div().when(!on_workflow, |d| d.opacity(0.4)).child(stepper))
-        // Diagnostic / inspection tools live below the stepper —
-        // a thin divider sets them apart from the workflow rail.
-        // Blank check belongs here (not in the stepper) because
-        // it's the post-erase sanity check, not part of the
-        // canonical read → erase → write → verify sequence; users
-        // reach for it after Erase to confirm the chip is actually
-        // 0xFF, or on a fresh new chip before writing.
-        .child(
-            div()
-                .h(px(1.0))
-                .mt_2()
-                .mb_1()
-                .bg(theme::workshop_glass_strong()),
-        )
+        .child(stepper_rail(WORKFLOW, "etch-spi-rail", selected, cx))
+        .child(divider())
         .child(item(Pane::Blank, "Blank check", selected, false, cx))
         .child(item(Pane::Status, "Status regs", selected, false, cx))
         .child(item(Pane::Otp, "Security regs", selected, false, cx))
         .child(item(Pane::Hex, "Hex viewer", selected, false, cx))
-        .child(div().flex_1())
-        .child(item(
-            Pane::Settings,
-            "⚙ Settings",
-            selected,
-            super::updater::available(cx).is_some(),
-            cx,
-        ))
 }
 
-/// Flat sidebar row used for the non-workflow entries (Hex /
-/// Settings). Mirrors the original sidebar's `item()` body — the
-/// stepper handles the workflow rows with its own rendering.
+/// I²C: the same rail shape, then Blank check and the shared Hex
+/// viewer as tools. No status/security — EEPROMs have neither.
+fn i2c_workflow(selected: Pane, cx: &mut Context<AppView>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(stepper_rail(I2C_WORKFLOW, "etch-i2c-rail", selected, cx))
+        .child(divider())
+        .child(item(Pane::I2cBlank, "Blank check", selected, false, cx))
+        .child(item(Pane::Hex, "Hex viewer", selected, false, cx))
+}
+
+/// Flat sidebar row used for tool entries below the rail. `dot` rides
+/// a small amber indicator on the right edge (the "newer release
+/// available" signal on Settings).
 fn item(
     pane: Pane,
-    label: &'static str,
+    label: &str,
     selected: Pane,
     dot: bool,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let active = pane == selected;
-    // `justify_between` pushes the label left; with `dot` a small
-    // amber indicator rides the right edge (the "newer release
-    // available" signal on the Settings row). Without a dot the
-    // single label child just sits at the start, unchanged.
     let mut row = div()
-        .id(label)
+        .id(gpui::SharedString::from(label.to_string()))
         .flex()
         .flex_row()
         .items_center()

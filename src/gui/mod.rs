@@ -290,6 +290,34 @@ pub enum Pane {
     Otp,
     Hex,
     Settings,
+    // I²C-mode panes (shown when `bus == Bus::I2c`).
+    I2cScan,
+    I2cRead,
+    I2cWrite,
+    I2cVerify,
+    I2cErase,
+    I2cBlank,
+}
+
+/// Which bus the GUI is driving. The sidebar toggle flips this and
+/// swaps the workflow: SPI shows Detect/Read/Erase/Write/Verify plus
+/// the SPI-only diagnostics; I²C shows Scan/Read/Write/Verify/Erase/
+/// Blank-check. The CH341 opens in the matching mode per-op.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Bus {
+    #[default]
+    Spi,
+    I2c,
+}
+
+impl Pane {
+    /// The pane a bus lands on when the toggle switches to it.
+    pub fn default_for(bus: Bus) -> Pane {
+        match bus {
+            Bus::Spi => Pane::Detect,
+            Bus::I2c => Pane::I2cScan,
+        }
+    }
 }
 
 /// What the Detect pane caches between renders. Captures both the
@@ -402,6 +430,12 @@ impl ProgressSink for GuiSink {
 
 pub struct AppView {
     pub selected: Pane,
+    /// SPI vs I²C — flipped by the sidebar bus toggle. Swaps which
+    /// workflow the sidebar shows and which mode the CH341 opens in.
+    pub bus: Bus,
+    /// 7-bit addresses that ACKed on the last I²C scan. `None` before
+    /// the first scan in this session.
+    pub i2c_scan_results: Option<Vec<u8>>,
     pub connection: Connection,
     /// Last-read SR1/SR2/SR3 bytes from the Status pane's "Read"
     /// button. `None` before the first read or after the user
@@ -557,6 +591,8 @@ impl AppView {
         );
         Self {
             selected: Pane::Detect,
+            bus: Bus::Spi,
+            i2c_scan_results: None,
             connection: Connection::Disconnected,
             status_regs: None,
             otp_regs: None,
@@ -958,6 +994,73 @@ impl AppView {
                 }
             }
         });
+    }
+
+    /// Sidebar bus-toggle handler. Switches SPI ↔ I²C, lands on that
+    /// bus's default pane, and clears any armed destructive trigger so
+    /// nothing fires across a mode switch.
+    pub fn set_bus(&mut self, bus: Bus, cx: &mut Context<Self>) {
+        if self.bus == bus {
+            return;
+        }
+        self.bus = bus;
+        self.selected = Pane::default_for(bus);
+        self.erase_armed = false;
+        self.write_armed = false;
+        self.otp_erase_armed = false;
+        self.otp_write_armed = false;
+        cx.notify();
+    }
+
+    /// I²C clock for ops. Standard mode (100 kHz) — the safe default
+    /// every 24Cxx supports; a settings-driven I²C speed control is a
+    /// follow-up. Never exceeds the 400 kHz the transport enforces.
+    fn i2c_speed(&self) -> u32 {
+        100
+    }
+
+    /// I²C bus scan — probes 0x08..0x77 and records the ACKing
+    /// addresses. Mirrors `start_read`'s spawn → background → open →
+    /// op → update shape, but opens the CH341 in I²C mode.
+    pub fn start_i2c_scan(&mut self, cx: &mut Context<Self>) {
+        self.push_log("→ i2c scan (0x08..0x77)".into());
+        cx.notify();
+        let speed = self.i2c_speed();
+        cx.spawn(async move |weak, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut ch = Ch341::open_i2c(false).map_err(|e| format!("open: {e}"))?;
+                    ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
+                    crate::i2c::scan(&mut ch, 0x08..=0x77).map_err(|e| format!("scan: {e}"))
+                })
+                .await;
+            weak.update(cx, |this, cx| {
+                match outcome {
+                    Ok(hits) => {
+                        if hits.is_empty() {
+                            this.push_log(
+                                "scan: no devices responded — note a blank EEPROM (all 0xFF) \
+                                 won't show up; pick its chip and read it directly"
+                                    .into(),
+                            );
+                        } else {
+                            let list = hits
+                                .iter()
+                                .map(|a| format!("0x{a:02X}"))
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            this.push_log(format!("scan: {} ACK → {list}", hits.len()));
+                        }
+                        this.i2c_scan_results = Some(hits);
+                    }
+                    Err(err) => this.push_log(format!("scan FAIL: {err}")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Settings → Hex viewer → "Reset to defaults" button. Resets
@@ -2311,7 +2414,7 @@ impl Render for AppView {
                     .flex_row()
                     .flex_1()
                     .min_h(px(0.0))
-                    .child(sidebar::render(self.selected, cx))
+                    .child(sidebar::render(self.selected, self.bus, cx))
                     .child(
                         div()
                             .flex_1()
@@ -2372,6 +2475,7 @@ impl Render for AppView {
                                     strings_font_size: self.prefs.strings_font_size,
                                     timestamp_local: self.prefs.timestamp_local,
                                     update_check_enabled: !self.prefs.disable_update_check,
+                                    i2c_scan_results: self.i2c_scan_results.as_deref(),
                                 };
                                 let outer = div().flex_1().min_h(px(0.0)).min_w(px(0.0));
                                 // Settings has no op activity worth a log

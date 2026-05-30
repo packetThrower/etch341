@@ -82,6 +82,9 @@ pub struct PaneInputs<'a> {
     /// of `prefs.disable_update_check`). Drives the Settings →
     /// Updates toggle.
     pub update_check_enabled: bool,
+    /// I²C bus-scan result (the 7-bit addresses that ACKed) for the
+    /// I²C Scan pane. `None` before the first scan this session.
+    pub i2c_scan_results: Option<&'a [u8]>,
 }
 
 pub fn render(
@@ -139,7 +142,77 @@ pub fn render(
             cx,
         )
         .into_any_element(),
+        Pane::I2cScan => i2c_scan_pane(inputs.i2c_scan_results, cx).into_any_element(),
+        Pane::I2cRead => {
+            i2c_todo_pane("I²C Read", "Dump the EEPROM contents to a file.").into_any_element()
+        }
+        Pane::I2cWrite => {
+            i2c_todo_pane("I²C Write", "Program the EEPROM from a file.").into_any_element()
+        }
+        Pane::I2cVerify => {
+            i2c_todo_pane("I²C Verify", "Compare the EEPROM against a file.").into_any_element()
+        }
+        Pane::I2cErase => i2c_todo_pane(
+            "I²C Erase",
+            "Write 0xFF to every byte (EEPROMs have no true erase).",
+        )
+        .into_any_element(),
+        Pane::I2cBlank => {
+            i2c_todo_pane("I²C Blank check", "Confirm every byte reads back as 0xFF.")
+                .into_any_element()
+        }
     }
+}
+
+/// I²C bus scan: probe every 7-bit address and list the ones that
+/// ACK. The result card renders the hits; the body notes the
+/// blank-EEPROM blind spot so an empty scan isn't mistaken for a
+/// missing chip.
+fn i2c_scan_pane(hits: Option<&[u8]>, cx: &mut Context<AppView>) -> impl IntoElement {
+    let mut col = op_pane(
+        "I²C Scan",
+        "Probes 0x08..0x77 and lists the addresses that ACK. A 24Cxx \
+         with its address pins grounded shows at 0x50. Note: a blank \
+         EEPROM (all 0xFF) can't be detected — pick its chip and read \
+         it directly.",
+    )
+    .child(action_button_for("Scan bus", "i2c-scan", cx, |this, cx| {
+        this.start_i2c_scan(cx)
+    }));
+
+    if let Some(hits) = hits {
+        let body = if hits.is_empty() {
+            "No devices responded.".to_string()
+        } else {
+            hits.iter()
+                .map(|a| format!("0x{a:02X}"))
+                .collect::<Vec<_>>()
+                .join("   ")
+        };
+        col = col.child(
+            card_with_copy(body.clone(), "copy-i2c-scan", cx).child(
+                mono_block()
+                    .child(
+                        div()
+                            .text_color(theme::text_tertiary())
+                            .child(format!("{} address(es) ACKing:", hits.len())),
+                    )
+                    .child(div().child(body)),
+            ),
+        );
+    }
+    col
+}
+
+/// Placeholder for the not-yet-built I²C op panes. Keeps the bus
+/// toggle + workflow navigable while the read/write/verify/erase/
+/// blank panes get filled in.
+fn i2c_todo_pane(title: &'static str, body: &'static str) -> impl IntoElement {
+    op_pane(title, body).child(
+        div()
+            .text_color(theme::text_tertiary())
+            .child("Coming soon — use the CLI `etch341 -c <CHIP> i2c …` for now."),
+    )
 }
 
 fn read_pane(cx: &mut Context<AppView>) -> impl IntoElement {
