@@ -53,6 +53,30 @@ HOLD#/CE# pin. `MISO stuck low` (`0x000000`) means an in-circuit
 host controller is actively pulling the line low. See
 [Wiring + voltage](/etch341/usage/wiring/) for the recovery paths.
 
+### Chip database browser
+
+The **"Browse chip database"** button opens the full catalogue in its
+own window — every bundled SPI flash and I²C EEPROM chip, with a
+vendor dropdown, a live name/JEDEC search, and a colour-coded
+**Voltage** column. It's read-only and offline (the database is
+compiled into the binary), so you can keep it open beside the Detect
+result as a reference. In the "All vendors" view, SPI rows are grouped
+under per-vendor dividers.
+
+Voltage is colour-coded so the parts that need care stand out:
+
+- **SPI** shows each chip's single rail as a traffic light — green
+  3.3V, amber 2.3V, red 1.8V — keyed to how much it minds a stock 3.3V
+  rig. 1.8V parts need a 1.8V-capable programmer; connecting one to a
+  plain 3.3V setup over-volts every pin.
+- **I²C** 24Cxx are a wide-range family (~1.8–5.5V, commonly run at
+  3.3V or 5V on the CH341A's jumper), shown in a dedicated blue to
+  mark them as a tolerant range rather than a single rail.
+
+The same listing is available headless via the CLI's
+[`etch341 chips`](/etch341/usage/cli/#offline--file-inspection-commands)
+table.
+
 ## Read
 
 Picks a known chip, reads its full contents to a file. The file is

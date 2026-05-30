@@ -127,6 +127,14 @@ etch341 search "Award" -i dump.bin             # ASCII (case-insensitive)
 etch341 search "DEADBEEF" -i dump.bin --context 32   # widen the gutter
 ```
 
+`chips` prints one table per bus — SPI flash (name, JEDEC, size,
+`VOLT`, page, sector, notes) and I²C EEPROMs (name, size, `VOLT`,
+page, addr). Voltage is the single rail for SPI parts (3.3V / 2.3V /
+1.8V, derived from the JEDEC id) and the `1.8–5.5V` family range for
+the wide-range 24Cxx — the same data the GUI's
+[chip-database browser](/etch341/usage/gui/#chip-database-browser)
+shows in colour.
+
 `search` interprets the pattern as hex bytes when the condensed
 form is even-length and all hex digits (so `55AA`, `55 AA`, and
 `DE AD BE EF` all become byte sequences). Anything else is ASCII.
