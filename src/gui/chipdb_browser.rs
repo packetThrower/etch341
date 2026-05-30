@@ -7,11 +7,12 @@
 //! CLI `chips` command (name/JEDEC search across both buses); the
 //! vendor dropdown is the GUI's richer take on the CLI `--bus` flag.
 
-use super::theme;
+use super::{AppView, theme};
 use crate::chipdb::{Chip, ChipDb, I2cChip, I2cChipDb};
 use gpui::{
     AppContext, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
-    ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
+    ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, WeakEntity,
+    Window, div, px,
 };
 use gpui_component::TitleBar;
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -73,10 +74,13 @@ pub struct ChipDbBrowser {
     query: String,
     scroll: ScrollHandle,
     _subs: Vec<Subscription>,
+    /// Weak handle back to the main view, used only to clear
+    /// `chip_db_window` when this window's close button is clicked.
+    app: WeakEntity<AppView>,
 }
 
 impl ChipDbBrowser {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(app: WeakEntity<AppView>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let spi: Vec<Chip> = ChipDb::load_embedded().iter().cloned().collect();
         let i2c: Vec<I2cChip> = I2cChipDb::load_embedded().iter().cloned().collect();
 
@@ -128,6 +132,7 @@ impl ChipDbBrowser {
             query: String::new(),
             scroll: ScrollHandle::new(),
             _subs: subs,
+            app,
         }
     }
 }
@@ -224,12 +229,28 @@ impl Render for ChipDbBrowser {
             .bg(theme::bench_black())
             .text_color(theme::text_primary())
             .child(
-                TitleBar::new().child(
-                    div()
-                        .text_size(px(13.0))
-                        .text_color(theme::text_secondary())
-                        .child("Chip Database"),
-                ),
+                TitleBar::new()
+                    // Same Linux close-button hook as the activity-log
+                    // pop-out (see `log.rs`): the title bar's X calls
+                    // `remove_window()` directly, and the entity teardown is
+                    // deferred on Wayland, so clear the handle synchronously
+                    // here or a re-open would activate a dead window.
+                    .on_close_window({
+                        let app = self.app.clone();
+                        move |_, window, cx| {
+                            let _ = app.update(cx, |this, cx| {
+                                this.chip_db_window = None;
+                                cx.notify();
+                            });
+                            window.remove_window();
+                        }
+                    })
+                    .child(
+                        div()
+                            .text_size(px(13.0))
+                            .text_color(theme::text_secondary())
+                            .child("Chip Database"),
+                    ),
             )
             .child(
                 // Controls: vendor dropdown · search · live count.

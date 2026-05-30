@@ -114,12 +114,33 @@ impl Render for LogWindow {
             .bg(theme::bench_black())
             .text_color(theme::text_primary())
             .child(
-                TitleBar::new().child(
-                    div()
-                        .text_size(px(13.0))
-                        .text_color(theme::text_secondary())
-                        .child("Activity Log"),
-                ),
+                TitleBar::new()
+                    // Re-dock the inline log when the title bar's own close
+                    // button is clicked. On Linux (client-side decorations)
+                    // that button calls `window.remove_window()` directly —
+                    // it never routes through `on_window_should_close` — and
+                    // on Wayland the resulting entity teardown is deferred, so
+                    // without this synchronous hook the inline log never came
+                    // back. macOS / Windows close through the OS path
+                    // (`on_window_should_close`, wired in `pop_out_log`); this
+                    // override only fires on the Linux button.
+                    .on_close_window({
+                        let app = self.app.clone();
+                        move |_, window, cx| {
+                            let _ = app.update(cx, |this, cx| {
+                                this.log_popped_out = false;
+                                this.log_window = None;
+                                cx.notify();
+                            });
+                            window.remove_window();
+                        }
+                    })
+                    .child(
+                        div()
+                            .text_size(px(13.0))
+                            .text_color(theme::text_secondary())
+                            .child("Activity Log"),
+                    ),
             )
             .child(div().flex_1().min_h(px(0.0)).child(surface(
                 &lines,

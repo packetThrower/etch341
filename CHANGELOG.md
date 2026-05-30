@@ -22,6 +22,19 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
   JEDEC→voltage map learned the IS25WP (9D70) and MT25QU (20BB) 1.8V
   families so the GUI Voltage column stays correct.
 
+### Fixed
+
+- **Pop-out windows actually re-dock on Wayland now.** The 0.5.0 fix
+  hooked `on_window_should_close`, but with client-side decorations a
+  pop-out's own title-bar close button calls `remove_window()` directly
+  and never routes through that callback — so on Wayland the inline log
+  still didn't come back. The re-dock is now also wired to the title
+  bar's `on_close_window` handler (the path the Linux close button
+  actually takes); `on_window_should_close` stays for the macOS /
+  Windows / compositor-initiated close paths, so both decoration modes
+  are covered. Applies to the activity-log pop-out and the
+  chip-database browser.
+
 ## [0.5.0] — 2026-05-30
 
 First stable release of the 0.5.0 line — now picked up by the Homebrew

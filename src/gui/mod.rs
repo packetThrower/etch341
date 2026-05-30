@@ -1008,7 +1008,9 @@ impl AppView {
                     let app = app.clone();
                     move |window, cx| {
                         window.set_client_inset(px(10.0));
-                        let view = cx.new(|cx| chipdb_browser::ChipDbBrowser::new(window, cx));
+                        let view = cx.new(|cx| {
+                            chipdb_browser::ChipDbBrowser::new(app.downgrade(), window, cx)
+                        });
                         // Clear the handle when the window closes, so a
                         // re-click reopens instead of activating a dead
                         // handle. Uses `on_window_should_close` for the same
