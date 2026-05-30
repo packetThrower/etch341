@@ -7,6 +7,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-05-30
+
+First stable release of the 0.5.0 line — now picked up by the Homebrew
+tap, Scoop bucket, and the in-app update check (the betas weren't).
+Folds in everything from 0.5.0-beta.1 and 0.5.0-beta.2 below, plus:
+
 ### Added
 
 - **I²C EEPROMs in the GUI** — the full 24Cxx workflow now has a GUI,
@@ -525,6 +531,7 @@ Initial release.
   VBIOS chip — full erase → write → verify cycle, byte-identical
   SHA-256 match.
 
-[Unreleased]: https://github.com/packetThrower/etch341/compare/v0.5.0-beta.2...HEAD
+[Unreleased]: https://github.com/packetThrower/etch341/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/packetThrower/etch341/compare/v0.5.0-beta.2...v0.5.0
 [0.2.0]: https://github.com/packetThrower/etch341/releases/tag/v0.2.0
 [0.1.0]: https://github.com/packetThrower/etch341/releases/tag/v0.1.0
