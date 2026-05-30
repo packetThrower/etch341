@@ -360,8 +360,8 @@ impl crate::ops::ProgressSink for IndicatifSink {
 }
 
 pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::ch341::Ch341;
     use crate::ops;
+    use crate::programmer::Programmer;
 
     let speed = global.spi_speed();
     match cmd {
@@ -425,7 +425,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                     )
                     .into());
                 }
-                let mut ch = Ch341::open(global.verbose)?;
+                let mut ch = Programmer::open(global.verbose)?;
                 ch.set_clock(speed)?;
                 ops::ensure_chip_present(&mut ch)?;
                 ops::otp_erase(&mut ch, args.register)?;
@@ -456,7 +456,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                     )
                     .into());
                 }
-                let mut ch = Ch341::open(global.verbose)?;
+                let mut ch = Programmer::open(global.verbose)?;
                 ch.set_clock(speed)?;
                 ops::ensure_chip_present(&mut ch)?;
                 ops::otp_write(&mut ch, args.register, args.start as usize, &data)?;
@@ -486,7 +486,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 );
                 return Ok(());
             }
-            let mut ch = Ch341::open(global.verbose)?;
+            let mut ch = Programmer::open(global.verbose)?;
             ch.set_clock(speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let chip_bytes = chip.size_kb.saturating_mul(1024);
@@ -514,7 +514,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 );
                 return Ok(());
             }
-            let mut ch = Ch341::open(global.verbose)?;
+            let mut ch = Programmer::open(global.verbose)?;
             ch.set_clock(speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let mut sink = IndicatifSink::new("write  ");
@@ -552,7 +552,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 }
                 return Ok(());
             }
-            let mut ch = Ch341::open(global.verbose)?;
+            let mut ch = Programmer::open(global.verbose)?;
             ch.set_clock(speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let mut sink = IndicatifSink::new("erase  ");
@@ -580,7 +580,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 );
                 return Ok(());
             }
-            let mut ch = Ch341::open(global.verbose)?;
+            let mut ch = Programmer::open(global.verbose)?;
             ch.set_clock(speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let mut sink = IndicatifSink::new("verify ");
@@ -600,7 +600,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 );
                 return Ok(());
             }
-            let mut ch = Ch341::open(global.verbose)?;
+            let mut ch = Programmer::open(global.verbose)?;
             ch.set_clock(speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let mut sink = IndicatifSink::new("blank  ");
@@ -835,8 +835,8 @@ fn print_search_hit(bytes: &[u8], offset: usize, len: usize, context: usize) {
 }
 
 fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::ch341::Ch341;
     use crate::i2c_ops;
+    use crate::programmer::Programmer;
 
     // Validate up front so a 750 kHz `-s` never reaches the chip on
     // an I²C op (it locked up an M24C02-R during 2026-05 bring-up).
@@ -859,7 +859,7 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
                 );
                 return Ok(());
             }
-            let mut ch = Ch341::open_i2c(global.verbose)?;
+            let mut ch = Programmer::open_i2c(global.verbose)?;
             ch.set_clock(speed)?;
             let hits = i2c_ops::scan(&mut ch)?;
             if hits.is_empty() {
@@ -897,7 +897,7 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
                 return Ok(());
             }
             let chip = resolve_chip(&global.chip)?;
-            let mut ch = Ch341::open_i2c(global.verbose)?;
+            let mut ch = Programmer::open_i2c(global.verbose)?;
             ch.set_clock(speed)?;
             let len = args
                 .length
@@ -931,7 +931,7 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
                 return Ok(());
             }
             let chip = resolve_chip(&global.chip)?;
-            let mut ch = Ch341::open_i2c(global.verbose)?;
+            let mut ch = Programmer::open_i2c(global.verbose)?;
             ch.set_clock(speed)?;
             let mut sink = IndicatifSink::new("i2c-wr ");
             i2c_ops::write(
@@ -975,7 +975,7 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
                 return Ok(());
             }
             let chip = resolve_chip(&global.chip)?;
-            let mut ch = Ch341::open_i2c(global.verbose)?;
+            let mut ch = Programmer::open_i2c(global.verbose)?;
             ch.set_clock(speed)?;
             let mut sink = IndicatifSink::new("i2c-vfy");
             let mismatches = i2c_ops::verify(
@@ -1003,7 +1003,7 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
                 return Ok(());
             }
             let chip = resolve_chip(&global.chip)?;
-            let mut ch = Ch341::open_i2c(global.verbose)?;
+            let mut ch = Programmer::open_i2c(global.verbose)?;
             ch.set_clock(speed)?;
             let mut sink = IndicatifSink::new("i2c-blk");
             i2c_ops::blank_check(&mut ch, &chip, args.straps as u8, &mut sink)?;
@@ -1021,7 +1021,7 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
                 return Ok(());
             }
             let chip = resolve_chip(&global.chip)?;
-            let mut ch = Ch341::open_i2c(global.verbose)?;
+            let mut ch = Programmer::open_i2c(global.verbose)?;
             ch.set_clock(speed)?;
             let mut sink = IndicatifSink::new("i2c-er ");
             i2c_ops::erase(&mut ch, &chip, args.straps as u8, &mut sink)?;

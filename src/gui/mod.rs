@@ -17,9 +17,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::ch341::Ch341;
 use crate::ops::{self, Diagnosis, ProgressSink};
 use crate::prefs::Prefs;
+use crate::programmer::Programmer;
 
 // Global window-level keyboard actions. `actions!` generates
 // zero-sized types implementing `Action`; key bindings dispatch by
@@ -359,7 +359,7 @@ enum ConnState {
 /// or the read could fail on a flaky bus); the Detect pane treats
 /// `None` as "no SFDP info to show" rather than surfacing every
 /// underlying USB hiccup.
-fn read_sfdp_best_effort(ch: &mut Ch341) -> Option<crate::sfdp::Sfdp> {
+fn read_sfdp_best_effort(ch: &mut Programmer) -> Option<crate::sfdp::Sfdp> {
     let data = crate::spi::read_sfdp(ch, 0, 256).ok()?;
     let parsed = crate::sfdp::parse(&data);
     if parsed.header.valid {
@@ -1082,7 +1082,7 @@ impl AppView {
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
-                    let mut ch = Ch341::open_i2c(false).map_err(|e| format!("open: {e}"))?;
+                    let mut ch = Programmer::open_i2c(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     crate::i2c::scan(&mut ch, 0x08..=0x77).map_err(|e| format!("scan: {e}"))
                 })
@@ -1142,7 +1142,7 @@ impl AppView {
                 .spawn(async move {
                     let chip = crate::i2c_ops::resolve_chip(&chip_name)
                         .map_err(|e| format!("chip: {e}"))?;
-                    let mut ch = Ch341::open_i2c(false).map_err(|e| format!("open: {e}"))?;
+                    let mut ch = Programmer::open_i2c(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let mut sink = GuiSink::new(progress, "i2c-read");
                     crate::i2c_ops::read(
@@ -1286,7 +1286,7 @@ impl AppView {
                             chip.size_bytes
                         ));
                     }
-                    let mut ch = Ch341::open_i2c(false).map_err(|e| format!("open: {e}"))?;
+                    let mut ch = Programmer::open_i2c(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let mut wsink = GuiSink::new(progress.clone(), "i2c-wr");
                     crate::i2c_ops::write(&mut ch, &chip, 0, &data, 0, &mut wsink)
@@ -1338,7 +1338,7 @@ impl AppView {
                     let data = std::fs::read(&path).map_err(|e| format!("read input: {e}"))?;
                     let chip = crate::i2c_ops::resolve_chip(&chip_name)
                         .map_err(|e| format!("chip: {e}"))?;
-                    let mut ch = Ch341::open_i2c(false).map_err(|e| format!("open: {e}"))?;
+                    let mut ch = Programmer::open_i2c(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let mut sink = GuiSink::new(progress, "i2c-vfy");
                     crate::i2c_ops::verify(&mut ch, &chip, &data, 0, 0, &mut sink)
@@ -1396,7 +1396,7 @@ impl AppView {
                 .spawn(async move {
                     let chip = crate::i2c_ops::resolve_chip(&chip_name)
                         .map_err(|e| format!("chip: {e}"))?;
-                    let mut ch = Ch341::open_i2c(false).map_err(|e| format!("open: {e}"))?;
+                    let mut ch = Programmer::open_i2c(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let mut sink = GuiSink::new(progress, "i2c-erase");
                     crate::i2c_ops::erase(&mut ch, &chip, 0, &mut sink)
@@ -1437,7 +1437,7 @@ impl AppView {
                 .spawn(async move {
                     let chip = crate::i2c_ops::resolve_chip(&chip_name)
                         .map_err(|e| format!("chip: {e}"))?;
-                    let mut ch = Ch341::open_i2c(false).map_err(|e| format!("open: {e}"))?;
+                    let mut ch = Programmer::open_i2c(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let mut sink = GuiSink::new(progress, "i2c-blank");
                     crate::i2c_ops::blank_check(&mut ch, &chip, 0, &mut sink)
@@ -1994,7 +1994,7 @@ impl AppView {
                 .spawn(async move {
                     let mut sink = GuiSink::new(progress, "write");
                     let data = std::fs::read(&path).map_err(|e| format!("read input: {e}"))?;
-                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    let mut ch = Programmer::open(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
                     let chip = match detect.diagnosis {
@@ -2063,7 +2063,7 @@ impl AppView {
                 .spawn(async move {
                     let mut sink = GuiSink::new(progress, "verify");
                     let data = std::fs::read(&path).map_err(|e| format!("read input: {e}"))?;
-                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    let mut ch = Programmer::open(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
                     let chip = match detect.diagnosis {
@@ -2129,7 +2129,7 @@ impl AppView {
         // the SFDP read so we don't waste time decoding 256 bytes
         // of `0xFF` on a disconnected bus.
         let outcome: Result<(DetectInfo, Option<crate::sfdp::Sfdp>, ConnState), _> =
-            Ch341::open(false).and_then(|mut ch| {
+            Programmer::open(false).and_then(|mut ch| {
                 let result = ops::run_detect(&mut ch)?;
                 let jedec = result.jedec_string();
                 let (chip, source, conn, sfdp) = match result.diagnosis {
@@ -2261,7 +2261,7 @@ impl AppView {
                 .background_executor()
                 .spawn(async move {
                     let mut sink = GuiSink::new(progress, "read");
-                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    let mut ch = Programmer::open(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
                     let chip = match detect.diagnosis {
@@ -2345,7 +2345,7 @@ impl AppView {
                 .background_executor()
                 .spawn(async move {
                     let mut sink = GuiSink::new(progress, "erase");
-                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    let mut ch = Programmer::open(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
                     let chip = match detect.diagnosis {
@@ -2413,7 +2413,7 @@ impl AppView {
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
-                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    let mut ch = Programmer::open(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     // Same JEDEC-first guard as `ops::status` —
                     // bail with a friendly message instead of
@@ -2463,7 +2463,7 @@ impl AppView {
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
-                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    let mut ch = Programmer::open(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
                     match detect.diagnosis {
@@ -2564,7 +2564,7 @@ impl AppView {
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
-                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    let mut ch = Programmer::open(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     ops::ensure_chip_present(&mut ch).map_err(|e| format!("{e}"))?;
                     ops::otp_erase(&mut ch, register).map_err(|e| format!("{e}"))?;
@@ -2630,7 +2630,7 @@ impl AppView {
                 .background_executor()
                 .spawn(async move {
                     let data = std::fs::read(&path).map_err(|e| format!("read input: {e}"))?;
-                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    let mut ch = Programmer::open(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     ops::ensure_chip_present(&mut ch).map_err(|e| format!("{e}"))?;
                     ops::otp_write(&mut ch, register, 0, &data).map_err(|e| format!("{e}"))?;
@@ -2671,7 +2671,7 @@ impl AppView {
                 .background_executor()
                 .spawn(async move {
                     let mut sink = GuiSink::new(progress, "blank");
-                    let mut ch = Ch341::open(false).map_err(|e| format!("open: {e}"))?;
+                    let mut ch = Programmer::open(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
                     let chip = match detect.diagnosis {

@@ -3,10 +3,10 @@
 //! Each op takes a `&mut dyn SpiTransport` so it can be unit-tested
 //! against a mock. Only `detect` opens the real hardware itself.
 
-use crate::ch341::Ch341;
 use crate::chipdb::{Chip, ChipDb};
 use crate::cli::GlobalOpts;
 use crate::error::{Error, Result};
+use crate::programmer::Programmer;
 use crate::spi::{self, Addressing, SpiTransport};
 use sha2::{Digest, Sha256};
 use std::fs::File;
@@ -104,7 +104,7 @@ pub fn run_detect(spi: &mut dyn SpiTransport) -> Result<DetectResult> {
 }
 
 pub fn detect(global: &GlobalOpts) -> Result<()> {
-    let mut ch = Ch341::open(global.verbose)?;
+    let mut ch = Programmer::open(global.verbose)?;
     let result = run_detect(&mut ch)?;
     println!("JEDEC ID : 0x{}", result.jedec_string());
     match &result.diagnosis {
@@ -170,7 +170,7 @@ fn print_chip_facts(c: &Chip) {
 /// doesn't depend on chip-name lookup, just needs the chip to ACK
 /// SPI and respond to the read-status opcodes.
 pub fn status(global: &GlobalOpts) -> Result<()> {
-    let mut ch = Ch341::open(global.verbose)?;
+    let mut ch = Programmer::open(global.verbose)?;
     // Run a JEDEC probe first so the user gets a clear "no chip"
     // message when MISO is floating instead of a decoded SR1 of
     // 0xFF reading as "WIP=1 WEL=1 BP=7 …" (every bit set looks
@@ -262,7 +262,7 @@ fn bit(b: bool) -> char {
 /// the "no chip" case surfaces a clean message instead of an
 /// all-`0xFF` SFDP dump that decodes as garbage.
 pub fn sfdp(global: &GlobalOpts) -> Result<()> {
-    let mut ch = Ch341::open(global.verbose)?;
+    let mut ch = Programmer::open(global.verbose)?;
     let detect = run_detect(&mut ch)?;
     println!("JEDEC ID : 0x{}", detect.jedec_string());
     match &detect.diagnosis {
@@ -507,7 +507,7 @@ pub fn otp_write(
 /// "no chip" message instead of three registers of meaningless
 /// `0xFF`.
 pub fn otp(global: &GlobalOpts) -> Result<()> {
-    let mut ch = Ch341::open(global.verbose)?;
+    let mut ch = Programmer::open(global.verbose)?;
     let detect = run_detect(&mut ch)?;
     println!("JEDEC ID : 0x{}", detect.jedec_string());
     match &detect.diagnosis {
