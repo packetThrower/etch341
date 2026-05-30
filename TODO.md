@@ -157,10 +157,15 @@ priority order.
 
 ### Low value / out of scope
 
-- **Other programmer hardware** (FT2232, Bus Pirate, Raspberry Pi
-  GPIO, dedicated commercial programmers, ...) — would need a
-  major refactor of the `SpiTransport` trait into a programmer-
-  pluggable system. The CH341A focus is etch341's whole identity.
+- **Other programmer hardware** (CH347, FT2232, Bus Pirate, Raspberry
+  Pi GPIO, dedicated commercial programmers, ...) — the `Programmer`
+  dispatch enum is now the seam, so a new backend is a new variant +
+  a module implementing the `SpiTransport` / `I2cTransport` traits,
+  not a major refactor. Still parked: the CH341A focus is etch341's
+  whole identity, and a blind USB-protocol port is exactly the bug
+  class silicon bring-up keeps catching — a CH347 (same vendor, mostly
+  shared I²C stream, a different-but-simpler SPI command set) is the
+  natural first add once one's on the bench.
 - **93xx microwire EEPROMs** — different protocol from SPI NOR
   and from 24Cxx I²C. Small audience; `eeprom-prog` or
   `minipro` cover this.
@@ -247,43 +252,6 @@ functionality.
       so the two should share code. GUI-only; CLI editing of
       individual bytes is worse ergonomics than just opening the
       dump in any external hex editor. ~3-4 hr.
-- [ ] **I²C EEPROM pane(s)** — the CLI has full `i2c` support
-      (scan / read / write / verify / blank-check / erase) but the
-      GUI has none, making this the biggest CLI↔GUI parity gap
-      (the README feature table shows I²C as `—` on the GUI side).
-      The protocol + high-level ops already exist (`src/i2c.rs`,
-      `src/i2c_ops.rs`) and the CLI drives them, so the work is
-      mostly UI + background-thread wiring on top of
-      `Ch341::open_i2c` — the SPI panes are the template (call the
-      op on a background task, push results to the activity log,
-      reuse `op_pane` / `bordered_file_row` / the card + arm/confirm
-      helpers so it matches the rest).
-      Design questions to settle first:
-      - **Where it lives in the chrome.** The sidebar stepper and
-        the detect/connection header are SPI-specific (JEDEC ID,
-        the Detect → Read → Erase → Write → Verify flow). I²C has
-        no JEDEC autodetect and a different op set, so it wants
-        either a top-level bus toggle (SPI ⇄ I²C, swapping the
-        whole pane set + header) or a dedicated I²C section below
-        the SPI tools. A bus toggle reads cleaner but touches the
-        root layout + connection-state model.
-      - **Chip selection.** No autodetect → the pane needs an
-        explicit chip picker (the 24Cxx families from
-        `chips/i2c_chips.toml`) plus a straps control (A0/A1/A2,
-        0–7). A "Scan" button should list the ACKing addresses,
-        mirroring `i2c scan`.
-      - **Speed.** I²C caps at 400 kHz and defaults to 100, so the
-        Settings SPI-clock selector can't be shared as-is — either
-        an I²C-specific speed control or a mode-aware clamp on the
-        existing one.
-      - **Write / erase** should reuse the same two-stage
-        arm/confirm as the SPI destructive panes. The write path is
-        now silicon-validated on a 1-byte-address part (24C02); the
-        pane should still flag 2-byte-address (24C32+) and the
-        bit-stuffed 24C04/08/16 as not-yet-silicon-tested (see the
-        I²C validation items under Hardware validation gaps).
-      ~4-6 hr including the bus-toggle layout work; less if it
-      starts as a flat I²C section rather than a full mode switch.
 
 ## CLI / general polish
 

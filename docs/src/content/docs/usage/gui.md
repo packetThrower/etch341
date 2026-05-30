@@ -15,9 +15,11 @@ Linux). From a source build, `cargo run` does the same.
 
 The window is split into three regions:
 
-- **Sidebar** (left) — vertical pane selector. The top half is a
-  **stepper** showing the canonical SPI workflow (Detect → Read →
-  Erase → Write → Verify); click any step at any time, no
+- **Sidebar** (left) — vertical pane selector. At the very top, a
+  **SPI / I²C bus toggle** swaps the whole tool set between SPI flash
+  and 24Cxx EEPROMs (see [I²C EEPROMs](#i²c-eeproms)). For SPI, the
+  top half is a **stepper** showing the canonical workflow (Detect →
+  Read → Erase → Write → Verify); click any step at any time, no
   enforced ordering. Below a thin divider sit the inspection /
   diagnostic tools (**Blank check**, **Status regs**, **Security
   regs**, **Hex viewer**), and **⚙ Settings** is pinned to the
@@ -39,6 +41,19 @@ The top header always shows the connection state and the active
 operation's progress bar (when one is running). Click the chip name
 to re-run JEDEC detection — useful after swapping chips without
 restarting.
+
+## Operation results
+
+Every operation reports its outcome two ways: a line in the
+[activity log](#activity-log) (the running history), and a coloured
+**result line in the pane itself** — a green ✓ on success with a short
+summary (e.g. how many bytes were read or written and to where, or
+"Chip matches the file") or a red ✗ on failure: a hardware error, a
+verify mismatch, or a blocked click like "Pick a chip first". The
+result line clears when you switch panes, so it always reflects the
+pane in front of you. Detect, Status regs, and Security regs show
+their richer result *card* on success and fall back to the red ✗ line
+on error.
 
 ## Detect
 
@@ -172,6 +187,34 @@ clears bits, so erase the register first for a clean write. The GUI
 writes from offset 0; for a partial write at an offset, use the
 CLI's `otp write --start`. Erase and write are repeatable — etch341
 never sets the one-time lock bits.
+
+## I²C EEPROMs
+
+The **SPI / I²C** toggle at the top of the sidebar switches the whole
+tool set to the 24Cxx EEPROM workflow. I²C has no JEDEC autodetect, so
+in place of a Detect step every I²C pane starts with a **chip
+dropdown** — pick the part (24C01 … 24C512) once and the choice
+follows you across panes. The panes mirror the SPI side:
+
+- **Scan** — probes the bus (`0x08`..`0x77`) and lists the 7-bit
+  addresses that ACK. A 24Cxx with its address pins grounded shows at
+  `0x50`. A *blank* EEPROM (all `0xFF`) can't be detected this way —
+  the CH341 never exposes the I²C ACK bit, so it reads like an empty
+  bus; pick the chip and read it directly.
+- **Read** — dumps the whole chip to a timestamped file in your Read
+  save location.
+- **Write** / **Verify** — program from a file (Write verifies
+  afterward) or compare against one without writing. Write is
+  **arm-then-confirm**, same as the SPI destructive panes.
+- **Erase** — writes `0xFF` to every byte (EEPROMs have no
+  sector-erase); also arm-then-confirm.
+- **Blank check** — confirms every byte reads back as `0xFF`.
+
+I²C runs at 100 kHz (the bus caps at 400 kHz — see the
+[I²C page](/etch341/usage/i2c/#clock-speed)). The protocol is
+silicon-validated on a 24C02; the 2-byte-address parts (24C32+) and
+the bit-stuffed 24C04 / 08 / 16 are mock-tested but not yet confirmed
+on a chip. Full reference: [Usage → I²C](/etch341/usage/i2c/).
 
 ## Settings
 

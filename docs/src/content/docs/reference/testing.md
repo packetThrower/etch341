@@ -4,7 +4,7 @@ description: How etch341's test suite is organised — mock-transport unit tests
 editUrl: https://github.com/packetThrower/etch341/edit/main/docs/src/content/docs/reference/testing.md
 ---
 
-etch341 has 52 unit tests covering the SPI / I²C protocols, the
+etch341 has 69 unit tests covering the SPI / I²C protocols, the
 high-level ops, the chip database, and the inspect/search
 primitives. Run them with:
 

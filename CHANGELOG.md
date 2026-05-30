@@ -7,6 +7,57 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **I²C EEPROMs in the GUI** — the full 24Cxx workflow now has a GUI,
+  closing the last CLI↔GUI parity gap. A bus toggle at the top of the
+  sidebar swaps the whole tool set between SPI and I²C; the I²C side
+  gets a chip dropdown (I²C has no JEDEC autodetect, so the chip is
+  picked explicitly) plus **Scan / Read / Write / Verify / Erase /
+  Blank check** panes that mirror the SPI workflow — same stepper
+  rail, same two-stage arm/confirm on the destructive ops (Write /
+  Erase), same shared Hex viewer + Settings. I²C clock is held at
+  100 kHz. Scan lists the ACKing 7-bit addresses; the chip choice
+  persists as you move between panes.
+- **In-pane result lines for every operation (both buses)** — each op
+  now reports its outcome as a coloured line in the pane itself, not
+  only in the activity log: a green ✓ on success (e.g. "Read 256
+  bytes from 24C02 → …", "Wrote … (verified)", "Chip matches the
+  file", "… is blank — all 0xFF") and a red ✗ on failure — hardware
+  errors, verify mismatches, and blocked clicks ("Pick a chip first",
+  "Pick an input file first"). Detect / Status / Security-register
+  reads keep their result card on success and surface the red ✗ line
+  on error. The line hugs its text, wraps a long path, and clears on
+  navigation so it stays scoped to the pane that produced it.
+
+### Changed
+
+- **`Programmer` dispatch layer over the CH341 backend** (internal).
+  The high-level SPI / I²C ops were already generic over the
+  `SpiTransport` / `I2cTransport` traits; the concrete `Ch341::open*`
+  call sites now go through a `Programmer` enum that owns the device
+  and forwards the transport calls. No behaviour change — it's the
+  seam for adding a second USB bridge (a new enum variant backed by
+  its own module implementing the two traits) without touching `ops`
+  / `spi` / `i2c`.
+
+### Fixed
+
+- **Pop-out activity log now re-docks on Wayland.** Closing the
+  detached log window didn't restore the inline log on Wayland
+  (Ubuntu's default session). The re-dock was tied to the log
+  window's entity teardown — which gpui runs synchronously on
+  macOS / Windows but *defers to a later event-loop turn on Wayland*,
+  so on an idle app it never fired and the inline log stayed gone.
+  (The earlier `0.5.0-beta.2` fix tested on X11, where the window is
+  torn down promptly, so it looked complete.) The re-dock now hooks
+  the window's close *request* (`on_window_should_close`), which fires
+  synchronously on every backend — X11 on `WM_DELETE_WINDOW`, Wayland
+  on `xdg_toplevel::Close` — so it no longer depends on entity-drop
+  timing. The same fix is applied to the chip-database browser window,
+  which shared the bug (its stale handle would otherwise block
+  reopening the browser on Wayland). (#1)
+
 ## [0.5.0-beta.2] — 2026-05-29
 
 ### Added

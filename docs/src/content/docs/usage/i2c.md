@@ -15,6 +15,13 @@ chip. If something's off on one of those, please open an issue with
 the verbose-mode (`-v i2c scan`) output and we'll get it sorted.
 :::
 
+:::tip[Also in the GUI]
+This page is the CLI walkthrough. The same scan / read / write /
+verify / erase / blank-check workflow is in the desktop GUI too — flip
+the **SPI / I²C** toggle at the top of the sidebar and pick the chip
+from the dropdown. See the [GUI tour](/etch341/usage/gui/).
+:::
+
 ## How it differs from SPI
 
 The big one: **no JEDEC ID**. 24Cxx EEPROMs don't have a

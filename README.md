@@ -68,17 +68,17 @@ match) to the original VBIOS.
 | Security registers / OTP (read / erase / write) | ✅ (`otp`) | ✅ (arm/confirm) |
 | Settings (clock, accent, updates, …) | ✅ (`--speed`) | ✅ |
 | 4-byte addressing (>16 MB chips) | ✅ | ✅ |
-| I²C scan / read / write / verify / blank-check / erase | ⚠️ \* | — |
+| I²C scan / read / write / verify / blank-check / erase \* | ✅ | ✅ |
 
-> \* **Scan + read are silicon-validated** against a real 24C02
-> (the probe ACK-bit polarity assumption held — the chip ACKed at
-> `0x50` and round-tripped a 256-byte read). The **write / erase
-> path is still owed a clean-chip validation**: the first attempt
-> bricked a part by clocking it past spec, which is why I²C now
-> defaults to 100 kHz and refuses anything above 400 kHz. Reports
-> from a healthy chip welcome via GitHub Issues.
+> \* **Silicon-validated on a 24C02** (1-byte address, no
+> bit-stuffing): scan / read / write / verify / blank-check / erase
+> all round-trip byte-exact, tested at 100 kHz and 20 kHz. Still
+> mock-only pending a chip: the 2-byte-address parts (24C32+) and the
+> bit-stuffed 24C04 / 08 / 16. I²C defaults to 100 kHz and refuses
+> anything above 400 kHz — over-clocking bricked a part during
+> bring-up.
 
-66 unit tests covering the SPI / I²C protocols (including the SFDP
+69 unit tests covering the SPI / I²C protocols (including the SFDP
 parser and the OTP / security-register ops), the high-level ops,
 and the inspect/search primitives, all running against mock transports
 or pure inputs. Hardware-touching tests are gated behind
@@ -226,14 +226,14 @@ etch341 otp read                     # dump the security / OTP registers
 
 I²C EEPROMs (24Cxx family) use the nested `i2c` subcommand.
 
-> ⚠️ **The I²C path hasn't been hardware-validated yet.** Code,
-> protocol, and tests are all in place but nobody's run it against
-> a real 24Cxx chip. Your first run is also our bring-up. If `i2c
-> scan` returns either an empty list or every address (rather than
-> just the chip's address(es)), the most likely culprit is the
-> CH341A ACK-bit polarity assumption in `src/ch341.rs::i2c_probe` —
-> open an issue with the verbose-mode (`-v i2c scan`) output and
-> we'll get it sorted.
+> ✅ **The I²C path is silicon-validated on a 24C02** (1-byte
+> address): scan / read / write / verify / blank-check / erase are
+> byte-exact at 100 kHz and 20 kHz. One gotcha — `i2c scan` can't see
+> a *blank* EEPROM: the CH341 never exposes the I²C ACK bit, so an
+> all-`0xFF` chip reads like an empty bus; address it directly with
+> `-c`. The 2-byte-address parts (24C32+) and the bit-stuffed
+> 24C04 / 08 / 16 are implemented and mock-tested but not yet
+> confirmed on silicon.
 
 Unlike SPI NOR there's no JEDEC ID register, so the chip must be
 selected explicitly with `-c`:
