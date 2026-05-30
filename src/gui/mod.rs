@@ -437,11 +437,11 @@ pub struct AppView {
     /// 7-bit addresses that ACKed on the last I²C scan. `None` before
     /// the first scan in this session.
     pub i2c_scan_results: Option<Vec<u8>>,
-    /// Last I²C op outcome — `(ok, message)` — rendered as a colored
-    /// line in the active op pane: green ✓ on success, red ✗ on
-    /// failure. Cleared on navigation (`disarm_all`) so it stays
-    /// scoped to the pane that produced it, not just buried in the log.
-    pub i2c_op_result: Option<(bool, String)>,
+    /// Last op outcome (either bus) — `(ok, message)` — rendered as a
+    /// colored line in the active op pane: green ✓ on success, red ✗ on
+    /// failure. Cleared on navigation (`disarm_all`) so it stays scoped
+    /// to the pane that produced it, not just buried in the log.
+    pub op_result: Option<(bool, String)>,
     pub connection: Connection,
     /// Last-read SR1/SR2/SR3 bytes from the Status pane's "Read"
     /// button. `None` before the first read or after the user
@@ -620,7 +620,7 @@ impl AppView {
             selected: Pane::Detect,
             bus: Bus::Spi,
             i2c_scan_results: None,
-            i2c_op_result: None,
+            op_result: None,
             connection: Connection::Disconnected,
             status_regs: None,
             otp_regs: None,
@@ -1052,15 +1052,15 @@ impl AppView {
         self.otp_write_armed = false;
         self.i2c_write_armed = false;
         self.i2c_erase_armed = false;
-        self.i2c_op_result = None;
+        self.op_result = None;
     }
 
-    /// Record an I²C op outcome: log it *and* stash it for the active
-    /// pane to render as a colored line (green ✓ / red ✗). Pass
+    /// Record an op outcome (either bus): log it *and* stash it for the
+    /// active pane to render as a colored line (green ✓ / red ✗). Pass
     /// `ok = false` for failures so the pane renders it red.
-    fn set_i2c_result(&mut self, ok: bool, text: String) {
+    fn set_op_result(&mut self, ok: bool, text: String) {
         self.push_log(text.clone());
-        self.i2c_op_result = Some((ok, text));
+        self.op_result = Some((ok, text));
     }
 
     /// I²C clock for ops. Standard mode (100 kHz) — the safe default
@@ -1074,7 +1074,7 @@ impl AppView {
     /// addresses. Mirrors `start_read`'s spawn → background → open →
     /// op → update shape, but opens the CH341 in I²C mode.
     pub fn start_i2c_scan(&mut self, cx: &mut Context<Self>) {
-        self.i2c_op_result = None;
+        self.op_result = None;
         self.push_log("→ i2c scan (0x08..0x77)".into());
         cx.notify();
         let speed = self.i2c_speed();
@@ -1108,7 +1108,7 @@ impl AppView {
                     }
                     Err(err) => {
                         this.i2c_scan_results = None;
-                        this.set_i2c_result(false, format!("Scan failed: {err}"));
+                        this.set_op_result(false, format!("Scan failed: {err}"));
                     }
                 }
                 cx.notify();
@@ -1123,7 +1123,7 @@ impl AppView {
     /// selection; logs a hint and bails if none is picked.
     pub fn start_i2c_read(&mut self, cx: &mut Context<Self>) {
         let Some(chip_name) = self.i2c_chip_select.read(cx).selected_value().cloned() else {
-            self.set_i2c_result(false, "Pick a chip first — I²C has no auto-detect".into());
+            self.set_op_result(false, "Pick a chip first — I²C has no auto-detect".into());
             cx.notify();
             return;
         };
@@ -1160,11 +1160,11 @@ impl AppView {
                 .await;
             weak.update(cx, |this, cx| {
                 match outcome {
-                    Ok((name, size)) => this.set_i2c_result(
+                    Ok((name, size)) => this.set_op_result(
                         true,
                         format!("Read {size} bytes from {name} → {}", path.display()),
                     ),
-                    Err(err) => this.set_i2c_result(false, format!("Read failed: {err}")),
+                    Err(err) => this.set_op_result(false, format!("Read failed: {err}")),
                 }
                 cx.notify();
             })
@@ -1239,12 +1239,12 @@ impl AppView {
     /// file and a chip selection.
     pub fn arm_or_fire_i2c_write(&mut self, cx: &mut Context<Self>) {
         if self.i2c_write_path.is_none() {
-            self.set_i2c_result(false, "Pick an input file first".into());
+            self.set_op_result(false, "Pick an input file first".into());
             cx.notify();
             return;
         }
         if self.i2c_chip_name(cx).is_none() {
-            self.set_i2c_result(false, "Pick a chip first".into());
+            self.set_op_result(false, "Pick a chip first".into());
             cx.notify();
             return;
         }
@@ -1261,7 +1261,7 @@ impl AppView {
     fn start_i2c_write(&mut self, cx: &mut Context<Self>) {
         let (Some(path), Some(chip_name)) = (self.i2c_write_path.clone(), self.i2c_chip_name(cx))
         else {
-            self.set_i2c_result(false, "Need a chip and a file".into());
+            self.set_op_result(false, "Need a chip and a file".into());
             cx.notify();
             return;
         };
@@ -1302,13 +1302,13 @@ impl AppView {
             weak.update(cx, |this, cx| {
                 match outcome {
                     Ok((name, n, 0)) => {
-                        this.set_i2c_result(true, format!("Wrote {n} bytes to {name} (verified)"))
+                        this.set_op_result(true, format!("Wrote {n} bytes to {name} (verified)"))
                     }
-                    Ok((name, n, m)) => this.set_i2c_result(
+                    Ok((name, n, m)) => this.set_op_result(
                         false,
                         format!("Wrote {n} bytes to {name} but verify found {m} mismatch(es)"),
                     ),
-                    Err(err) => this.set_i2c_result(false, format!("Write failed: {err}")),
+                    Err(err) => this.set_op_result(false, format!("Write failed: {err}")),
                 }
                 cx.notify();
             })
@@ -1321,7 +1321,7 @@ impl AppView {
     pub fn start_i2c_verify(&mut self, cx: &mut Context<Self>) {
         let (Some(path), Some(chip_name)) = (self.i2c_verify_path.clone(), self.i2c_chip_name(cx))
         else {
-            self.set_i2c_result(false, "Need a chip and a file".into());
+            self.set_op_result(false, "Need a chip and a file".into());
             cx.notify();
             return;
         };
@@ -1347,9 +1347,9 @@ impl AppView {
                 .await;
             weak.update(cx, |this, cx| {
                 match outcome {
-                    Ok(0) => this.set_i2c_result(true, "Chip matches the file".into()),
-                    Ok(m) => this.set_i2c_result(false, format!("{m} byte(s) differ")),
-                    Err(err) => this.set_i2c_result(false, format!("Verify failed: {err}")),
+                    Ok(0) => this.set_op_result(true, "Chip matches the file".into()),
+                    Ok(m) => this.set_op_result(false, format!("{m} byte(s) differ")),
+                    Err(err) => this.set_op_result(false, format!("Verify failed: {err}")),
                 }
                 cx.notify();
             })
@@ -1362,7 +1362,7 @@ impl AppView {
     /// over the whole chip).
     pub fn arm_or_fire_i2c_erase(&mut self, cx: &mut Context<Self>) {
         if self.i2c_chip_name(cx).is_none() {
-            self.set_i2c_result(false, "Pick a chip first".into());
+            self.set_op_result(false, "Pick a chip first".into());
             cx.notify();
             return;
         }
@@ -1378,7 +1378,7 @@ impl AppView {
 
     fn start_i2c_erase(&mut self, cx: &mut Context<Self>) {
         let Some(chip_name) = self.i2c_chip_name(cx) else {
-            self.set_i2c_result(false, "Pick a chip first".into());
+            self.set_op_result(false, "Pick a chip first".into());
             cx.notify();
             return;
         };
@@ -1407,9 +1407,9 @@ impl AppView {
             weak.update(cx, |this, cx| {
                 match outcome {
                     Ok((name, size)) => {
-                        this.set_i2c_result(true, format!("Erased {name} to 0xFF ({size} bytes)"))
+                        this.set_op_result(true, format!("Erased {name} to 0xFF ({size} bytes)"))
                     }
-                    Err(err) => this.set_i2c_result(false, format!("Erase failed: {err}")),
+                    Err(err) => this.set_op_result(false, format!("Erase failed: {err}")),
                 }
                 cx.notify();
             })
@@ -1421,7 +1421,7 @@ impl AppView {
     /// I²C Blank check — confirm every byte reads 0xFF. Read-only.
     pub fn start_i2c_blank_check(&mut self, cx: &mut Context<Self>) {
         let Some(chip_name) = self.i2c_chip_name(cx) else {
-            self.set_i2c_result(false, "Pick a chip first".into());
+            self.set_op_result(false, "Pick a chip first".into());
             cx.notify();
             return;
         };
@@ -1448,8 +1448,8 @@ impl AppView {
             weak.update(cx, |this, cx| {
                 match outcome {
                     Ok((name, size)) => this
-                        .set_i2c_result(true, format!("{name} is blank — all 0xFF ({size} bytes)")),
-                    Err(err) => this.set_i2c_result(false, format!("Blank check: {err}")),
+                        .set_op_result(true, format!("{name} is blank — all 0xFF ({size} bytes)")),
+                    Err(err) => this.set_op_result(false, format!("Blank check: {err}")),
                 }
                 cx.notify();
             })
@@ -1957,7 +1957,7 @@ impl AppView {
     /// Two-stage trigger for write (same shape as `arm_or_fire_erase`).
     pub fn arm_or_fire_write(&mut self, cx: &mut Context<Self>) {
         if self.write_input_path.is_none() {
-            self.push_log("Write FAIL: no input file selected".into());
+            self.set_op_result(false, "Pick an input file first".into());
             cx.notify();
             return;
         }
@@ -1975,7 +1975,7 @@ impl AppView {
     /// (matches the CLI's default behaviour). Path must already be set.
     fn start_write(&mut self, cx: &mut Context<Self>) {
         let Some(path) = self.write_input_path.clone() else {
-            self.push_log("Write FAIL: no input file selected".into());
+            self.set_op_result(false, "Pick an input file first".into());
             cx.notify();
             return;
         };
@@ -2033,9 +2033,9 @@ impl AppView {
             weak.update(cx, |this, cx| {
                 match outcome {
                     Ok((name, n)) => {
-                        this.push_log(format!("Write OK : {n} bytes to {name} (verified)"));
+                        this.set_op_result(true, format!("Wrote {n} bytes to {name} (verified)"))
                     }
-                    Err(err) => this.push_log(format!("Write FAIL: {err}")),
+                    Err(err) => this.set_op_result(false, format!("Write failed: {err}")),
                 }
                 cx.notify();
             })
@@ -2047,7 +2047,7 @@ impl AppView {
     /// Background-spawn ops::verify. Read-only, no confirmation needed.
     pub fn start_verify(&mut self, cx: &mut Context<Self>) {
         let Some(path) = self.verify_input_path.clone() else {
-            self.push_log("Verify FAIL: no input file selected".into());
+            self.set_op_result(false, "Pick an input file first".into());
             cx.notify();
             return;
         };
@@ -2098,12 +2098,13 @@ impl AppView {
             weak.update(cx, |this, cx| {
                 match outcome {
                     Ok((name, n, 0)) => {
-                        this.push_log(format!("Verify OK: all {n} bytes match {name}"));
+                        this.set_op_result(true, format!("All {n} bytes match {name}"))
                     }
-                    Ok((name, n, mis)) => {
-                        this.push_log(format!("Verify FAIL: {mis} of {n} bytes differ ({name})"));
-                    }
-                    Err(err) => this.push_log(format!("Verify FAIL: {err}")),
+                    Ok((name, n, mis)) => this.set_op_result(
+                        false,
+                        format!("{mis} of {n} bytes differ ({name})"),
+                    ),
+                    Err(err) => this.set_op_result(false, format!("Verify failed: {err}")),
                 }
                 cx.notify();
             })
@@ -2122,6 +2123,7 @@ impl AppView {
     /// JESD216 view without a separate "Read SFDP" button.
     pub fn refresh_detect(&mut self, cx: &mut Context<Self>) {
         self.push_log("→ detect".to_string());
+        self.op_result = None;
         // `outcome` carries the resolved chip-info plus the SFDP
         // parse (if any). MISO-stuck states short-circuit before
         // the SFDP read so we don't waste time decoding 256 bytes
@@ -2218,7 +2220,7 @@ impl AppView {
                 self.detect_sfdp = sfdp;
             }
             Err(err) => {
-                self.push_log(format!("error: {err}"));
+                self.set_op_result(false, format!("Detect failed: {err}"));
                 self.connection = Connection::Disconnected;
                 self.detect_result = None;
                 self.detect_sfdp = None;
@@ -2298,13 +2300,11 @@ impl AppView {
 
             weak.update(cx, |this, cx| {
                 match outcome {
-                    Ok((name, size)) => {
-                        this.push_log(format!("Read OK : {size} bytes from {name}"));
-                        this.push_log(format!("Saved   : {}", path.display()));
-                    }
-                    Err(err) => {
-                        this.push_log(format!("Read FAIL: {err}"));
-                    }
+                    Ok((name, size)) => this.set_op_result(
+                        true,
+                        format!("Read {size} bytes from {name} → {}", path.display()),
+                    ),
+                    Err(err) => this.set_op_result(false, format!("Read failed: {err}")),
                 }
                 cx.notify();
             })
@@ -2384,11 +2384,9 @@ impl AppView {
             weak.update(cx, |this, cx| {
                 match outcome {
                     Ok(name) => {
-                        this.push_log(format!("Erase OK : {name} (chip is now blank)"));
+                        this.set_op_result(true, format!("Erased {name} — chip is now blank"))
                     }
-                    Err(err) => {
-                        this.push_log(format!("Erase FAIL: {err}"));
-                    }
+                    Err(err) => this.set_op_result(false, format!("Erase failed: {err}")),
                 }
                 cx.notify();
             })
@@ -2408,6 +2406,7 @@ impl AppView {
     /// interval that drives `SharedProgress`.
     pub fn start_read_status(&mut self, cx: &mut Context<Self>) {
         self.push_log("→ status regs".into());
+        self.op_result = None;
         cx.notify();
         let speed = self.prefs.spi_speed_khz;
         cx.spawn(async move |weak, cx| {
@@ -2442,9 +2441,7 @@ impl AppView {
                             regs.sr1, regs.sr2, regs.sr3
                         ));
                     }
-                    Err(err) => {
-                        this.push_log(format!("Status FAIL: {err}"));
-                    }
+                    Err(err) => this.set_op_result(false, format!("Status read failed: {err}")),
                 }
                 cx.notify();
             })
@@ -2459,6 +2456,7 @@ impl AppView {
     /// (three 256-byte reads finish well under the poll interval).
     pub fn start_read_otp(&mut self, cx: &mut Context<Self>) {
         self.push_log("→ security registers".into());
+        self.op_result = None;
         cx.notify();
         let speed = self.prefs.spi_speed_khz;
         cx.spawn(async move |weak, cx| {
@@ -2492,7 +2490,7 @@ impl AppView {
                         this.otp_regs = Some(regs);
                     }
                     Err(err) => {
-                        this.push_log(format!("Security registers FAIL: {err}"));
+                        this.set_op_result(false, format!("Security registers read failed: {err}"))
                     }
                 }
                 cx.notify();
@@ -2578,9 +2576,12 @@ impl AppView {
                 match outcome {
                     Ok(regs) => {
                         this.otp_regs = Some(regs);
-                        this.push_log(format!("Security register {register} erased to 0xFF"));
+                        this.set_op_result(
+                            true,
+                            format!("Security register {register} erased to 0xFF"),
+                        );
                     }
-                    Err(err) => this.push_log(format!("OTP erase FAIL: {err}")),
+                    Err(err) => this.set_op_result(false, format!("OTP erase failed: {err}")),
                 }
                 cx.notify();
             })
@@ -2594,7 +2595,7 @@ impl AppView {
     /// write. Requires a file to be picked first.
     pub fn arm_or_fire_otp_write(&mut self, cx: &mut Context<Self>) {
         if self.otp_write_path.is_none() {
-            self.push_log("OTP write FAIL: no input file selected".into());
+            self.set_op_result(false, "Pick an input file first".into());
             cx.notify();
             return;
         }
@@ -2613,7 +2614,7 @@ impl AppView {
 
     fn start_otp_write(&mut self, cx: &mut Context<Self>) {
         let Some(path) = self.otp_write_path.clone() else {
-            self.push_log("OTP write FAIL: no input file selected".into());
+            self.set_op_result(false, "Pick an input file first".into());
             cx.notify();
             return;
         };
@@ -2642,11 +2643,14 @@ impl AppView {
                 match outcome {
                     Ok((len, regs)) => {
                         this.otp_regs = Some(regs);
-                        this.push_log(format!(
-                            "Security register {register} written ({len} byte(s), read-back verified)"
-                        ));
+                        this.set_op_result(
+                            true,
+                            format!(
+                                "Security register {register} written ({len} byte(s), verified)"
+                            ),
+                        );
                     }
-                    Err(err) => this.push_log(format!("OTP write FAIL: {err}")),
+                    Err(err) => this.set_op_result(false, format!("OTP write failed: {err}")),
                 }
                 cx.notify();
             })
@@ -2705,12 +2709,11 @@ impl AppView {
 
             weak.update(cx, |this, cx| {
                 match outcome {
-                    Ok((name, size)) => {
-                        this.push_log(format!("Blank OK : all {size} bytes are 0xFF ({name})"));
-                    }
-                    Err(err) => {
-                        this.push_log(format!("Blank FAIL: {err}"));
-                    }
+                    Ok((name, size)) => this.set_op_result(
+                        true,
+                        format!("{name} is blank — all {size} bytes are 0xFF"),
+                    ),
+                    Err(err) => this.set_op_result(false, format!("Blank check failed: {err}")),
                 }
                 cx.notify();
             })
@@ -2876,7 +2879,7 @@ impl Render for AppView {
                                     i2c_verify_path: self.i2c_verify_path.as_deref(),
                                     i2c_write_armed: self.i2c_write_armed,
                                     i2c_erase_armed: self.i2c_erase_armed,
-                                    i2c_op_result: self.i2c_op_result.as_ref(),
+                                    op_result: self.op_result.as_ref(),
                                 };
                                 let outer = div().flex_1().min_h(px(0.0)).min_w(px(0.0));
                                 // Settings has no op activity worth a log

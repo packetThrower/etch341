@@ -95,10 +95,10 @@ pub struct PaneInputs<'a> {
     pub i2c_verify_path: Option<&'a Path>,
     pub i2c_write_armed: bool,
     pub i2c_erase_armed: bool,
-    /// Last I²C op outcome — `(ok, message)` — rendered as a colored
-    /// result line in the active op pane (green ✓ / red ✗). `None`
-    /// before any op runs or after navigating away.
-    pub i2c_op_result: Option<&'a (bool, String)>,
+    /// Last op outcome (either bus) — `(ok, message)` — rendered as a
+    /// colored result line in the active op pane (green ✓ / red ✗).
+    /// `None` before any op runs or after navigating away.
+    pub op_result: Option<&'a (bool, String)>,
 }
 
 pub fn render(
@@ -107,21 +107,27 @@ pub fn render(
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     match selected {
-        Pane::Detect => {
-            detect_pane(inputs.detect_result, inputs.detect_sfdp, cx).into_any_element()
-        }
-        Pane::Read => read_pane(cx).into_any_element(),
-        Pane::Erase => erase_pane(inputs.erase_armed, cx).into_any_element(),
-        Pane::Write => write_pane(inputs.write_path, inputs.write_armed, cx).into_any_element(),
-        Pane::Verify => verify_pane(inputs.verify_path, cx).into_any_element(),
-        Pane::Blank => blank_pane(cx).into_any_element(),
-        Pane::Status => status_pane(inputs.status_regs, cx).into_any_element(),
+        Pane::Detect => detect_pane(
+            inputs.detect_result,
+            inputs.detect_sfdp,
+            inputs.op_result,
+            cx,
+        )
+        .into_any_element(),
+        Pane::Read => read_pane(inputs.op_result, cx).into_any_element(),
+        Pane::Erase => erase_pane(inputs.erase_armed, inputs.op_result, cx).into_any_element(),
+        Pane::Write => write_pane(inputs.write_path, inputs.write_armed, inputs.op_result, cx)
+            .into_any_element(),
+        Pane::Verify => verify_pane(inputs.verify_path, inputs.op_result, cx).into_any_element(),
+        Pane::Blank => blank_pane(inputs.op_result, cx).into_any_element(),
+        Pane::Status => status_pane(inputs.status_regs, inputs.op_result, cx).into_any_element(),
         Pane::Otp => otp_pane(
             inputs.otp_regs,
             inputs.otp_target_register,
             inputs.otp_write_path,
             inputs.otp_erase_armed,
             inputs.otp_write_armed,
+            inputs.op_result,
             cx,
         )
         .into_any_element(),
@@ -157,35 +163,35 @@ pub fn render(
         )
         .into_any_element(),
         Pane::I2cScan => {
-            i2c_scan_pane(inputs.i2c_scan_results, inputs.i2c_op_result, cx).into_any_element()
+            i2c_scan_pane(inputs.i2c_scan_results, inputs.op_result, cx).into_any_element()
         }
         Pane::I2cRead => {
-            i2c_read_pane(inputs.i2c_chip_select, inputs.i2c_op_result, cx).into_any_element()
+            i2c_read_pane(inputs.i2c_chip_select, inputs.op_result, cx).into_any_element()
         }
         Pane::I2cWrite => i2c_write_pane(
             inputs.i2c_chip_select,
             inputs.i2c_write_path,
             inputs.i2c_write_armed,
-            inputs.i2c_op_result,
+            inputs.op_result,
             cx,
         )
         .into_any_element(),
         Pane::I2cVerify => i2c_verify_pane(
             inputs.i2c_chip_select,
             inputs.i2c_verify_path,
-            inputs.i2c_op_result,
+            inputs.op_result,
             cx,
         )
         .into_any_element(),
         Pane::I2cErase => i2c_erase_pane(
             inputs.i2c_chip_select,
             inputs.i2c_erase_armed,
-            inputs.i2c_op_result,
+            inputs.op_result,
             cx,
         )
         .into_any_element(),
         Pane::I2cBlank => {
-            i2c_blank_pane(inputs.i2c_chip_select, inputs.i2c_op_result, cx).into_any_element()
+            i2c_blank_pane(inputs.i2c_chip_select, inputs.op_result, cx).into_any_element()
         }
     }
 }
@@ -231,7 +237,7 @@ fn i2c_scan_pane(
             ),
         );
     }
-    col.children(i2c_result_block(result))
+    col.children(result_block(result))
 }
 
 /// The shared I²C chip dropdown, rendered at the top of every I²C op
@@ -251,12 +257,13 @@ fn i2c_chip_picker(chip_select: &Entity<SelectState<Vec<SharedString>>>) -> impl
         )
 }
 
-/// A colored result line for an I²C op pane — green ✓ on success, red ✗
-/// on failure (a hardware error, or a verify finding mismatches).
-/// Returns `None` when no op has run, so panes `.children(...)` it
-/// unconditionally. The result is cleared on navigation, so it only
-/// shows in the pane that produced it rather than lingering in the log.
-fn i2c_result_block(result: Option<&(bool, String)>) -> Option<gpui::Div> {
+/// A colored result line for an op pane (either bus) — green ✓ on
+/// success, red ✗ on failure (a hardware error, or a verify finding
+/// mismatches). Returns `None` when no op has run, so panes
+/// `.children(...)` it unconditionally. The result is cleared on
+/// navigation, so it only shows in the pane that produced it rather
+/// than lingering in the log.
+fn result_block(result: Option<&(bool, String)>) -> Option<gpui::Div> {
     let (ok, text) = result?;
     let color = if *ok {
         theme::success_green()
@@ -306,7 +313,7 @@ fn i2c_read_pane(
         cx,
         |this, cx| this.start_i2c_read(cx),
     ))
-    .children(i2c_result_block(result))
+    .children(result_block(result))
 }
 
 /// I²C write pane: chip picker + file row + arm/confirm. Programs the
@@ -347,7 +354,7 @@ fn i2c_write_pane(
          chip first.",
     )
     .child(group)
-    .children(i2c_result_block(result))
+    .children(result_block(result))
 }
 
 /// I²C verify pane: chip picker + file row + a Verify button.
@@ -382,7 +389,7 @@ fn i2c_verify_pane(
          Non-destructive; reports how many bytes differ.",
     )
     .child(group)
-    .children(i2c_result_block(result))
+    .children(result_block(result))
 }
 
 /// I²C erase pane: chip picker + arm/confirm. Writes 0xFF everywhere.
@@ -412,7 +419,7 @@ fn i2c_erase_pane(
         cx,
         |this, cx| this.arm_or_fire_i2c_erase(cx),
     ))
-    .children(i2c_result_block(result))
+    .children(result_block(result))
 }
 
 /// I²C blank-check pane: chip picker + a button. Confirms all 0xFF.
@@ -433,10 +440,10 @@ fn i2c_blank_pane(
         cx,
         |this, cx| this.start_i2c_blank_check(cx),
     ))
-    .children(i2c_result_block(result))
+    .children(result_block(result))
 }
 
-fn read_pane(cx: &mut Context<AppView>) -> impl IntoElement {
+fn read_pane(result: Option<&(bool, String)>, cx: &mut Context<AppView>) -> impl IntoElement {
     op_pane(
         "Read",
         "Dumps the chip to a timestamped file. Pick the save directory \
@@ -448,9 +455,14 @@ fn read_pane(cx: &mut Context<AppView>) -> impl IntoElement {
         cx,
         |this, cx| this.start_read(cx),
     ))
+    .children(result_block(result))
 }
 
-fn erase_pane(armed: bool, cx: &mut Context<AppView>) -> impl IntoElement {
+fn erase_pane(
+    armed: bool,
+    result: Option<&(bool, String)>,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
     op_pane(
         "Erase",
         "Erases the entire chip back to 0xFF. DESTRUCTIVE and not \
@@ -471,9 +483,15 @@ fn erase_pane(armed: bool, cx: &mut Context<AppView>) -> impl IntoElement {
         cx,
         |this, cx| this.arm_or_fire_erase(cx),
     ))
+    .children(result_block(result))
 }
 
-fn write_pane(path: Option<&Path>, armed: bool, cx: &mut Context<AppView>) -> impl IntoElement {
+fn write_pane(
+    path: Option<&Path>,
+    armed: bool,
+    result: Option<&(bool, String)>,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
     let mut group = GroupBox::new()
         .id("write-box")
         .outline()
@@ -502,9 +520,14 @@ fn write_pane(path: Option<&Path>, armed: bool, cx: &mut Context<AppView>) -> im
          protection as Erase. Switching panes resets the arm state.",
     )
     .child(group)
+    .children(result_block(result))
 }
 
-fn verify_pane(path: Option<&Path>, cx: &mut Context<AppView>) -> impl IntoElement {
+fn verify_pane(
+    path: Option<&Path>,
+    result: Option<&(bool, String)>,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
     let group = GroupBox::new()
         .id("verify-box")
         .outline()
@@ -526,6 +549,7 @@ fn verify_pane(path: Option<&Path>, cx: &mut Context<AppView>) -> impl IntoEleme
          bytes differ.",
     )
     .child(group)
+    .children(result_block(result))
 }
 
 /// Path display + Browse button row. Path text wraps if long.
@@ -1741,6 +1765,7 @@ fn hex_color_for(b: u8) -> gpui::Hsla {
 
 fn status_pane(
     regs: Option<crate::spi::StatusRegisters>,
+    result: Option<&(bool, String)>,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let mut col = op_pane(
@@ -1755,6 +1780,7 @@ fn status_pane(
         cx,
         |this, cx| this.start_read_status(cx),
     ));
+    col = col.children(result_block(result));
     if let Some(r) = regs {
         // Group the three register blocks inside a single card so
         // "decoded result" is visually distinct from the pane's
@@ -1932,6 +1958,7 @@ fn otp_pane(
     write_path: Option<&Path>,
     erase_armed: bool,
     write_armed: bool,
+    result: Option<&(bool, String)>,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let mut col = op_pane(
@@ -1949,6 +1976,7 @@ fn otp_pane(
         cx,
         |this, cx| this.start_read_otp(cx),
     ));
+    col = col.children(result_block(result));
     if let Some(regs) = regs {
         let mut card = card_with_copy(format_otp_for_copy(regs), "copy-otp", cx);
         for reg in regs {
@@ -2365,7 +2393,7 @@ fn section_block_with_text(label: &'static str, text: String) -> gpui::Div {
         )
 }
 
-fn blank_pane(cx: &mut Context<AppView>) -> impl IntoElement {
+fn blank_pane(result: Option<&(bool, String)>, cx: &mut Context<AppView>) -> impl IntoElement {
     op_pane(
         "Blank check",
         "Reads the entire chip and confirms every byte is 0xFF. \
@@ -2379,11 +2407,13 @@ fn blank_pane(cx: &mut Context<AppView>) -> impl IntoElement {
         cx,
         |this, cx| this.start_blank_check(cx),
     ))
+    .children(result_block(result))
 }
 
 fn detect_pane(
     info: Option<&crate::gui::DetectInfo>,
     sfdp: Option<&crate::sfdp::Sfdp>,
+    result: Option<&(bool, String)>,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let mut col = op_pane(
@@ -2414,6 +2444,11 @@ fn detect_pane(
                     })),
             ),
     );
+
+    // A failed Detect (no chip / bus error) clears the card and
+    // surfaces a red ✗ line here instead; on success this is empty and
+    // the chip-info card below is the result.
+    col = col.children(result_block(result));
 
     let Some(info) = info else {
         return col;
