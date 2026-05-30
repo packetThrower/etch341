@@ -229,20 +229,13 @@ pub(crate) mod test_support {
 
     pub struct MockI2c {
         steps: VecDeque<Step>,
-        probes: VecDeque<bool>,
     }
 
     impl MockI2c {
         pub fn new(steps: impl IntoIterator<Item = Step>) -> Self {
             Self {
                 steps: steps.into_iter().collect(),
-                probes: VecDeque::new(),
             }
-        }
-
-        pub fn with_probes(mut self, probes: impl IntoIterator<Item = bool>) -> Self {
-            self.probes = probes.into_iter().collect();
-            self
         }
 
         pub fn assert_drained(&self) {
@@ -274,7 +267,7 @@ pub(crate) mod test_support {
         }
 
         fn i2c_probe(&mut self, _slave_7bit: u8) -> Result<bool> {
-            Ok(self.probes.pop_front().unwrap_or(true))
+            Ok(true)
         }
     }
 }
