@@ -2,14 +2,15 @@
 
 use gpui::{
     App, AppContext, Bounds, ClipboardItem, Context, Entity, FocusHandle, InteractiveElement,
-    IntoElement, KeyBinding, ParentElement, Render, ScrollHandle, ScrollStrategy, Styled,
-    Subscription, TitlebarOptions, UniformListScrollHandle, Window, WindowBounds,
+    IntoElement, KeyBinding, ParentElement, Render, ScrollHandle, ScrollStrategy, SharedString,
+    Styled, Subscription, TitlebarOptions, UniformListScrollHandle, Window, WindowBounds,
     WindowDecorations, WindowHandle, WindowOptions, actions, div, px,
 };
 use gpui_component::{
     Root, Theme, ThemeMode, TitleBar,
     input::{InputEvent, InputState},
     resizable::{resizable_panel, v_resizable},
+    select::SelectState,
 };
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -544,6 +545,11 @@ pub struct AppView {
     /// Managed-state entity for the unified Find input. Live typing
     /// drives highlight + filter; Enter dispatches to jump-or-find.
     pub hex_search_state: Entity<InputState>,
+    /// Dropdown state for picking the I²C chip (24Cxx). I²C has no
+    /// JEDEC auto-detect, so every I²C read/write/verify/erase/blank
+    /// op resolves the chip from this selection. Shared across all the
+    /// I²C op panes (one selection, rendered in each).
+    pub i2c_chip_select: Entity<SelectState<Vec<SharedString>>>,
     /// Keeps subscriptions alive for as long as AppView exists. Drop
     /// the subscription = dead callback = stale UI.
     _subscriptions: Vec<Subscription>,
@@ -589,6 +595,15 @@ impl AppView {
                 _ => {}
             },
         );
+        // I²C chip dropdown, populated from the bundled 24Cxx DB. No
+        // default selection — the op panes show a "pick a chip"
+        // placeholder, and the op methods bail with a log line if none
+        // is chosen (I²C has no JEDEC auto-detect to fall back on).
+        let i2c_chips: Vec<SharedString> = crate::chipdb::I2cChipDb::load_embedded()
+            .iter()
+            .map(|c| SharedString::from(c.name.clone()))
+            .collect();
+        let i2c_chip_select = cx.new(|cx| SelectState::new(i2c_chips, None, window, cx));
         Self {
             selected: Pane::Detect,
             bus: Bus::Spi,
@@ -628,6 +643,7 @@ impl AppView {
             hex_selecting: false,
             hex_search_term: String::new(),
             hex_search_state,
+            i2c_chip_select,
             _subscriptions: vec![sub],
             progress: Arc::new(SharedProgress::default()),
             prefs: Prefs::load(),
@@ -1055,6 +1071,61 @@ impl AppView {
                         this.i2c_scan_results = Some(hits);
                     }
                     Err(err) => this.push_log(format!("scan FAIL: {err}")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// I²C read — dumps the selected chip to a timestamped file (same
+    /// naming + save dir as the SPI Read pane). Requires a chip
+    /// selection; logs a hint and bails if none is picked.
+    pub fn start_i2c_read(&mut self, cx: &mut Context<Self>) {
+        let Some(chip_name) = self.i2c_chip_select.read(cx).selected_value().cloned() else {
+            self.push_log("i2c read: pick a chip first".into());
+            cx.notify();
+            return;
+        };
+        let chip_name = chip_name.to_string();
+        let path = read_output_path(&self.prefs);
+        self.push_log(format!("→ i2c read ({chip_name}) → {}", path.display()));
+        cx.notify();
+        self.spawn_progress_poller(cx);
+
+        let path_for_task = path.clone();
+        let progress = self.progress.clone();
+        let speed = self.i2c_speed();
+        cx.spawn(async move |weak, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let chip = crate::i2c_ops::resolve_chip(&chip_name)
+                        .map_err(|e| format!("chip: {e}"))?;
+                    let mut ch = Ch341::open_i2c(false).map_err(|e| format!("open: {e}"))?;
+                    ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
+                    let mut sink = GuiSink::new(progress, "i2c-read");
+                    crate::i2c_ops::read(
+                        &mut ch,
+                        &chip,
+                        0,
+                        chip.size_bytes,
+                        0,
+                        &path_for_task,
+                        &mut sink,
+                    )
+                    .map_err(|e| format!("read: {e}"))?;
+                    Ok::<_, String>((chip.name, chip.size_bytes))
+                })
+                .await;
+            weak.update(cx, |this, cx| {
+                match outcome {
+                    Ok((name, size)) => {
+                        this.push_log(format!("Read OK : {size} bytes from {name}"));
+                        this.push_log(format!("Saved   : {}", path.display()));
+                    }
+                    Err(err) => this.push_log(format!("Read FAIL: {err}")),
                 }
                 cx.notify();
             })
@@ -2476,6 +2547,7 @@ impl Render for AppView {
                                     timestamp_local: self.prefs.timestamp_local,
                                     update_check_enabled: !self.prefs.disable_update_check,
                                     i2c_scan_results: self.i2c_scan_results.as_deref(),
+                                    i2c_chip_select: &self.i2c_chip_select,
                                 };
                                 let outer = div().flex_1().min_h(px(0.0)).min_w(px(0.0));
                                 // Settings has no op activity worth a log

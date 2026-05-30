@@ -1,12 +1,13 @@
 use super::{AppView, Pane, theme};
 use gpui::{
     ClickEvent, Context, Entity, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    MouseMoveEvent, ParentElement, StatefulInteractiveElement, Styled, UniformListScrollHandle,
-    WeakEntity, div, prelude::FluentBuilder, px, uniform_list,
+    MouseMoveEvent, ParentElement, SharedString, StatefulInteractiveElement, Styled,
+    UniformListScrollHandle, WeakEntity, div, prelude::FluentBuilder, px, uniform_list,
 };
 use gpui_component::group_box::{GroupBox, GroupBoxVariants as _};
 use gpui_component::input::{Input, InputState};
 use gpui_component::radio::{Radio, RadioGroup};
+use gpui_component::select::{Select, SelectState};
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{Sizable as _, Size};
 use std::collections::HashSet;
@@ -85,6 +86,9 @@ pub struct PaneInputs<'a> {
     /// I²C bus-scan result (the 7-bit addresses that ACKed) for the
     /// I²C Scan pane. `None` before the first scan this session.
     pub i2c_scan_results: Option<&'a [u8]>,
+    /// Shared dropdown state for picking the I²C chip; rendered in each
+    /// I²C op pane (Read/Write/Verify/Erase/Blank check).
+    pub i2c_chip_select: &'a Entity<SelectState<Vec<SharedString>>>,
 }
 
 pub fn render(
@@ -143,9 +147,7 @@ pub fn render(
         )
         .into_any_element(),
         Pane::I2cScan => i2c_scan_pane(inputs.i2c_scan_results, cx).into_any_element(),
-        Pane::I2cRead => {
-            i2c_todo_pane("I²C Read", "Dump the EEPROM contents to a file.").into_any_element()
-        }
+        Pane::I2cRead => i2c_read_pane(inputs.i2c_chip_select, cx).into_any_element(),
         Pane::I2cWrite => {
             i2c_todo_pane("I²C Write", "Program the EEPROM from a file.").into_any_element()
         }
@@ -202,6 +204,43 @@ fn i2c_scan_pane(hits: Option<&[u8]>, cx: &mut Context<AppView>) -> impl IntoEle
         );
     }
     col
+}
+
+/// The shared I²C chip dropdown, rendered at the top of every I²C op
+/// pane. All panes read/write the same `SelectState`, so the choice
+/// persists as you move between Read / Write / Verify / etc.
+fn i2c_chip_picker(chip_select: &Entity<SelectState<Vec<SharedString>>>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .child(div().text_color(theme::text_secondary()).child("Chip"))
+        .child(
+            div()
+                .w(px(160.0))
+                .child(Select::new(chip_select).placeholder("Pick a 24Cxx…")),
+        )
+}
+
+/// I²C read pane: chip picker + a button that dumps the whole chip to
+/// a timestamped file (same save dir as the SPI Read pane).
+fn i2c_read_pane(
+    chip_select: &Entity<SelectState<Vec<SharedString>>>,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
+    op_pane(
+        "I²C Read",
+        "Dumps the entire EEPROM to a timestamped file in your Read save \
+         directory. Pick the chip first — I²C has no JEDEC auto-detect.",
+    )
+    .child(i2c_chip_picker(chip_select))
+    .child(action_button_for(
+        "Read chip",
+        "i2c-read",
+        cx,
+        |this, cx| this.start_i2c_read(cx),
+    ))
 }
 
 /// Placeholder for the not-yet-built I²C op panes. Keeps the bus
