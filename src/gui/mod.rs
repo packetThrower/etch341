@@ -84,6 +84,7 @@ fn apply_accent_to_component_theme(cx: &mut App) {
 // the rest of the GUI module.
 pub use crate::inspect::{byte_match_ci, extract_strings, parse_hex_needle};
 
+mod chipdb_browser;
 mod header;
 mod log;
 mod panes;
@@ -447,6 +448,10 @@ pub struct AppView {
     /// pop-out click activates the existing window instead of
     /// spawning a duplicate. `None` when the log is inline.
     pub log_window: Option<WindowHandle<Root>>,
+    /// Handle to the chip-database browser window while it's open, so
+    /// a repeat "Browse chip database" click activates the existing
+    /// window instead of spawning a duplicate. `None` when closed.
+    pub chip_db_window: Option<WindowHandle<Root>>,
     /// First click on the Erase button arms it (label/color swap);
     /// the second click within the same pane visit fires the actual
     /// erase. Reset to false when the user navigates away.
@@ -568,6 +573,7 @@ impl AppView {
             log_scroll: ScrollHandle::new(),
             log_popped_out: false,
             log_window: None,
+            chip_db_window: None,
             erase_armed: false,
             write_armed: false,
             write_input_path: None,
@@ -886,6 +892,67 @@ impl AppView {
                     app.update(cx, |this, cx| {
                         this.log_popped_out = false;
                         this.push_log(format!("pop-out log failed: {e}"));
+                        cx.notify();
+                    });
+                }
+            }
+        });
+    }
+
+    /// Detect pane → "Browse chip database" button. Opens the chip
+    /// catalogue in its own window (same open_window + observe_release
+    /// lifecycle as the pop-out log). The browser is self-contained —
+    /// it reads the embedded DB directly, so unlike the log it needs no
+    /// handle back to AppView for its data; the only AppView coupling
+    /// is clearing `chip_db_window` on close so a re-click reopens
+    /// rather than activating a dead handle.
+    pub fn open_chip_db(&mut self, cx: &mut Context<Self>) {
+        if let Some(handle) = self.chip_db_window {
+            let _ = handle.update(cx, |_, window, _| window.activate_window());
+            return;
+        }
+        let app = cx.entity();
+        // Defer so the window opens after the current effect cycle
+        // hands the borrowed entities back to a clean &mut App.
+        cx.defer(move |cx| {
+            let bounds = Bounds::centered(None, gpui::size(px(720.0), px(560.0)), cx);
+            let opened = cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    titlebar: Some(TitlebarOptions {
+                        title: Some("etch341 — Chip Database".into()),
+                        ..TitleBar::title_bar_options()
+                    }),
+                    app_id: Some("etch341".into()),
+                    window_decorations: Some(WindowDecorations::Client),
+                    ..Default::default()
+                },
+                {
+                    let app = app.clone();
+                    move |window, cx| {
+                        window.set_client_inset(px(10.0));
+                        let view = cx.new(|cx| chipdb_browser::ChipDbBrowser::new(window, cx));
+                        // Clear the handle when the window tears down,
+                        // however it was closed (button, Cmd/Ctrl+W, OS).
+                        let close_app = app.downgrade();
+                        cx.observe_release(&view, move |_, cx| {
+                            let _ = close_app.update(cx, |this, cx| {
+                                this.chip_db_window = None;
+                                cx.notify();
+                            });
+                        })
+                        .detach();
+                        cx.new(|cx| Root::new(view, window, cx))
+                    }
+                },
+            );
+            match opened {
+                Ok(handle) => {
+                    app.update(cx, |this, _| this.chip_db_window = Some(handle));
+                }
+                Err(e) => {
+                    app.update(cx, |this, cx| {
+                        this.push_log(format!("chip-database window failed: {e}"));
                         cx.notify();
                     });
                 }

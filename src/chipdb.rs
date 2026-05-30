@@ -35,6 +35,33 @@ pub struct Chip {
     pub notes: String,
 }
 
+impl Chip {
+    /// Operating-voltage class, derived from the JEDEC manufacturer +
+    /// memory-type byte rather than stored as a field. Every part in
+    /// the bundled DB follows its vendor's family convention, so the
+    /// voltage is fully recoverable from the JEDEC id — deriving it
+    /// means it can never drift out of sync with that id (storing it
+    /// separately would let one be edited without the other).
+    ///
+    /// 1.8V families: Winbond W25Q*JW (0xEF60), Macronix MX25U
+    /// (0xC225), GigaDevice GD25LQ (0xC860), Adesto AT25SL (0x1F42).
+    /// Adesto AT25DN512C (0x1F65) is the lone 2.3V part. Everything
+    /// else in the catalogue is 3.3V. Used by the GUI chip browser and
+    /// the CLI `chips` table; `voltage_matches_notes_where_present`
+    /// cross-checks this against the hand-written notes.
+    pub fn voltage(&self) -> &'static str {
+        let id = self.jedec_id.to_ascii_uppercase();
+        match (id.get(0..2).unwrap_or(""), id.get(2..4).unwrap_or("")) {
+            ("EF", "60") => "1.8V", // Winbond W25Q*JW
+            ("C2", "25") => "1.8V", // Macronix MX25U
+            ("C8", "60") => "1.8V", // GigaDevice GD25LQ
+            ("1F", "42") => "1.8V", // Adesto AT25SL
+            ("1F", "65") => "2.3V", // Adesto AT25DN512C (2.3–3.6V)
+            _ => "3.3V",
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct ChipFile {
     chip: Vec<Chip>,
@@ -118,6 +145,20 @@ pub struct I2cChip {
     /// Worst-case time the chip stays busy after a page-write,
     /// used as the ACK-polling timeout.
     pub write_cycle_ms: u32,
+}
+
+impl I2cChip {
+    /// Operating voltage. The 24Cxx family is wide-range — variants
+    /// span roughly 1.8–5.5V, and the parts are commonly run at 3.3V or
+    /// 5V on the CH341A (its 3.3V/5V jumper). The bundled entries are
+    /// generic (no variant suffix), so this reports the family range
+    /// rather than a single rail. Unlike SPI NOR — per-part and
+    /// decodable from the JEDEC id (see `Chip::voltage`) — an I²C
+    /// EEPROM carries no manufacturer/voltage id on the wire, so
+    /// there's nothing to derive; the range is the honest answer.
+    pub fn voltage(&self) -> &'static str {
+        "1.8–5.5V"
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -236,6 +277,27 @@ mod tests {
                 c.name,
                 c.jedec_id
             );
+        }
+    }
+
+    #[test]
+    fn voltage_matches_notes_where_present() {
+        let db = ChipDb::load(&db_path()).unwrap();
+        for c in db.iter() {
+            let v = c.voltage();
+            assert!(
+                matches!(v, "3.3V" | "1.8V" | "2.3V"),
+                "{}: unexpected voltage {v}",
+                c.name
+            );
+            // Where a note states a voltage, the derived value must
+            // agree — this pins the JEDEC→voltage family map against
+            // the hand-written catalogue for every annotated entry.
+            for known in ["1.8V", "2.3V", "3.3V"] {
+                if c.notes.contains(known) {
+                    assert_eq!(v, known, "{}: note says {known}, derived {v}", c.name);
+                }
+            }
         }
     }
 

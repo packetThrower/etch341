@@ -172,6 +172,17 @@ pub fn warning_amber() -> Hsla {
     from_rgb(0xF5D76E, 1.0)
 }
 
+/// Dedicated fixed highlight for the I²C 24Cxx voltage range in the
+/// chip browser. Deliberately a constant — NOT `accent()`, which
+/// tracks the user's accent setting and so changed the I²C voltage
+/// colour (and collided with the 3.3V green) whenever the accent did.
+/// A blue keeps it clear of the success/caution/warning traffic light
+/// so the wide-range I²C voltage reads as its own category regardless
+/// of the chosen accent.
+pub fn info_blue() -> Hsla {
+    from_rgb(0x5E9EFF, 1.0)
+}
+
 pub fn text_primary() -> Hsla {
     from_rgb(0xFFFFFF, 0.95)
 }

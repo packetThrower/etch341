@@ -9,6 +9,16 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ### Added
 
+- **Chip-database browser in the GUI** — a new window (Detect →
+  "Browse chip database") that lists every bundled SPI + I²C chip
+  with a vendor dropdown, a live name/JEDEC search, and a
+  colour-coded **Voltage** column. SPI parts show their single rail
+  (green 3.3V, amber 2.3V, red 1.8V), derived from the JEDEC
+  manufacturer/family byte so it can't drift from the id that
+  determines it; I²C 24Cxx show the family's wide 1.8–5.5V range —
+  they're the 5V-capable parts, commonly run at 3.3V or 5V on the
+  CH341A. The CLI `chips` table gains a matching `VOLT` column on
+  both buses, keeping the two surfaces in parity.
 - **AT25DN512C** in the chip database (Adesto/Atmel 512 Kbit,
   2.3V, dual-read, JEDEC `1F6501`). This part exposes no SFDP
   table, so it needs an explicit database entry to be recognized

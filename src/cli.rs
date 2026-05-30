@@ -677,15 +677,16 @@ fn print_chips(args: &ChipsArgs) {
         println!("SPI flash ({} chip{}):", rows.len(), plural(rows.len()));
         if !rows.is_empty() {
             println!(
-                "  {:<14} {:<8} {:<10} {:<7} {:<7}  NOTES",
-                "NAME", "JEDEC", "SIZE", "PAGE", "SECTOR"
+                "  {:<14} {:<8} {:<10} {:<6} {:<7} {:<7}  NOTES",
+                "NAME", "JEDEC", "SIZE", "VOLT", "PAGE", "SECTOR"
             );
             for c in rows {
                 println!(
-                    "  {:<14} {:<8} {:<10} {:<7} {:<7}  {}",
+                    "  {:<14} {:<8} {:<10} {:<6} {:<7} {:<7}  {}",
                     c.name,
                     c.jedec_id,
                     fmt_bytes(c.size_kb as u64 * 1024),
+                    c.voltage(),
                     fmt_bytes(c.page_size as u64),
                     fmt_bytes(c.sector_size as u64),
                     c.notes,
@@ -710,14 +711,15 @@ fn print_chips(args: &ChipsArgs) {
         println!("I²C EEPROMs ({} chip{}):", rows.len(), plural(rows.len()));
         if !rows.is_empty() {
             println!(
-                "  {:<10} {:<10} {:<6} {:<6}",
-                "NAME", "SIZE", "PAGE", "ADDR"
+                "  {:<10} {:<10} {:<9} {:<6} {:<6}",
+                "NAME", "SIZE", "VOLT", "PAGE", "ADDR"
             );
             for c in rows {
                 println!(
-                    "  {:<10} {:<10} {:<6} {:<6}",
+                    "  {:<10} {:<10} {:<9} {:<6} {:<6}",
                     c.name,
                     fmt_bytes(c.size_bytes as u64),
+                    c.voltage(),
                     fmt_bytes(c.page_size as u64),
                     format!("{} B", c.addr_width),
                 );
