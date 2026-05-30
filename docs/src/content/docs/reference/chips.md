@@ -8,7 +8,7 @@ etch341's chip database lives in two TOML files at the repo root,
 embedded into the binary at build time via `include_str!`. Running
 `etch341 chips` from the CLI lists the live, in-binary set.
 
-## SPI NOR (70 entries)
+## SPI NOR (116 entries)
 
 Source: `chips/chips.toml`. Listed `jedec_id` is the 3-byte
 response to opcode `0x9F`, formatted as 6 uppercase hex chars.
@@ -131,6 +131,120 @@ JEDEC IDs cross-referenced from published vendor ID tables.
 | P25Q64H | 856017 | 8 MB | PUYA |
 | IS25LP064 | 9D6017 | 8 MB | ISSI (FPGA dev boards) |
 | IS25LP128 | 9D6018 | 16 MB | ISSI (FPGA dev boards) |
+
+The families below were cross-referenced from published vendor ID
+tables and are flagged not-yet-silicon-tested in the catalogue notes
+until someone runs one. Parts ≥ 256 Mbit use 4-byte addressing (itself
+not yet silicon-validated).
+
+### Spansion / Cypress / Infineon S25FL (manufacturer 0x01)
+
+Extremely common in networking, industrial, and automotive gear.
+
+| Chip | JEDEC | Size | Voltage | Notes |
+|---|---|---|---|---|
+| S25FL116K | 014015 | 2 MB | 3.3V | |
+| S25FL132K | 014016 | 4 MB | 3.3V | |
+| S25FL164K | 014017 | 8 MB | 3.3V | |
+| S25FL064L | 016017 | 8 MB | 3.3V | |
+| S25FL128L | 016018 | 16 MB | 3.3V | |
+| S25FL256L | 016019 | 32 MB | 3.3V | 4-byte addressing |
+| S25FL128S | 012018 | 16 MB | 3.3V | also S25FL127S / 129P |
+| S25FL256S | 010219 | 32 MB | 3.3V | 4-byte addressing |
+| S25FL512S | 010220 | 64 MB | 3.3V | 4-byte addressing |
+
+### Micron / Numonyx N25Q + MT25Q (manufacturer 0x20)
+
+FPGA configuration flash and networking equipment. The 3.0V (BA) parts
+kept the N25Q name through the MT25QL rename — same JEDEC ID.
+
+| Chip | JEDEC | Size | Voltage | Notes |
+|---|---|---|---|---|
+| N25Q032 | 20BA16 | 4 MB | 3.0V | |
+| N25Q064 | 20BA17 | 8 MB | 3.0V | |
+| MT25QL128 | 20BA18 | 16 MB | 3.0V | same ID as N25Q128 |
+| MT25QL256 | 20BA19 | 32 MB | 3.0V | also N25Q256; 4-byte |
+| MT25QL512 | 20BA20 | 64 MB | 3.0V | also N25Q512; 4-byte |
+| MT25QL01G | 20BA21 | 128 MB | 3.0V | 4-byte addressing |
+| MT25QU128 | 20BB18 | 16 MB | 1.8V | |
+| MT25QU256 | 20BB19 | 32 MB | 1.8V | 4-byte addressing |
+| MT25QU512 | 20BB20 | 64 MB | 1.8V | 4-byte addressing |
+
+### Microchip / SST SST26VF (manufacturer 0xBF, family 0x26)
+
+| Chip | JEDEC | Size | Voltage | Notes |
+|---|---|---|---|---|
+| SST26VF016B | BF2641 | 2 MB | 3.3V | |
+| SST26VF032B | BF2642 | 4 MB | 3.3V | |
+| SST26VF064B | BF2643 | 8 MB | 3.3V | |
+
+### ISSI IS25LP / IS25WP (manufacturer 0x9D)
+
+IS25WP is the 1.8V sibling of the 3.3V IS25LP line.
+
+| Chip | JEDEC | Size | Voltage | Notes |
+|---|---|---|---|---|
+| IS25LP032 | 9D6016 | 4 MB | 3.3V | |
+| IS25LP256 | 9D6019 | 32 MB | 3.3V | 4-byte addressing |
+| IS25WP064 | 9D7017 | 8 MB | 1.8V | |
+| IS25WP128 | 9D7018 | 16 MB | 1.8V | |
+| IS25WP256 | 9D7019 | 32 MB | 1.8V | 4-byte addressing |
+
+### XTX XT25F (manufacturer 0x0B, family 0x40)
+
+Ubiquitous in cheap WiFi modules and ESP8266 / ESP32 boards.
+
+| Chip | JEDEC | Size | Voltage | Notes |
+|---|---|---|---|---|
+| XT25F16B | 0B4015 | 2 MB | 3.3V | |
+| XT25F32B | 0B4016 | 4 MB | 3.3V | |
+| XT25F64B | 0B4017 | 8 MB | 3.3V | |
+| XT25F128B | 0B4018 | 16 MB | 3.3V | |
+
+### Zbit ZB25VQ (manufacturer 0x0E, family 0x40)
+
+| Chip | JEDEC | Size | Voltage | Notes |
+|---|---|---|---|---|
+| ZB25VQ16 | 0E4015 | 2 MB | 3.3V | |
+| ZB25VQ32 | 0E4016 | 4 MB | 3.3V | |
+| ZB25VQ64 | 0E4017 | 8 MB | 3.3V | |
+| ZB25VQ128 | 0E4018 | 16 MB | 3.3V | |
+
+### Boya / BoHong BY25Q (manufacturer 0x68, family 0x40)
+
+| Chip | JEDEC | Size | Voltage | Notes |
+|---|---|---|---|---|
+| BY25Q64AS | 684017 | 8 MB | 3.3V | |
+| BY25Q128AS | 684018 | 16 MB | 3.3V | |
+
+### Macronix MX25R (low-power) + large parts (manufacturer 0xC2)
+
+MX25R is a wide-Vcc low-power line common in BLE / IoT designs.
+
+| Chip | JEDEC | Size | Voltage | Notes |
+|---|---|---|---|---|
+| MX25R8035F | C22814 | 1 MB | 1.65–3.6V | low-power |
+| MX25R1635F | C22815 | 2 MB | 1.65–3.6V | low-power |
+| MX25R3235F | C22816 | 4 MB | 1.65–3.6V | low-power |
+| MX25R6435F | C22817 | 8 MB | 1.65–3.6V | low-power |
+| MX25L51245G | C2201A | 64 MB | 3.3V | also MX66L51235F; 4-byte |
+| MX66L1G45G | C2201B | 128 MB | 3.3V | 4-byte addressing |
+
+### EON EN25Q (manufacturer 0x1C, family 0x30)
+
+The Q line; complements the EN25QH parts above.
+
+| Chip | JEDEC | Size | Voltage | Notes |
+|---|---|---|---|---|
+| EN25Q32 | 1C3016 | 4 MB | 3.3V | |
+| EN25Q64 | 1C3017 | 8 MB | 3.3V | |
+| EN25Q128 | 1C3018 | 16 MB | 3.3V | |
+
+### GigaDevice GD25LQ (1.8V, manufacturer 0xC8, family 0x60)
+
+| Chip | JEDEC | Size | Voltage | Notes |
+|---|---|---|---|---|
+| GD25LQ256 | C86019 | 32 MB | 1.8V | also GD25LQ255E; 4-byte |
 
 ## I²C EEPROMs (10 entries)
 

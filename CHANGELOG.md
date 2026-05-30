@@ -7,6 +7,21 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **46 more SPI NOR chips** — the database grows from 70 to 116
+  entries, adding whole vendor families that were missing: Spansion /
+  Cypress / Infineon **S25FL** (a networking / industrial / automotive
+  staple), Micron / Numonyx **N25Q + MT25Q** (FPGA config flash),
+  Microchip **SST26VF**, ISSI **IS25WP** (1.8V) plus more **IS25LP**,
+  **XTX XT25F** (ubiquitous in ESP / WiFi modules), **Zbit ZB25VQ**,
+  **Boya BY25Q**, Macronix **MX25R** (wide-Vcc low-power) and the
+  512 Mbit / 1 Gbit **MX25L51245G / MX66L1G45G**, and EON **EN25Q**.
+  JEDEC IDs were cross-referenced against published vendor ID tables
+  and are flagged not-yet-silicon-tested in the notes. The
+  JEDEC→voltage map learned the IS25WP (9D70) and MT25QU (20BB) 1.8V
+  families so the GUI Voltage column stays correct.
+
 ## [0.5.0] — 2026-05-30
 
 First stable release of the 0.5.0 line — now picked up by the Homebrew

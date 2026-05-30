@@ -57,6 +57,8 @@ impl Chip {
             ("C8", "60") => "1.8V", // GigaDevice GD25LQ
             ("1F", "42") => "1.8V", // Adesto AT25SL
             ("1F", "65") => "2.3V", // Adesto AT25DN512C (2.3–3.6V)
+            ("9D", "70") => "1.8V", // ISSI IS25WP (LP sibling at 9D60 is 3.3V)
+            ("20", "BB") => "1.8V", // Micron MT25QU (BA variants are 3.0V)
             _ => "3.3V",
         }
     }

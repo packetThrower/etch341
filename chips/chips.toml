@@ -684,3 +684,450 @@ page_size = 256
 sector_size = 4096
 erase_time_ms = 70
 notes = "ISSI 128 Mbit"
+
+[[chip]]
+name = "IS25LP032"
+jedec_id = "9D6016"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "ISSI 32 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "IS25LP256"
+jedec_id = "9D6019"
+size_kb = 32768
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "ISSI 256 Mbit, 3.3V (4-byte addressing). Datasheet-sourced JEDEC (not silicon-tested)."
+
+# --- ISSI IS25WP (1.8V, manufacturer 0x9D, family 0x70) -----------
+# Low-voltage siblings of the IS25LP line. Need a 1.8V programmer.
+
+[[chip]]
+name = "IS25WP064"
+jedec_id = "9D7017"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "ISSI 64 Mbit, 1.8V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "IS25WP128"
+jedec_id = "9D7018"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "ISSI 128 Mbit, 1.8V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "IS25WP256"
+jedec_id = "9D7019"
+size_kb = 32768
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "ISSI 256 Mbit, 1.8V (4-byte addressing). Datasheet-sourced JEDEC (not silicon-tested)."
+
+# --- Spansion / Cypress / Infineon S25FL (manufacturer 0x01) ------
+# Extremely common in networking, industrial, and automotive gear.
+# The -K and -L families use standard capacity bytes; the older -S
+# parts use Cypress's own encoding (cross-referenced individually).
+
+[[chip]]
+name = "S25FL116K"
+jedec_id = "014015"
+size_kb = 2048
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Spansion/Cypress 16 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "S25FL132K"
+jedec_id = "014016"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Spansion/Cypress 32 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "S25FL164K"
+jedec_id = "014017"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Spansion/Cypress 64 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "S25FL064L"
+jedec_id = "016017"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Spansion/Cypress 64 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "S25FL128L"
+jedec_id = "016018"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Spansion/Cypress 128 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "S25FL256L"
+jedec_id = "016019"
+size_kb = 32768
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Spansion/Cypress 256 Mbit, 3.3V (4-byte addressing). Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "S25FL128S"
+jedec_id = "012018"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Spansion/Cypress 128 Mbit, 3.3V (also S25FL127S/129P). Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "S25FL256S"
+jedec_id = "010219"
+size_kb = 32768
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Spansion/Cypress 256 Mbit, 3.3V (4-byte addressing). Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "S25FL512S"
+jedec_id = "010220"
+size_kb = 65536
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Spansion/Cypress 512 Mbit, 3.3V (4-byte addressing). Datasheet-sourced JEDEC (not silicon-tested)."
+
+# --- Micron / Numonyx / ST N25Q + MT25Q (manufacturer 0x20) ------
+# Networking gear and FPGA configuration flash. The 3.0V (BA) parts
+# kept the N25Q name through the MT25QL rename - same JEDEC ID; the
+# 1.8V parts are MT25QU (BB).
+
+[[chip]]
+name = "N25Q032"
+jedec_id = "20BA16"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Micron/Numonyx 32 Mbit, 3.0V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "N25Q064"
+jedec_id = "20BA17"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Micron/Numonyx 64 Mbit, 3.0V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "MT25QL128"
+jedec_id = "20BA18"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Micron 128 Mbit, 3.0V (same ID as N25Q128). Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "MT25QL256"
+jedec_id = "20BA19"
+size_kb = 32768
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Micron 256 Mbit, 3.0V (same ID as N25Q256, 4-byte addressing). Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "MT25QL512"
+jedec_id = "20BA20"
+size_kb = 65536
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Micron 512 Mbit, 3.0V (same ID as N25Q512, 4-byte addressing). Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "MT25QL01G"
+jedec_id = "20BA21"
+size_kb = 131072
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Micron 1 Gbit, 3.0V (4-byte addressing). Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "MT25QU128"
+jedec_id = "20BB18"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Micron 128 Mbit, 1.8V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "MT25QU256"
+jedec_id = "20BB19"
+size_kb = 32768
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Micron 256 Mbit, 1.8V (4-byte addressing). Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "MT25QU512"
+jedec_id = "20BB20"
+size_kb = 65536
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Micron 512 Mbit, 1.8V (4-byte addressing). Datasheet-sourced JEDEC (not silicon-tested)."
+
+# --- Microchip / SST SST26VF (manufacturer 0xBF, family 0x26) ----
+# Newer QPI line; complements the SST25VF parts above.
+
+[[chip]]
+name = "SST26VF016B"
+jedec_id = "BF2641"
+size_kb = 2048
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Microchip/SST 16 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "SST26VF032B"
+jedec_id = "BF2642"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Microchip/SST 32 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "SST26VF064B"
+jedec_id = "BF2643"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Microchip/SST 64 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+# --- XTX XT25F (manufacturer 0x0B, family 0x40) ------------------
+# Ubiquitous in cheap WiFi modules and ESP8266/ESP32 boards.
+
+[[chip]]
+name = "XT25F16B"
+jedec_id = "0B4015"
+size_kb = 2048
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "XTX 16 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "XT25F32B"
+jedec_id = "0B4016"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "XTX 32 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "XT25F64B"
+jedec_id = "0B4017"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "XTX 64 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "XT25F128B"
+jedec_id = "0B4018"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "XTX 128 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+# --- Zbit ZB25VQ (manufacturer 0x0E, family 0x40) ----------------
+
+[[chip]]
+name = "ZB25VQ16"
+jedec_id = "0E4015"
+size_kb = 2048
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Zbit 16 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "ZB25VQ32"
+jedec_id = "0E4016"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Zbit 32 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "ZB25VQ64"
+jedec_id = "0E4017"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Zbit 64 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "ZB25VQ128"
+jedec_id = "0E4018"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Zbit 128 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+# --- Boya / BoHong BY25Q (manufacturer 0x68, family 0x40) --------
+
+[[chip]]
+name = "BY25Q64AS"
+jedec_id = "684017"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Boya/BoHong 64 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "BY25Q128AS"
+jedec_id = "684018"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Boya/BoHong 128 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+# --- Macronix MX25R (ultra-low-power, manufacturer 0xC2, fam 0x28)
+# Wide-Vcc (1.65-3.6V) low-power line, common in BLE / IoT designs.
+
+[[chip]]
+name = "MX25R8035F"
+jedec_id = "C22814"
+size_kb = 1024
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Macronix 8 Mbit, 1.65-3.6V low-power. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "MX25R1635F"
+jedec_id = "C22815"
+size_kb = 2048
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Macronix 16 Mbit, 1.65-3.6V low-power. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "MX25R3235F"
+jedec_id = "C22816"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Macronix 32 Mbit, 1.65-3.6V low-power. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "MX25R6435F"
+jedec_id = "C22817"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Macronix 64 Mbit, 1.65-3.6V low-power. Datasheet-sourced JEDEC (not silicon-tested)."
+
+# --- Macronix large (manufacturer 0xC2) --------------------------
+
+[[chip]]
+name = "MX25L51245G"
+jedec_id = "C2201A"
+size_kb = 65536
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Macronix 512 Mbit, 3.3V (also MX66L51235F, 4-byte addressing). Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "MX66L1G45G"
+jedec_id = "C2201B"
+size_kb = 131072
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "Macronix 1 Gbit, 3.3V (4-byte addressing). Datasheet-sourced JEDEC (not silicon-tested)."
+
+# --- EON EN25Q (manufacturer 0x1C, family 0x30) ------------------
+# The Q line; complements the EN25QH parts above.
+
+[[chip]]
+name = "EN25Q32"
+jedec_id = "1C3016"
+size_kb = 4096
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "EON 32 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "EN25Q64"
+jedec_id = "1C3017"
+size_kb = 8192
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "EON 64 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+[[chip]]
+name = "EN25Q128"
+jedec_id = "1C3018"
+size_kb = 16384
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "EON 128 Mbit, 3.3V. Datasheet-sourced JEDEC (not silicon-tested)."
+
+# --- GigaDevice GD25LQ (1.8V, manufacturer 0xC8, family 0x60) ----
+
+[[chip]]
+name = "GD25LQ256"
+jedec_id = "C86019"
+size_kb = 32768
+page_size = 256
+sector_size = 4096
+erase_time_ms = 50
+notes = "GigaDevice 256 Mbit, 1.8V (also GD25LQ255E, 4-byte addressing). Datasheet-sourced JEDEC (not silicon-tested)."
