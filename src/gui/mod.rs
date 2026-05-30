@@ -930,23 +930,31 @@ impl AppView {
                         window.set_client_inset(px(10.0));
                         let log_view = cx.new(|cx| log::LogWindow::new(app.clone(), cx));
                         // Re-dock the inline log when the pop-out closes.
-                        // `observe_release` fires when the LogWindow entity
-                        // tears down — which happens however the window was
-                        // closed (close button, Cmd/Ctrl+W, OS). The earlier
-                        // `on_window_should_close` approach worked on macOS
-                        // but not on X11, where gpui doesn't route the
-                        // window-manager close through that callback, so the
-                        // inline log never came back (issue #1). Tying it to
-                        // entity lifecycle instead is platform-agnostic.
+                        // `on_window_should_close` fires *synchronously* on
+                        // the close request, on every backend the current
+                        // gpui supports — including both Linux ones: the X11
+                        // backend runs the handler on WM_DELETE_WINDOW and the
+                        // Wayland backend on xdg_toplevel `Close`, destroying
+                        // the window when the handler returns `true`.
+                        //
+                        // This replaced an `observe_release` approach that
+                        // tied the re-dock to the LogWindow entity being
+                        // dropped. That teardown is synchronous on
+                        // macOS/Windows but *deferred to a later event-loop
+                        // turn on Wayland*, so on an idle app the inline log
+                        // never came back (issue #1, Wayland — closing the
+                        // pop-out left the main window with no log at all).
+                        // Hooking the close request directly sidesteps the
+                        // entity-drop timing entirely.
                         let close_app = app.downgrade();
-                        cx.observe_release(&log_view, move |_, cx| {
+                        window.on_window_should_close(cx, move |_window, cx| {
                             let _ = close_app.update(cx, |this, cx| {
                                 this.log_popped_out = false;
                                 this.log_window = None;
                                 cx.notify();
                             });
-                        })
-                        .detach();
+                            true
+                        });
                         cx.new(|cx| Root::new(log_view, window, cx))
                     }
                 },
@@ -1001,16 +1009,21 @@ impl AppView {
                     move |window, cx| {
                         window.set_client_inset(px(10.0));
                         let view = cx.new(|cx| chipdb_browser::ChipDbBrowser::new(window, cx));
-                        // Clear the handle when the window tears down,
-                        // however it was closed (button, Cmd/Ctrl+W, OS).
+                        // Clear the handle when the window closes, so a
+                        // re-click reopens instead of activating a dead
+                        // handle. Uses `on_window_should_close` for the same
+                        // reason the pop-out log does (see `pop_out_log`):
+                        // `observe_release`'s entity teardown is deferred on
+                        // Wayland, which would strand the stale handle and
+                        // block reopening the browser.
                         let close_app = app.downgrade();
-                        cx.observe_release(&view, move |_, cx| {
+                        window.on_window_should_close(cx, move |_window, cx| {
                             let _ = close_app.update(cx, |this, cx| {
                                 this.chip_db_window = None;
                                 cx.notify();
                             });
-                        })
-                        .detach();
+                            true
+                        });
                         cx.new(|cx| Root::new(view, window, cx))
                     }
                 },
