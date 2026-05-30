@@ -102,14 +102,17 @@ named entry, the rest of the operations are very likely to work
 
 ### Partially hardware-validated
 
-- **I²C / 24Cxx EEPROMs.** `scan` and `read` are confirmed against a
-  real 24C02 — the chip ACKed at `0x50` and round-tripped a 256-byte
-  read, which validated the probe ACK-bit polarity assumption. The
-  **write / erase path hasn't had a clean-chip run yet**: the first
-  attempt locked up the part by clocking it past its 400 kHz spec
-  (etch341 now defaults I²C to 100 kHz and rejects anything above
-  400). A write-then-read-back loop on a healthy chip is still owed.
-  If you run it, please open an issue with the result.
+- **I²C / 24Cxx EEPROMs.** Confirmed end-to-end against a real
+  **AT24C02**: `read` / `write` / `erase` / `verify` / `blank-check`
+  all round-trip byte-exact, at both 100 kHz and 20 kHz. Getting
+  there shook out two real bugs (writes always timed out polling an
+  ACK the CH341 never exposes; multi-byte reads weren't NACK-
+  terminated and corrupted past ~30 bytes) — both fixed. Still
+  **mock-only**, pending silicon: the 2-byte-address parts (24C32 and
+  up) and the bit-stuffed 24C04 / 08 / 16 sub-families. `scan` can't
+  see a *blank* EEPROM — the CH341 doesn't expose the ACK bit, so an
+  all-`0xFF` chip is indistinguishable from an empty bus; address it
+  directly with `--chip`.
 
 ## Install
 

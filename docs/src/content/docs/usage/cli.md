@@ -103,10 +103,10 @@ bit-stuffing in the slave address byte for their high memory bits;
 this is handled automatically.
 
 :::caution
-The I²C path is implemented + unit-tested against a mock transport,
-but hasn't yet been validated against a real 24Cxx chip on
-silicon. See the [I²C workflow](/etch341/usage/i2c/) page for the
-caveats.
+The I²C path is silicon-validated on a 24C02 (read / write / erase /
+verify / blank-check all byte-exact). The 2-byte-address parts
+(24C32+) and the bit-stuffed 24C04 / 08 / 16 are still mock-only. See
+the [I²C workflow](/etch341/usage/i2c/) page for the details.
 :::
 
 ## Offline / file-inspection commands

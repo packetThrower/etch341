@@ -181,21 +181,25 @@ The mock test suite catches protocol-layer regressions but not
 hardware-protocol mismatches. These paths are implemented and
 unit-tested but haven't seen silicon yet:
 
-- [ ] **I²C write path — clean-chip silicon validation** — first
-      contact (AT24C02N on an old DVI graphics card) confirmed the
-      probe/scan ACK-polarity assumption and round-tripped 256-byte
-      reads with stable SHA-256 across two passes. The write path
-      uncovered a real race: `wait_ready` was timing out before the
-      chip's tWR cycle finished, garbling subsequent page writes.
-      The fix (sleep tWR first, then ACK-poll with a 50 ms window)
-      brings our protocol in line with what the standard embedded-
-      hal 24Cxx drivers do. Bring-up iteration on a clip-attached
-      20-year-old part corrupted the chip beyond clean retest, so
-      a final write-then-read-back integrity loop on a fresh chip
-      is still owed. The on-wire transaction shape is already
-      validated against the canonical 24Cxx page-write sequence
-      (slave|W → addr_bytes → data → STOP) — what's left is the
-      "do it once cleanly against a healthy chip" loop.
+- [x] **I²C silicon validation (1-byte-address parts)** — DONE on a
+      fresh AT24C02: `read` / `write` / `erase` / `verify` /
+      `blank-check` all byte-exact, at 100 kHz and 20 kHz. Bring-up
+      shook out two real bugs the mock couldn't see: (1) every write
+      timed out — `wait_ready` ACK-polled `i2c_probe`, but the CH341
+      never exposes the I²C ACK bit, so the probe reads a data byte
+      and a `0xFF` (always, on a blank page) reads as "never ready";
+      fixed by waiting out the worst-case tWR instead of polling.
+      (2) multi-byte reads corrupted past ~30 bytes — a single
+      `IN | n` ACKs even the last byte, leaving the read
+      unterminated; fixed by per-byte `IN | 1` + a final bare `IN`
+      (NACK), matching working CH341 drivers. Still owed on silicon:
+      2-byte-address parts (24C32+) and the bit-stuffed 24C04/08/16.
+- [ ] **I²C 2-byte addressing + bit-stuffing — silicon validation**
+      — the AT24C02 above is a 1-byte-address part with no
+      bit-stuffing. The 2-byte memory-address path (24C32 .. 24C512)
+      and the slave-address bit-stuffing for the 24C04 / 08 / 16
+      sub-families are implemented and mock-tested but not yet
+      confirmed on a chip.
 - [ ] **SPI 4-byte addressing (>16 MB chips)** — the W25Q256JV
       and MX25L25635F + family entries use the 4-byte opcode
       variants (`0x13` / `0x12` / `0x21` / `0xDC`) but no chip in
@@ -273,10 +277,11 @@ functionality.
         an I²C-specific speed control or a mode-aware clamp on the
         existing one.
       - **Write / erase** should reuse the same two-stage
-        arm/confirm as the SPI destructive panes, and surface the
-        "write path not yet silicon-validated" caveat (see the I²C
-        validation item under Hardware validation gaps) until that
-        clears.
+        arm/confirm as the SPI destructive panes. The write path is
+        now silicon-validated on a 1-byte-address part (24C02); the
+        pane should still flag 2-byte-address (24C32+) and the
+        bit-stuffed 24C04/08/16 as not-yet-silicon-tested (see the
+        I²C validation items under Hardware validation gaps).
       ~4-6 hr including the bus-toggle layout work; less if it
       starts as a flat I²C section rather than a full mode switch.
 

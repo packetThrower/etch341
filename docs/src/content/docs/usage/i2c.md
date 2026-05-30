@@ -5,12 +5,14 @@ editUrl: https://github.com/packetThrower/etch341/edit/main/docs/src/content/doc
 ---
 
 :::caution
-The I²C path is partially hardware-validated. Scan and read have
-been confirmed against real 24C02 silicon; write + verify on a
-clean chip is still the [open validation
-TODO](https://github.com/packetThrower/etch341/blob/main/TODO.md).
-If something's off, please open an issue with the verbose-mode
-(`-v i2c scan`) output and we'll get it sorted.
+The I²C path is hardware-validated on a **24C02**: scan, read,
+write, erase, verify, and blank-check all round-trip byte-exact
+against real silicon (tested at 100 kHz and 20 kHz). Still
+**mock-only**, pending silicon: the 2-byte-address parts (24C32 and
+up) and the bit-stuffed 24C04 / 08 / 16 sub-families — the protocol
+for those is implemented and unit-tested but not yet confirmed on a
+chip. If something's off on one of those, please open an issue with
+the verbose-mode (`-v i2c scan`) output and we'll get it sorted.
 :::
 
 ## How it differs from SPI

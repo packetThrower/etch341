@@ -99,14 +99,17 @@ the mock so far:
 |---|---|---|
 | SPI detect + read + erase + write + verify (3-byte) | ✅ | ✅ (MX25U4033E on GTX 1060) |
 | SPI 4-byte addressing (>16 MB chips) | ✅ | ❌ |
-| I²C protocol layer | ✅ | ❌ |
-| CH341A I²C ACK-bit polarity | ❌ (assumption) | ❌ |
+| I²C read + write + erase + verify + blank-check (1-byte addr) | ✅ | ✅ (AT24C02, 100 + 20 kHz) |
+| I²C 2-byte addressing (24C32+) | ✅ | ❌ |
 | 24C04/08/16 bit-stuffing on the wire | ✅ | ❌ |
 
-The CH341A ACK-bit polarity assumption in particular is the most
-likely source of an I²C-path failure on first hardware contact. If
-the polarity is inverted from what the transport assumes, `i2c
-scan` either returns every address or none. See the
+That AT24C02 pass shook out two real bugs the mock transport can't
+model — see the [I²C silicon validation
+notes](https://github.com/packetThrower/etch341/blob/main/TODO.md).
+One worth knowing as a user: **the CH341 never exposes the I²C ACK
+bit**, so `i2c scan` infers presence from a data byte and *can't see
+a blank EEPROM* (all `0xFF` reads like an empty bus). Address a chip
+you know is there directly with `--chip`. See the
 [I²C workflow troubleshooting](/etch341/usage/i2c/#troubleshooting).
 
 ## Hardware-validation tests
