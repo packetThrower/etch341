@@ -437,6 +437,11 @@ pub struct AppView {
     /// 7-bit addresses that ACKed on the last I²C scan. `None` before
     /// the first scan in this session.
     pub i2c_scan_results: Option<Vec<u8>>,
+    /// Last I²C op outcome — `(ok, message)` — rendered as a colored
+    /// line in the active op pane: green ✓ on success, red ✗ on
+    /// failure. Cleared on navigation (`disarm_all`) so it stays
+    /// scoped to the pane that produced it, not just buried in the log.
+    pub i2c_op_result: Option<(bool, String)>,
     pub connection: Connection,
     /// Last-read SR1/SR2/SR3 bytes from the Status pane's "Read"
     /// button. `None` before the first read or after the user
@@ -615,6 +620,7 @@ impl AppView {
             selected: Pane::Detect,
             bus: Bus::Spi,
             i2c_scan_results: None,
+            i2c_op_result: None,
             connection: Connection::Disconnected,
             status_regs: None,
             otp_regs: None,
@@ -1046,6 +1052,15 @@ impl AppView {
         self.otp_write_armed = false;
         self.i2c_write_armed = false;
         self.i2c_erase_armed = false;
+        self.i2c_op_result = None;
+    }
+
+    /// Record an I²C op outcome: log it *and* stash it for the active
+    /// pane to render as a colored line (green ✓ / red ✗). Pass
+    /// `ok = false` for failures so the pane renders it red.
+    fn set_i2c_result(&mut self, ok: bool, text: String) {
+        self.push_log(text.clone());
+        self.i2c_op_result = Some((ok, text));
     }
 
     /// I²C clock for ops. Standard mode (100 kHz) — the safe default
@@ -1059,6 +1074,7 @@ impl AppView {
     /// addresses. Mirrors `start_read`'s spawn → background → open →
     /// op → update shape, but opens the CH341 in I²C mode.
     pub fn start_i2c_scan(&mut self, cx: &mut Context<Self>) {
+        self.i2c_op_result = None;
         self.push_log("→ i2c scan (0x08..0x77)".into());
         cx.notify();
         let speed = self.i2c_speed();
@@ -1090,7 +1106,10 @@ impl AppView {
                         }
                         this.i2c_scan_results = Some(hits);
                     }
-                    Err(err) => this.push_log(format!("scan FAIL: {err}")),
+                    Err(err) => {
+                        this.i2c_scan_results = None;
+                        this.set_i2c_result(false, format!("Scan failed: {err}"));
+                    }
                 }
                 cx.notify();
             })
@@ -1104,7 +1123,7 @@ impl AppView {
     /// selection; logs a hint and bails if none is picked.
     pub fn start_i2c_read(&mut self, cx: &mut Context<Self>) {
         let Some(chip_name) = self.i2c_chip_select.read(cx).selected_value().cloned() else {
-            self.push_log("i2c read: pick a chip first".into());
+            self.set_i2c_result(false, "Pick a chip first — I²C has no auto-detect".into());
             cx.notify();
             return;
         };
@@ -1141,11 +1160,11 @@ impl AppView {
                 .await;
             weak.update(cx, |this, cx| {
                 match outcome {
-                    Ok((name, size)) => {
-                        this.push_log(format!("Read OK : {size} bytes from {name}"));
-                        this.push_log(format!("Saved   : {}", path.display()));
-                    }
-                    Err(err) => this.push_log(format!("Read FAIL: {err}")),
+                    Ok((name, size)) => this.set_i2c_result(
+                        true,
+                        format!("Read {size} bytes from {name} → {}", path.display()),
+                    ),
+                    Err(err) => this.set_i2c_result(false, format!("Read failed: {err}")),
                 }
                 cx.notify();
             })
@@ -1220,12 +1239,12 @@ impl AppView {
     /// file and a chip selection.
     pub fn arm_or_fire_i2c_write(&mut self, cx: &mut Context<Self>) {
         if self.i2c_write_path.is_none() {
-            self.push_log("i2c write: no input file selected".into());
+            self.set_i2c_result(false, "Pick an input file first".into());
             cx.notify();
             return;
         }
         if self.i2c_chip_name(cx).is_none() {
-            self.push_log("i2c write: pick a chip first".into());
+            self.set_i2c_result(false, "Pick a chip first".into());
             cx.notify();
             return;
         }
@@ -1242,7 +1261,7 @@ impl AppView {
     fn start_i2c_write(&mut self, cx: &mut Context<Self>) {
         let (Some(path), Some(chip_name)) = (self.i2c_write_path.clone(), self.i2c_chip_name(cx))
         else {
-            self.push_log("i2c write: need a chip and a file".into());
+            self.set_i2c_result(false, "Need a chip and a file".into());
             cx.notify();
             return;
         };
@@ -1283,12 +1302,13 @@ impl AppView {
             weak.update(cx, |this, cx| {
                 match outcome {
                     Ok((name, n, 0)) => {
-                        this.push_log(format!("Write OK : {n} bytes to {name} (verified)"))
+                        this.set_i2c_result(true, format!("Wrote {n} bytes to {name} (verified)"))
                     }
-                    Ok((name, n, m)) => this.push_log(format!(
-                        "Write done ({n} bytes to {name}) but verify found {m} mismatch(es)"
-                    )),
-                    Err(err) => this.push_log(format!("Write FAIL: {err}")),
+                    Ok((name, n, m)) => this.set_i2c_result(
+                        false,
+                        format!("Wrote {n} bytes to {name} but verify found {m} mismatch(es)"),
+                    ),
+                    Err(err) => this.set_i2c_result(false, format!("Write failed: {err}")),
                 }
                 cx.notify();
             })
@@ -1301,7 +1321,7 @@ impl AppView {
     pub fn start_i2c_verify(&mut self, cx: &mut Context<Self>) {
         let (Some(path), Some(chip_name)) = (self.i2c_verify_path.clone(), self.i2c_chip_name(cx))
         else {
-            self.push_log("i2c verify: need a chip and a file".into());
+            self.set_i2c_result(false, "Need a chip and a file".into());
             cx.notify();
             return;
         };
@@ -1327,9 +1347,9 @@ impl AppView {
                 .await;
             weak.update(cx, |this, cx| {
                 match outcome {
-                    Ok(0) => this.push_log("Verify OK : chip matches the file".into()),
-                    Ok(m) => this.push_log(format!("Verify    : {m} byte(s) differ")),
-                    Err(err) => this.push_log(format!("Verify FAIL: {err}")),
+                    Ok(0) => this.set_i2c_result(true, "Chip matches the file".into()),
+                    Ok(m) => this.set_i2c_result(false, format!("{m} byte(s) differ")),
+                    Err(err) => this.set_i2c_result(false, format!("Verify failed: {err}")),
                 }
                 cx.notify();
             })
@@ -1342,7 +1362,7 @@ impl AppView {
     /// over the whole chip).
     pub fn arm_or_fire_i2c_erase(&mut self, cx: &mut Context<Self>) {
         if self.i2c_chip_name(cx).is_none() {
-            self.push_log("i2c erase: pick a chip first".into());
+            self.set_i2c_result(false, "Pick a chip first".into());
             cx.notify();
             return;
         }
@@ -1358,7 +1378,7 @@ impl AppView {
 
     fn start_i2c_erase(&mut self, cx: &mut Context<Self>) {
         let Some(chip_name) = self.i2c_chip_name(cx) else {
-            self.push_log("i2c erase: pick a chip first".into());
+            self.set_i2c_result(false, "Pick a chip first".into());
             cx.notify();
             return;
         };
@@ -1387,9 +1407,9 @@ impl AppView {
             weak.update(cx, |this, cx| {
                 match outcome {
                     Ok((name, size)) => {
-                        this.push_log(format!("Erase OK : {name} set to 0xFF ({size} bytes)"))
+                        this.set_i2c_result(true, format!("Erased {name} to 0xFF ({size} bytes)"))
                     }
-                    Err(err) => this.push_log(format!("Erase FAIL: {err}")),
+                    Err(err) => this.set_i2c_result(false, format!("Erase failed: {err}")),
                 }
                 cx.notify();
             })
@@ -1401,7 +1421,7 @@ impl AppView {
     /// I²C Blank check — confirm every byte reads 0xFF. Read-only.
     pub fn start_i2c_blank_check(&mut self, cx: &mut Context<Self>) {
         let Some(chip_name) = self.i2c_chip_name(cx) else {
-            self.push_log("i2c blank check: pick a chip first".into());
+            self.set_i2c_result(false, "Pick a chip first".into());
             cx.notify();
             return;
         };
@@ -1427,10 +1447,9 @@ impl AppView {
                 .await;
             weak.update(cx, |this, cx| {
                 match outcome {
-                    Ok((name, size)) => {
-                        this.push_log(format!("Blank check OK : {name} all 0xFF ({size} bytes)"))
-                    }
-                    Err(err) => this.push_log(format!("Blank check: {err}")),
+                    Ok((name, size)) => this
+                        .set_i2c_result(true, format!("{name} is blank — all 0xFF ({size} bytes)")),
+                    Err(err) => this.set_i2c_result(false, format!("Blank check: {err}")),
                 }
                 cx.notify();
             })
@@ -2857,6 +2876,7 @@ impl Render for AppView {
                                     i2c_verify_path: self.i2c_verify_path.as_deref(),
                                     i2c_write_armed: self.i2c_write_armed,
                                     i2c_erase_armed: self.i2c_erase_armed,
+                                    i2c_op_result: self.i2c_op_result.as_ref(),
                                 };
                                 let outer = div().flex_1().min_h(px(0.0)).min_w(px(0.0));
                                 // Settings has no op activity worth a log

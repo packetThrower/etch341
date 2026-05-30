@@ -95,6 +95,10 @@ pub struct PaneInputs<'a> {
     pub i2c_verify_path: Option<&'a Path>,
     pub i2c_write_armed: bool,
     pub i2c_erase_armed: bool,
+    /// Last I²C op outcome — `(ok, message)` — rendered as a colored
+    /// result line in the active op pane (green ✓ / red ✗). `None`
+    /// before any op runs or after navigating away.
+    pub i2c_op_result: Option<&'a (bool, String)>,
 }
 
 pub fn render(
@@ -152,22 +156,37 @@ pub fn render(
             cx,
         )
         .into_any_element(),
-        Pane::I2cScan => i2c_scan_pane(inputs.i2c_scan_results, cx).into_any_element(),
-        Pane::I2cRead => i2c_read_pane(inputs.i2c_chip_select, cx).into_any_element(),
+        Pane::I2cScan => {
+            i2c_scan_pane(inputs.i2c_scan_results, inputs.i2c_op_result, cx).into_any_element()
+        }
+        Pane::I2cRead => {
+            i2c_read_pane(inputs.i2c_chip_select, inputs.i2c_op_result, cx).into_any_element()
+        }
         Pane::I2cWrite => i2c_write_pane(
             inputs.i2c_chip_select,
             inputs.i2c_write_path,
             inputs.i2c_write_armed,
+            inputs.i2c_op_result,
             cx,
         )
         .into_any_element(),
-        Pane::I2cVerify => {
-            i2c_verify_pane(inputs.i2c_chip_select, inputs.i2c_verify_path, cx).into_any_element()
+        Pane::I2cVerify => i2c_verify_pane(
+            inputs.i2c_chip_select,
+            inputs.i2c_verify_path,
+            inputs.i2c_op_result,
+            cx,
+        )
+        .into_any_element(),
+        Pane::I2cErase => i2c_erase_pane(
+            inputs.i2c_chip_select,
+            inputs.i2c_erase_armed,
+            inputs.i2c_op_result,
+            cx,
+        )
+        .into_any_element(),
+        Pane::I2cBlank => {
+            i2c_blank_pane(inputs.i2c_chip_select, inputs.i2c_op_result, cx).into_any_element()
         }
-        Pane::I2cErase => {
-            i2c_erase_pane(inputs.i2c_chip_select, inputs.i2c_erase_armed, cx).into_any_element()
-        }
-        Pane::I2cBlank => i2c_blank_pane(inputs.i2c_chip_select, cx).into_any_element(),
     }
 }
 
@@ -175,7 +194,11 @@ pub fn render(
 /// ACK. The result card renders the hits; the body notes the
 /// blank-EEPROM blind spot so an empty scan isn't mistaken for a
 /// missing chip.
-fn i2c_scan_pane(hits: Option<&[u8]>, cx: &mut Context<AppView>) -> impl IntoElement {
+fn i2c_scan_pane(
+    hits: Option<&[u8]>,
+    result: Option<&(bool, String)>,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
     let mut col = op_pane(
         "I²C Scan",
         "Probes 0x08..0x77 and lists the addresses that ACK. A 24Cxx \
@@ -208,7 +231,7 @@ fn i2c_scan_pane(hits: Option<&[u8]>, cx: &mut Context<AppView>) -> impl IntoEle
             ),
         );
     }
-    col
+    col.children(i2c_result_block(result))
 }
 
 /// The shared I²C chip dropdown, rendered at the top of every I²C op
@@ -228,10 +251,47 @@ fn i2c_chip_picker(chip_select: &Entity<SelectState<Vec<SharedString>>>) -> impl
         )
 }
 
+/// A colored result line for an I²C op pane — green ✓ on success, red ✗
+/// on failure (a hardware error, or a verify finding mismatches).
+/// Returns `None` when no op has run, so panes `.children(...)` it
+/// unconditionally. The result is cleared on navigation, so it only
+/// shows in the pane that produced it rather than lingering in the log.
+fn i2c_result_block(result: Option<&(bool, String)>) -> Option<gpui::Div> {
+    let (ok, text) = result?;
+    let color = if *ok {
+        theme::success_green()
+    } else {
+        theme::caution_red()
+    };
+    Some(
+        div()
+            // `self_start` opts the box out of the op-pane column's
+            // cross-axis stretch so it hugs the message width instead
+            // of filling the pane. `max_w` + `min_w(0)` on the text
+            // child let an over-long path wrap rather than overflow.
+            .self_start()
+            .mt_2()
+            .max_w(px(680.0))
+            .flex()
+            .items_start()
+            .gap_2()
+            .px_4()
+            .py_3()
+            .rounded(px(8.0))
+            .bg(theme::workshop_glass())
+            .border_l_4()
+            .border_color(color)
+            .text_color(color)
+            .child(if *ok { "✓" } else { "✗" })
+            .child(div().min_w(px(0.0)).whitespace_normal().child(text.clone())),
+    )
+}
+
 /// I²C read pane: chip picker + a button that dumps the whole chip to
 /// a timestamped file (same save dir as the SPI Read pane).
 fn i2c_read_pane(
     chip_select: &Entity<SelectState<Vec<SharedString>>>,
+    result: Option<&(bool, String)>,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     op_pane(
@@ -246,6 +306,7 @@ fn i2c_read_pane(
         cx,
         |this, cx| this.start_i2c_read(cx),
     ))
+    .children(i2c_result_block(result))
 }
 
 /// I²C write pane: chip picker + file row + arm/confirm. Programs the
@@ -254,6 +315,7 @@ fn i2c_write_pane(
     chip_select: &Entity<SelectState<Vec<SharedString>>>,
     path: Option<&Path>,
     armed: bool,
+    result: Option<&(bool, String)>,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let mut group = GroupBox::new()
@@ -285,6 +347,7 @@ fn i2c_write_pane(
          chip first.",
     )
     .child(group)
+    .children(i2c_result_block(result))
 }
 
 /// I²C verify pane: chip picker + file row + a Verify button.
@@ -292,6 +355,7 @@ fn i2c_write_pane(
 fn i2c_verify_pane(
     chip_select: &Entity<SelectState<Vec<SharedString>>>,
     path: Option<&Path>,
+    result: Option<&(bool, String)>,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let group = GroupBox::new()
@@ -318,12 +382,14 @@ fn i2c_verify_pane(
          Non-destructive; reports how many bytes differ.",
     )
     .child(group)
+    .children(i2c_result_block(result))
 }
 
 /// I²C erase pane: chip picker + arm/confirm. Writes 0xFF everywhere.
 fn i2c_erase_pane(
     chip_select: &Entity<SelectState<Vec<SharedString>>>,
     armed: bool,
+    result: Option<&(bool, String)>,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     op_pane(
@@ -346,11 +412,13 @@ fn i2c_erase_pane(
         cx,
         |this, cx| this.arm_or_fire_i2c_erase(cx),
     ))
+    .children(i2c_result_block(result))
 }
 
 /// I²C blank-check pane: chip picker + a button. Confirms all 0xFF.
 fn i2c_blank_pane(
     chip_select: &Entity<SelectState<Vec<SharedString>>>,
+    result: Option<&(bool, String)>,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     op_pane(
@@ -365,6 +433,7 @@ fn i2c_blank_pane(
         cx,
         |this, cx| this.start_i2c_blank_check(cx),
     ))
+    .children(i2c_result_block(result))
 }
 
 fn read_pane(cx: &mut Context<AppView>) -> impl IntoElement {
