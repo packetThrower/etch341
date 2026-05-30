@@ -268,7 +268,20 @@ impl Ch341 {
             out.push(I2C_STM_STA);
             out.push(I2C_STM_OUT | 1);
             out.push((slave_7bit << 1) | 0x01); // R bit = 1
-            out.push(I2C_STM_IN | (rx_len as u8));
+            // Clock each byte with its own IN command: the first
+            // rx_len-1 are `IN | 1` (the master ACKs after each —
+            // "keep sending"), and the final byte is a bare `IN` (the
+            // master NACKs — "that's the last one"). A single
+            // `IN | rx_len` instead ACKs *every* byte including the
+            // last, so the chip is left mid-read and the next
+            // transaction's bytes shift — the multi-chunk read
+            // corruption. This is the byte sequence working CH341 I²C
+            // drivers use; `rx_len` is bounded by `MAX_READ_CHUNK` so
+            // the whole stream still fits one 32-byte CH341 packet.
+            for _ in 0..rx_len - 1 {
+                out.push(I2C_STM_IN | 1);
+            }
+            out.push(I2C_STM_IN);
         }
         out.push(I2C_STM_STO);
         out.push(I2C_STM_END);

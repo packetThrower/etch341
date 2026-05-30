@@ -49,10 +49,19 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
   (or any page whose next byte is `0xFF`) that read `0xFF` and
   concluded "never ready". The CH341 never exposes the I²C ACK bit,
   so there's nothing to poll; writes now wait out the worst-case
-  datasheet write-cycle time instead. This is the first time I²C
-  `write`/`erase` complete on real silicon (validated against an
-  AT24C02). *Known remaining issue:* multi-chunk reads can still
-  corrupt near the 31-byte transfer boundary — under investigation.
+  datasheet write-cycle time instead.
+- **I²C reads no longer corrupt past ~30 bytes.** A multi-byte read
+  was clocked with a single `IN | n` substream, which makes the CH341
+  ACK *every* byte including the last — so the read was never
+  terminated with a NACK and the chip stayed mid-transfer, shifting
+  the bytes of the next chunk. Reads now clock one `IN | 1` per byte
+  (master ACKs each) and a final bare `IN` (master NACKs the last),
+  matching how working CH341 I²C drivers do it; the per-chunk size
+  dropped from 31 to 20 so the longer request stream still fits one
+  32-byte CH341 packet. With both this and the write-cycle fix, the
+  full I²C `read` / `write` / `erase` / `verify` / `blank-check`
+  cycle is byte-exact on real silicon (AT24C02, 100 kHz and 20 kHz)
+  — the first end-to-end silicon validation of the I²C path.
 - **`i2c scan` now explains the blank-chip blind spot.** A blank
   EEPROM (all `0xFF`) is indistinguishable from an empty bus on the
   CH341 (no ACK-bit readback), so `scan` can't list it; the

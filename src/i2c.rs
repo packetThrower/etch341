@@ -188,10 +188,17 @@ pub fn scan(bus: &mut dyn I2cTransport, range: std::ops::RangeInclusive<u8>) -> 
     Ok(hits)
 }
 
-/// Max bytes the CH341 can read in one I²C transaction. The IN
-/// substream byte encodes the count in its low 5 bits, so 31 is the
-/// hard ceiling per chunk; callers paginate.
-pub const MAX_READ_CHUNK: usize = 31;
+/// Max bytes the CH341 can read in one I²C transaction. Each byte now
+/// gets its own `IN` substream command in the request (one `IN | 1`
+/// per byte so the master ACKs each, plus a terminating bare `IN`), so
+/// the *outgoing* stream grows by one byte per byte read. The CH341
+/// USB packet is 32 bytes; once the ~12-byte envelope (the command
+/// header, two STARTs, two OUT headers, both slave-address bytes, the
+/// STOP and the END) is subtracted, there's room for 20 IN commands.
+/// Callers paginate. The old single `IN | n` form fit a larger count
+/// but ACKed the final byte, leaving the read unterminated — the
+/// multi-chunk corruption this replaces.
+pub const MAX_READ_CHUNK: usize = 20;
 
 /// Max data bytes (excluding address) per I²C write transaction. The
 /// CH341 USB packet is 32 bytes; once you subtract the envelope, the
@@ -341,29 +348,37 @@ mod tests {
     }
 
     #[test]
-    fn read_long_splits_into_31_byte_chunks() {
+    fn read_long_splits_into_max_read_chunks() {
         let c = chip("24C256", 32768, 64, 2, 0);
-        // 50-byte read should split into 31 + 19.
+        // 50-byte read should split into 20 + 20 + 10 (MAX_READ_CHUNK).
         let mut mock = MockI2c::new([
             Step {
                 slave: 0x50,
                 tx: vec![0x00, 0x00],
-                rx_len: 31,
-                read_back: vec![0xAA; 31],
+                rx_len: 20,
+                read_back: vec![0xAA; 20],
                 nack: false,
             },
             Step {
                 slave: 0x50,
-                tx: vec![0x00, 0x1F],
-                rx_len: 19,
-                read_back: vec![0xBB; 19],
+                tx: vec![0x00, 0x14],
+                rx_len: 20,
+                read_back: vec![0xBB; 20],
+                nack: false,
+            },
+            Step {
+                slave: 0x50,
+                tx: vec![0x00, 0x28],
+                rx_len: 10,
+                read_back: vec![0xCC; 10],
                 nack: false,
             },
         ]);
         let out = read(&mut mock, &c, 0, 50, 0).unwrap();
         assert_eq!(out.len(), 50);
-        assert_eq!(&out[..31], &[0xAA; 31]);
-        assert_eq!(&out[31..], &[0xBB; 19]);
+        assert_eq!(&out[..20], &[0xAA; 20]);
+        assert_eq!(&out[20..40], &[0xBB; 20]);
+        assert_eq!(&out[40..], &[0xCC; 10]);
         mock.assert_drained();
     }
 
