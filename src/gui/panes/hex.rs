@@ -23,6 +23,7 @@ pub(super) fn hex_pane(
     strings_scroll: UniformListScrollHandle,
     highlight_line: Option<usize>,
     show_strings: bool,
+    show_legend: bool,
     selection: Option<(usize, usize)>,
     search_term: &str,
     search_state: &Entity<InputState>,
@@ -184,10 +185,16 @@ pub(super) fn hex_pane(
             col = col
                 .child(
                     div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
                         .text_size(px(11.0))
                         .text_color(theme::text_tertiary())
-                        .child(footer),
+                        .child(div().child(footer))
+                        .child(legend_toggle(show_legend, cx)),
                 )
+                .when(show_legend, |c| c.child(hex_legend()))
                 .child(hex_view(
                     data_arc,
                     hex_scroll,
@@ -548,7 +555,13 @@ pub(super) fn hex_row(
     // intent).
     for i in 0..16 {
         if i == 8 {
-            row = row.child(div().child(" "));
+            // Dotted soft divider splitting the row into two 8-byte
+            // groups — makes a byte's offset easier to count to by eye.
+            row = row.child(
+                div()
+                    .text_color(theme::text_tertiary())
+                    .child("┊ ".to_string()),
+            );
         }
         let cell = if let Some(&b) = chunk.get(i) {
             let pos = offset + i;
@@ -567,16 +580,23 @@ pub(super) fn hex_row(
         row = row.child(cell);
     }
 
-    // ASCII column: separator + 16 chars + separator. Same match +
-    // selection highlighting as the hex column; mouse events on the
-    // ASCII cells extend the selection too, so the user can drag
-    // across either side of the row.
+    // ASCII column: solid panel break, then 8 + dotted split + 8 chars,
+    // then panel close. Same match + selection highlighting as the hex
+    // column; mouse events on the ASCII cells extend the selection too,
+    // so the user can drag across either side of the row.
     row = row.child(
         div()
             .text_color(theme::text_tertiary())
-            .child(" |".to_string()),
+            .child("│ ".to_string()),
     );
     for i in 0..16 {
+        if i == 8 {
+            row = row.child(
+                div()
+                    .text_color(theme::text_tertiary())
+                    .child("┊".to_string()),
+            );
+        }
         let cell = if let Some(&b) = chunk.get(i) {
             let pos = offset + i;
             let is_printable = (0x20..0x7F).contains(&b);
@@ -585,15 +605,12 @@ pub(super) fn hex_row(
             } else {
                 ".".to_string()
             };
-            let base_color = if is_printable {
-                theme::text_primary()
-            } else {
-                theme::text_tertiary()
-            };
+            // Same byte-category colour as the hex cell so a run of one
+            // category reads as a band across both panels.
             row = row.child(byte_cell(
                 pos,
                 glyph,
-                base_color,
+                hex_color_for(b),
                 matches.contains(&pos),
                 in_selection(pos, selection),
                 weak.clone(),
@@ -607,7 +624,7 @@ pub(super) fn hex_row(
     row = row.child(
         div()
             .text_color(theme::text_tertiary())
-            .child("|".to_string()),
+            .child(" │".to_string()),
     );
     row
 }
@@ -665,13 +682,85 @@ pub(super) fn in_selection(pos: usize, selection: Option<(usize, usize)>) -> boo
     }
 }
 
-/// Tier color for a hex byte. Tuning the brightness here is how the
-/// "scan the dump for structure" feeling emerges — null and 0xFF
-/// runs should sink, printable runs should float.
+/// Per-byte colour by byte category — how the "scan the dump for
+/// structure" feeling emerges. Cyan = printable graphic, green
+/// = whitespace + other control ASCII, gold = non-ASCII; the blank bytes
+/// (`0x00` null, `0xFF` erased) sink so real data floats. Drives both
+/// the hex and the ASCII columns so the two panels read the same.
 pub(super) fn hex_color_for(b: u8) -> gpui::Hsla {
     match b {
-        0x00 | 0xFF => theme::text_tertiary(),
-        0x20..=0x7E => theme::text_primary(),
-        _ => theme::text_secondary(),
+        0x00 | 0xFF => theme::hex_null(),
+        0x21..=0x7E => theme::hex_printable(),
+        0x80..=0xFE => theme::hex_nonascii(),
+        // 0x01..=0x20 + 0x7F: ASCII whitespace + other control.
+        _ => theme::hex_ascii_other(),
     }
+}
+
+/// The "?" toggle next to the Hex footer that expands the byte-colour
+/// legend. Subtly highlighted while open.
+fn legend_toggle(open: bool, cx: &mut Context<AppView>) -> impl IntoElement {
+    let (bg, fg) = if open {
+        (theme::workshop_glass_strong(), theme::text_primary())
+    } else {
+        (theme::workshop_glass(), theme::text_secondary())
+    };
+    div()
+        .id("hex-legend-toggle")
+        .flex()
+        .items_center()
+        .justify_center()
+        .size(px(16.0))
+        .rounded(px(4.0))
+        .bg(bg)
+        .text_color(fg)
+        .cursor_pointer()
+        .hover(|d| {
+            d.bg(theme::workshop_glass_strong())
+                .text_color(theme::text_primary())
+        })
+        .child("?")
+        .on_click(
+            cx.listener(|this: &mut AppView, _: &ClickEvent, _, cx| this.toggle_hex_legend(cx)),
+        )
+}
+
+/// Byte-colour legend shown under the footer when the "?" is expanded:
+/// a sample byte in each category colour next to what the colour means.
+fn hex_legend() -> impl IntoElement {
+    div()
+        .flex()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .gap_4()
+        .pt_1()
+        .text_size(px(11.0))
+        .child(legend_item("41", "printable", theme::hex_printable()))
+        .child(legend_item(
+            "0A",
+            "whitespace / control",
+            theme::hex_ascii_other(),
+        ))
+        .child(legend_item("C3", "non-ASCII", theme::hex_nonascii()))
+        .child(legend_item(
+            "FF",
+            "null / erased (00 / FF)",
+            theme::hex_null(),
+        ))
+}
+
+fn legend_item(sample: &'static str, label: &'static str, color: gpui::Hsla) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .child(
+            div()
+                .font_family(theme::MONO_FONT)
+                .text_color(color)
+                .child(sample),
+        )
+        .child(div().text_color(theme::text_tertiary()).child(label))
 }

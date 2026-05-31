@@ -203,6 +203,26 @@ pub fn diff_added_bg() -> Hsla {
     from_rgb(0x32D74B, 0.22)
 }
 
+/// Byte-category palette for the Hex viewer — the conventional hex-dump
+/// categories: printable graphic = cyan, whitespace + other control
+/// ASCII = green, non-ASCII (≥ 0x80) = gold, and the "blank" bytes
+/// dimmed. The usual scheme dims only `0x00`; for a flash viewer `0xFF`
+/// (erased) dims too, so a 0xFF-filled region recedes instead of
+/// blaring. Muted vs. raw ANSI so a dump reads as structure, not a
+/// rainbow.
+pub fn hex_null() -> Hsla {
+    from_rgb(0xFFFFFF, 0.32)
+}
+pub fn hex_printable() -> Hsla {
+    from_rgb(0x5EC8DE, 1.0)
+}
+pub fn hex_ascii_other() -> Hsla {
+    from_rgb(0x6FCF8A, 1.0)
+}
+pub fn hex_nonascii() -> Hsla {
+    from_rgb(0xE6C266, 1.0)
+}
+
 pub fn text_primary() -> Hsla {
     from_rgb(0xFFFFFF, 0.95)
 }

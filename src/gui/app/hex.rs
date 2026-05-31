@@ -218,6 +218,13 @@ impl AppView {
         cx.notify();
     }
 
+    /// Expand / collapse the Hex pane's byte-colour legend (the "?" next
+    /// to the footer).
+    pub fn toggle_hex_legend(&mut self, cx: &mut Context<Self>) {
+        self.hex_show_legend = !self.hex_show_legend;
+        cx.notify();
+    }
+
     /// Wired to clicks on string-list rows: switch to Hex view and
     /// scroll the hex `uniform_list` so the byte at `offset` is
     /// centered in the viewport. Scroll position takes effect on the

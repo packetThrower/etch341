@@ -606,6 +606,9 @@ pub struct AppView {
     pub strings_scroll: UniformListScrollHandle,
     /// Toggle between raw hex dump (false) and extracted-strings view (true).
     pub hex_show_strings: bool,
+    /// Whether the byte-colour legend (the "?" dropdown next to the Hex
+    /// pane's footer) is expanded.
+    pub hex_show_legend: bool,
     /// Byte-selection range in the hex view: `(anchor, extent)`, both
     /// inclusive offsets into `hex_bytes`. Stored unnormalized so
     /// shift-click can extend in either direction relative to the
@@ -724,6 +727,7 @@ impl AppView {
             strings_scroll: UniformListScrollHandle::new(),
             hex_highlight_line: None,
             hex_show_strings: false,
+            hex_show_legend: false,
             hex_selection: None,
             hex_selecting: false,
             hex_search_term: String::new(),
@@ -1121,6 +1125,7 @@ impl Render for AppView {
                                     diff_selection: self.diff_selection,
                                     hex_highlight_line: self.hex_highlight_line,
                                     hex_show_strings: self.hex_show_strings,
+                                    hex_show_legend: self.hex_show_legend,
                                     hex_selection: self.selection_range(),
                                     hex_search_term: self.hex_search_term.as_str(),
                                     hex_search_state: &self.hex_search_state,

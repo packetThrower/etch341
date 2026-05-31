@@ -56,6 +56,8 @@ pub struct PaneInputs<'a> {
     pub diff_selection: Option<(DiffSide, usize, usize)>,
     pub hex_highlight_line: Option<usize>,
     pub hex_show_strings: bool,
+    /// Whether the Hex pane's byte-colour legend is expanded.
+    pub hex_show_legend: bool,
     /// Normalized `(lo, hi)` inclusive byte range. `None` = no
     /// selection. Already normalized by the caller (AppView::selection_range).
     pub hex_selection: Option<(usize, usize)>,
@@ -181,6 +183,7 @@ pub fn render(
             inputs.strings_scroll,
             inputs.hex_highlight_line,
             inputs.hex_show_strings,
+            inputs.hex_show_legend,
             inputs.hex_selection,
             inputs.hex_search_term,
             inputs.hex_search_state,
