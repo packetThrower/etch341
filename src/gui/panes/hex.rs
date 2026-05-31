@@ -75,13 +75,18 @@ pub(super) fn hex_pane(
              to that address; on a pattern, Enter jumps to the first \
              match. Chevrons step between matches.",
         ))
-        .child(file_picker_row(
-            path,
-            "Browse…",
-            "pick-hex",
-            cx,
-            |this, cx| this.pick_hex_file(cx),
-        ))
+        // File picker in a titled GroupBox, matching the other panes'
+        // file-selection controls (Verify / Write / I²C).
+        .child(
+            GroupBox::new()
+                .id("hex-file-box")
+                .outline()
+                .max_w(px(680.0))
+                .title("File to inspect")
+                .child(bordered_file_row(path, "pick-hex", cx, |this, cx| {
+                    this.pick_hex_file(cx)
+                })),
+        )
         // Unified Find input — outside the tab so it applies to both
         // Hex and Strings views. Force dark text because the Input's
         // default white background otherwise renders the typed text

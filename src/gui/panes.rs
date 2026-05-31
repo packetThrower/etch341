@@ -273,43 +273,6 @@ fn result_block(result: Option<&(bool, String)>) -> Option<gpui::Div> {
     )
 }
 
-/// Path display + Browse button row. Path text wraps if long.
-fn file_picker_row<F>(
-    path: Option<&Path>,
-    button_label: &'static str,
-    button_id: &'static str,
-    cx: &mut Context<AppView>,
-    on_click: F,
-) -> impl IntoElement
-where
-    F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
-{
-    let display = path
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "(no file selected)".to_string());
-    let path_color = if path.is_some() {
-        theme::text_primary()
-    } else {
-        theme::text_tertiary()
-    };
-    div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap_3()
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.0))
-                .whitespace_normal()
-                .text_color(path_color)
-                .text_size(px(12.0))
-                .font_family(theme::MONO_FONT)
-                .child(display),
-        )
-        .child(action_button_for(button_label, button_id, cx, on_click))
-}
-
 /// Small-caps section header inside the settings pane. Matches the
 /// existing visual treatment used for "SPI CLOCK SPEED" /
 /// "PREFERENCES FILE"; factored out to keep the new "WINDOW"
@@ -324,9 +287,9 @@ fn section_label(text: &'static str) -> impl IntoElement {
 
 /// File-path display + Browse button with the path shown in a
 /// bordered, input-style box, so the selected file reads as a field
-/// rather than loose text floating next to a button. Shared by the
-/// Write / Verify / OTP panes. (The Hex pane keeps the plainer
-/// `file_picker_row` — it's fine as-is.)
+/// rather than loose text floating next to a button. Shared by every
+/// pane with a file selection (Hex / Write / Verify / I²C / OTP), each
+/// wrapped in a titled GroupBox.
 fn bordered_file_row<F>(
     path: Option<&Path>,
     button_id: &'static str,
