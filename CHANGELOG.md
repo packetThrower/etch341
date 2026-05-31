@@ -9,6 +9,18 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ### Added
 
+- **Side-by-side diff view for a failed verify (GUI).** When a SPI
+  verify finds mismatches, a "View diff in Hex" button opens a
+  side-by-side comparison in the Hex pane: the file you verified
+  against on the left (red), the chip's read-back on the right
+  (green), showing only the differing regions plus a couple of
+  context lines rather than the whole image. Differing bytes are
+  tinted on both sides; Prev/Next chevrons (and Cmd/Ctrl+G) jump
+  between regions, and bytes on either side are selectable and
+  copyable like the main Hex viewer. The red/green are fixed standard
+  diff colours, independent of the chosen accent. GUI-only for now —
+  the CLI `verify` still reports a mismatch count and the first
+  differing address but not a byte-level view.
 - **46 more SPI NOR chips** — the database grows from 70 to 116
   entries, adding whole vendor families that were missing: Spansion /
   Cypress / Infineon **S25FL** (a networking / industrial / automotive

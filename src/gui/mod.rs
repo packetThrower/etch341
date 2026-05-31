@@ -333,6 +333,109 @@ pub struct DetectInfo {
     pub source: ChipSource,
 }
 
+/// Chip read-back + sorted differing offsets from the last failed SPI
+/// verify, kept so the Verify pane's "View diff in Hex" button can drop
+/// the actual chip bytes into the Hex pane with the mismatches
+/// pre-highlighted and Cmd+G-navigable.
+pub struct VerifyDiff {
+    pub file_bytes: Arc<Vec<u8>>,
+    pub chip_bytes: Arc<Vec<u8>>,
+    pub offsets: Vec<usize>,
+}
+
+/// One row of the side-by-side verify-diff list: a region header or a
+/// 16-byte data row (rendered as file-hex on the left, chip-hex on the
+/// right with differing bytes lit in the standard diff colours).
+#[derive(Clone, Copy)]
+pub enum DiffRow {
+    Header {
+        first_diff: usize,
+        diff_count: usize,
+    },
+    Bytes {
+        offset: usize,
+    },
+}
+
+/// Which column of the side-by-side diff a selection covers.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum DiffSide {
+    File,
+    Chip,
+}
+
+/// Active side-by-side verify-diff view (file vs chip) showing only the
+/// differing runs plus a couple of context lines each side. Built by
+/// `show_verify_diff` from the stored [`VerifyDiff`]; `None` = not in
+/// the diff view (the Hex pane shows its normal viewer).
+pub struct DiffView {
+    pub file: Arc<Vec<u8>>,
+    pub chip: Arc<Vec<u8>>,
+    /// Flat display rows (headers + data rows) for the virtualized list.
+    pub rows: Arc<Vec<DiffRow>>,
+    /// Header-row index of each region, for Prev/Next nav.
+    pub region_rows: Vec<usize>,
+    /// Currently-focused region (index into `region_rows`).
+    pub current: usize,
+    /// Total differing bytes (the summary count).
+    pub total_diffs: usize,
+}
+
+/// Bytes shown per diff row.
+const DIFF_ROW_BYTES: usize = 16;
+/// Context lines kept on each side of a differing run.
+const DIFF_CONTEXT_ROWS: usize = 2;
+
+/// Group `offsets` (sorted differing byte indices) into row-aligned
+/// display regions — each a run of nearby diffs padded by
+/// `DIFF_CONTEXT_ROWS` lines, merged when the padding overlaps — and
+/// flatten to header + data rows. Returns the rows plus the header-row
+/// index of each region (for Prev/Next nav). Only the differing
+/// neighbourhoods are emitted, so matching stretches are skipped.
+fn diff_regions(offsets: &[usize], total_len: usize) -> (Vec<DiffRow>, Vec<usize>) {
+    let ctx = DIFF_CONTEXT_ROWS * DIFF_ROW_BYTES;
+    // (start_aligned, end_clamped, first_diff, diff_count)
+    let mut regions: Vec<(usize, usize, usize, usize)> = Vec::new();
+    let mut i = 0;
+    while i < offsets.len() {
+        let first = offsets[i];
+        let mut last = offsets[i];
+        let mut count = 1usize;
+        let mut j = i + 1;
+        while j < offsets.len() && offsets[j].saturating_sub(last) <= 2 * ctx {
+            last = offsets[j];
+            count += 1;
+            j += 1;
+        }
+        let start = first.saturating_sub(ctx) / DIFF_ROW_BYTES * DIFF_ROW_BYTES;
+        let end = (last + ctx + 1).min(total_len);
+        match regions.last_mut() {
+            // Row-alignment can make adjacent regions touch — fold them.
+            Some(r) if start <= r.1 => {
+                r.1 = r.1.max(end);
+                r.3 += count;
+            }
+            _ => regions.push((start, end, first, count)),
+        }
+        i = j;
+    }
+    let mut rows = Vec::new();
+    let mut region_rows = Vec::new();
+    for &(start, end, first_diff, count) in &regions {
+        region_rows.push(rows.len());
+        rows.push(DiffRow::Header {
+            first_diff,
+            diff_count: count,
+        });
+        let mut off = start;
+        while off < end {
+            rows.push(DiffRow::Bytes { offset: off });
+            off += DIFF_ROW_BYTES;
+        }
+    }
+    (rows, region_rows)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChipSource {
     /// JEDEC matched a `chips.toml` entry.
@@ -504,6 +607,17 @@ pub struct AppView {
     pub write_input_path: Option<std::path::PathBuf>,
     /// File selected via the Verify pane's Browse button.
     pub verify_input_path: Option<std::path::PathBuf>,
+    /// Chip read-back + differing offsets from the last failed verify;
+    /// drives the Verify pane's "View diff in Hex" button. `None` when
+    /// the last verify matched, errored, or hasn't run.
+    pub verify_diff: Option<VerifyDiff>,
+    /// Active side-by-side diff view (file vs chip). Set by the Verify
+    /// pane's "View diff" button, cleared by the diff view's Close.
+    /// When `Some`, the Hex pane renders the diff instead of its viewer.
+    pub hex_diff: Option<DiffView>,
+    /// Byte selection in the diff view: which column, plus the
+    /// (anchor, cursor) offsets. Drives Cmd/Ctrl+C copy from either side.
+    pub diff_selection: Option<(DiffSide, usize, usize)>,
     /// I²C Write / Verify file selections and the I²C Write / Erase arm
     /// flags — the I²C analogues of `write_input_path` / `write_armed`
     /// / `erase_armed`.
@@ -534,6 +648,9 @@ pub struct AppView {
     /// Preserves the hex view's scroll position across re-renders
     /// (filter changes, toggling Strings, etc.).
     pub hex_scroll: UniformListScrollHandle,
+    /// Scroll handle for the verify-diff list (its own, so it doesn't
+    /// fight the hex viewer's scroll position).
+    pub diff_scroll: UniformListScrollHandle,
     /// Line index to highlight in the hex view (set by
     /// `jump_to_hex_offset`). Sticky — stays until the next jump.
     pub hex_highlight_line: Option<usize>,
@@ -642,6 +759,9 @@ impl AppView {
             write_armed: false,
             write_input_path: None,
             verify_input_path: None,
+            verify_diff: None,
+            hex_diff: None,
+            diff_selection: None,
             i2c_write_path: None,
             i2c_verify_path: None,
             i2c_write_armed: false,
@@ -653,6 +773,7 @@ impl AppView {
             hex_match_starts: Vec::new(),
             hex_current_match: None,
             hex_scroll: UniformListScrollHandle::new(),
+            diff_scroll: UniformListScrollHandle::new(),
             strings_scroll: UniformListScrollHandle::new(),
             hex_highlight_line: None,
             hex_show_strings: false,
@@ -1810,6 +1931,130 @@ impl AppView {
         cx.notify();
     }
 
+    /// Drop the last failed verify's chip read-back into the Hex pane
+    /// with the differing offsets pre-highlighted, jump to the first,
+    /// and select the Hex pane. The diffs become the Find match set, so
+    /// the chevrons / Cmd+G step through them. (Typing in Find recomputes
+    /// from the search term and takes over — a deliberate switch back to
+    /// search.) No-op if the last verify left no stored diff.
+    pub fn show_verify_diff(&mut self, cx: &mut Context<Self>) {
+        let Some(d) = self.verify_diff.as_ref() else {
+            return;
+        };
+        let len = d.file_bytes.len().min(d.chip_bytes.len());
+        let (rows, region_rows) = diff_regions(&d.offsets, len);
+        let total_diffs = d.offsets.len();
+        let file = d.file_bytes.clone();
+        let chip = d.chip_bytes.clone();
+        // The `d` borrow of `self.verify_diff` ends here; the mutations
+        // below need `&mut self`.
+        self.push_log(format!(
+            "Verify diff: {total_diffs} differing byte(s) across {} region(s) — Cmd/Ctrl+G to step",
+            region_rows.len()
+        ));
+        self.diff_selection = None;
+        self.hex_diff = Some(DiffView {
+            file,
+            chip,
+            rows: Arc::new(rows),
+            region_rows,
+            current: 0,
+            total_diffs,
+        });
+        self.selected = Pane::Hex;
+        cx.notify();
+    }
+
+    /// Close the diff view, returning the Hex pane to its normal viewer.
+    pub fn close_diff(&mut self, cx: &mut Context<Self>) {
+        self.hex_diff = None;
+        self.diff_selection = None;
+        cx.notify();
+    }
+
+    /// Scroll the diff view to the next / previous differing region
+    /// (wrapping). Bound to the diff view's chevrons + Cmd/Ctrl+G.
+    pub fn diff_step_region(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let row = match self.hex_diff.as_mut() {
+            Some(d) if !d.region_rows.is_empty() => {
+                let n = d.region_rows.len();
+                d.current = if forward {
+                    (d.current + 1) % n
+                } else {
+                    (d.current + n - 1) % n
+                };
+                d.region_rows[d.current]
+            }
+            _ => return,
+        };
+        self.diff_scroll
+            .scroll_to_item_with_offset(row, ScrollStrategy::Top, 0);
+        cx.notify();
+    }
+
+    /// Anchor a diff-view selection on `side` at `byte`. Shift extends
+    /// an existing same-side selection without moving the anchor.
+    pub fn diff_begin_select(
+        &mut self,
+        side: DiffSide,
+        byte: usize,
+        shift: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.diff_selection = match (shift, self.diff_selection) {
+            (true, Some((s, anchor, _))) if s == side => Some((side, anchor, byte)),
+            _ => Some((side, byte, byte)),
+        };
+        cx.notify();
+    }
+
+    /// Extend the diff selection to `byte` while dragging within the
+    /// same column. No-op across columns or with no active selection.
+    pub fn diff_extend_select(&mut self, side: DiffSide, byte: usize, cx: &mut Context<Self>) {
+        if let Some((s, anchor, _)) = self.diff_selection
+            && s == side
+        {
+            self.diff_selection = Some((side, anchor, byte));
+            cx.notify();
+        }
+    }
+
+    /// Copy the diff-view selection (from whichever column it's on) to
+    /// the clipboard as space-separated upper-case hex.
+    pub fn copy_diff_selection(&mut self, cx: &mut Context<Self>) {
+        let Some((side, a, b)) = self.diff_selection else {
+            return;
+        };
+        let Some(diff) = self.hex_diff.as_ref() else {
+            return;
+        };
+        let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+        let buf = match side {
+            DiffSide::File => &diff.file,
+            DiffSide::Chip => &diff.chip,
+        };
+        let end = (hi + 1).min(buf.len());
+        if lo >= end {
+            return;
+        }
+        let mut s = String::with_capacity((end - lo) * 3);
+        for (i, byte) in buf[lo..end].iter().enumerate() {
+            if i > 0 {
+                s.push(' ');
+            }
+            s.push_str(&format!("{byte:02X}"));
+        }
+        cx.write_to_clipboard(ClipboardItem::new_string(s));
+        let label = match side {
+            DiffSide::File => "file",
+            DiffSide::Chip => "chip",
+        };
+        self.push_log(format!(
+            "Copied {} byte(s) from the {label} side at 0x{lo:08X}",
+            end - lo
+        ));
+    }
+
     /// Selection as a normalized `(lo, hi)` inclusive range. Returns
     /// `None` if nothing is selected or `hex_bytes` is empty.
     pub fn selection_range(&self) -> Option<(usize, usize)> {
@@ -2066,6 +2311,7 @@ impl AppView {
             cx.notify();
             return;
         };
+        self.verify_diff = None;
         self.push_log(format!("→ verify against {}", path.display()));
         cx.notify();
         self.spawn_progress_poller(cx);
@@ -2104,21 +2350,34 @@ impl AppView {
                         Diagnosis::MisoStuckLow => return Err("MISO stuck low".into()),
                         Diagnosis::MisoFloatsHigh => return Err("MISO floats high".into()),
                     };
-                    let mismatches = ops::verify(&mut ch, &chip, &data, 0, &mut sink)
-                        .map_err(|e| format!("verify: {e}"))?;
-                    Ok::<_, String>((chip.name, data.len(), mismatches))
+                    let chip_bytes =
+                        ops::read_bytes(&mut ch, &chip, 0, data.len() as u32, &mut sink)
+                            .map_err(|e| format!("verify: {e}"))?;
+                    let offsets: Vec<usize> = data
+                        .iter()
+                        .zip(chip_bytes.iter())
+                        .enumerate()
+                        .filter_map(|(i, (e, a))| (e != a).then_some(i))
+                        .collect();
+                    Ok::<_, String>((chip.name, chip_bytes, offsets, data))
                 })
                 .await;
 
             weak.update(cx, |this, cx| {
                 match outcome {
-                    Ok((name, n, 0)) => {
+                    Ok((name, _chip, offs, file)) if offs.is_empty() => {
+                        let n = file.len();
                         this.set_op_result(true, format!("All {n} bytes match {name}"))
                     }
-                    Ok((name, n, mis)) => this.set_op_result(
-                        false,
-                        format!("{mis} of {n} bytes differ ({name})"),
-                    ),
+                    Ok((name, chip, offs, file)) => {
+                        let (n, m) = (file.len(), offs.len());
+                        this.verify_diff = Some(VerifyDiff {
+                            file_bytes: Arc::new(file),
+                            chip_bytes: Arc::new(chip),
+                            offsets: offs,
+                        });
+                        this.set_op_result(false, format!("{m} of {n} bytes differ ({name})"));
+                    }
                     Err(err) => this.set_op_result(false, format!("Verify failed: {err}")),
                 }
                 cx.notify();
@@ -2798,17 +3057,29 @@ impl Render for AppView {
             )
             .on_action(
                 cx.listener(|this: &mut AppView, _: &FindNextAction, _, cx| {
-                    this.find_next(cx);
+                    if this.hex_diff.is_some() {
+                        this.diff_step_region(true, cx);
+                    } else {
+                        this.find_next(cx);
+                    }
                 }),
             )
             .on_action(
                 cx.listener(|this: &mut AppView, _: &FindPrevAction, _, cx| {
-                    this.find_prev(cx);
+                    if this.hex_diff.is_some() {
+                        this.diff_step_region(false, cx);
+                    } else {
+                        this.find_prev(cx);
+                    }
                 }),
             )
             .on_action(
                 cx.listener(|this: &mut AppView, _: &CopyHexSelection, _, cx| {
-                    this.copy_hex_selection(cx);
+                    if this.hex_diff.is_some() {
+                        this.copy_diff_selection(cx);
+                    } else {
+                        this.copy_hex_selection(cx);
+                    }
                 }),
             )
             .on_action(cx.listener(|this: &mut AppView, _: &HexZoomIn, _, cx| {
@@ -2859,6 +3130,7 @@ impl Render for AppView {
                                     write_armed: self.write_armed,
                                     write_path: self.write_input_path.as_deref(),
                                     verify_path: self.verify_input_path.as_deref(),
+                                    verify_has_diff: self.verify_diff.is_some(),
                                     hex_path: self.hex_input_path.as_deref(),
                                     hex_bytes: self.hex_bytes.clone(),
                                     hex_strings: self.hex_strings.clone(),
@@ -2867,6 +3139,9 @@ impl Render for AppView {
                                     hex_current_match: self.hex_current_match,
                                     hex_scroll: self.hex_scroll.clone(),
                                     strings_scroll: self.strings_scroll.clone(),
+                                    hex_diff: self.hex_diff.as_ref(),
+                                    diff_scroll: self.diff_scroll.clone(),
+                                    diff_selection: self.diff_selection,
                                     hex_highlight_line: self.hex_highlight_line,
                                     hex_show_strings: self.hex_show_strings,
                                     hex_selection: self.selection_range(),

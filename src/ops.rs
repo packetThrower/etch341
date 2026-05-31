@@ -808,6 +808,41 @@ pub fn write(
     Ok(())
 }
 
+/// Read a `len`-byte chip region starting at `start` into memory. The
+/// in-memory sibling of [`read`] (which streams to a file/stdout) —
+/// used by the GUI's verify-diff view, which needs the chip's actual
+/// bytes to display alongside the differing offsets.
+pub fn read_bytes(
+    spi: &mut dyn SpiTransport,
+    chip: &Chip,
+    start: u32,
+    len: u32,
+    progress: &mut dyn ProgressSink,
+) -> Result<Vec<u8>> {
+    let chip_size = chip.size_kb.saturating_mul(1024);
+    if start.saturating_add(len) > chip_size {
+        return Err(Error::AddressOutOfRange {
+            addr: start,
+            len,
+            chip_size,
+        });
+    }
+    let addressing = addressing_for(chip);
+    progress.start(len as u64);
+    let mut buf = Vec::with_capacity(len as usize);
+    let mut addr = start;
+    let end = start + len;
+    while addr < end {
+        let n = std::cmp::min(READ_CHUNK, end - addr);
+        let data = spi::read_data(spi, addressing, addr, n as usize)?;
+        buf.extend_from_slice(&data);
+        addr += n;
+        progress.update((addr - start) as u64);
+    }
+    progress.finish();
+    Ok(buf)
+}
+
 /// Compare `expected` against the chip starting at `start`. Returns the
 /// number of mismatched bytes (0 = clean). Prints the first mismatch's
 /// address to stderr to aid debugging.

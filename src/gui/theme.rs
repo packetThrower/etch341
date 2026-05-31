@@ -183,6 +183,26 @@ pub fn info_blue() -> Hsla {
     from_rgb(0x5E9EFF, 1.0)
 }
 
+/// Standard diff highlight colours for the verify diff view.
+/// Deliberately FIXED constants — never `accent()` — so the diff reads
+/// like every other diff tool regardless of the user's accent choice.
+/// Red marks the file/expected (left) side, green the chip/actual
+/// (right) side, following the left=removed / right=added convention.
+/// The `_bg` tints back the differing byte cells; the solid colours
+/// drive the byte text.
+pub fn diff_removed() -> Hsla {
+    from_rgb(0xFF6962, 1.0)
+}
+pub fn diff_removed_bg() -> Hsla {
+    from_rgb(0xFF453A, 0.22)
+}
+pub fn diff_added() -> Hsla {
+    from_rgb(0x5BE26B, 1.0)
+}
+pub fn diff_added_bg() -> Hsla {
+    from_rgb(0x32D74B, 0.22)
+}
+
 pub fn text_primary() -> Hsla {
     from_rgb(0xFFFFFF, 0.95)
 }

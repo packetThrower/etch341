@@ -1,8 +1,8 @@
-use super::{AppView, Pane, theme};
+use super::{AppView, DiffRow, DiffSide, DiffView, Pane, theme};
 use gpui::{
-    ClickEvent, Context, Entity, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    MouseMoveEvent, ParentElement, SharedString, StatefulInteractiveElement, Styled,
-    UniformListScrollHandle, WeakEntity, div, prelude::FluentBuilder, px, uniform_list,
+    AnyElement, ClickEvent, Context, Entity, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, MouseMoveEvent, ParentElement, SharedString, StatefulInteractiveElement,
+    Styled, UniformListScrollHandle, WeakEntity, div, prelude::FluentBuilder, px, uniform_list,
 };
 use gpui_component::group_box::{GroupBox, GroupBoxVariants as _};
 use gpui_component::input::{Input, InputState};
@@ -21,6 +21,9 @@ pub struct PaneInputs<'a> {
     pub write_armed: bool,
     pub write_path: Option<&'a Path>,
     pub verify_path: Option<&'a Path>,
+    /// True when the last verify left a stored diff — shows the Verify
+    /// pane's "View diff in Hex" button.
+    pub verify_has_diff: bool,
     pub hex_path: Option<&'a Path>,
     pub hex_bytes: Option<Arc<Vec<u8>>>,
     pub hex_strings: Option<Arc<Vec<(usize, String)>>>,
@@ -29,6 +32,11 @@ pub struct PaneInputs<'a> {
     pub hex_current_match: Option<usize>,
     pub hex_scroll: UniformListScrollHandle,
     pub strings_scroll: UniformListScrollHandle,
+    /// When `Some`, the Hex pane renders this side-by-side verify diff
+    /// instead of its normal hex/strings viewer.
+    pub hex_diff: Option<&'a DiffView>,
+    pub diff_scroll: UniformListScrollHandle,
+    pub diff_selection: Option<(DiffSide, usize, usize)>,
     pub hex_highlight_line: Option<usize>,
     pub hex_show_strings: bool,
     /// Normalized `(lo, hi)` inclusive byte range. `None` = no
@@ -118,7 +126,13 @@ pub fn render(
         Pane::Erase => erase_pane(inputs.erase_armed, inputs.op_result, cx).into_any_element(),
         Pane::Write => write_pane(inputs.write_path, inputs.write_armed, inputs.op_result, cx)
             .into_any_element(),
-        Pane::Verify => verify_pane(inputs.verify_path, inputs.op_result, cx).into_any_element(),
+        Pane::Verify => verify_pane(
+            inputs.verify_path,
+            inputs.op_result,
+            inputs.verify_has_diff,
+            cx,
+        )
+        .into_any_element(),
         Pane::Blank => blank_pane(inputs.op_result, cx).into_any_element(),
         Pane::Status => status_pane(inputs.status_regs, inputs.op_result, cx).into_any_element(),
         Pane::Otp => otp_pane(
@@ -128,6 +142,14 @@ pub fn render(
             inputs.otp_erase_armed,
             inputs.otp_write_armed,
             inputs.op_result,
+            cx,
+        )
+        .into_any_element(),
+        Pane::Hex if inputs.hex_diff.is_some() => diff_pane(
+            inputs.hex_diff.unwrap(),
+            inputs.diff_selection,
+            inputs.diff_scroll,
+            inputs.hex_font_size,
             cx,
         )
         .into_any_element(),
@@ -526,6 +548,7 @@ fn write_pane(
 fn verify_pane(
     path: Option<&Path>,
     result: Option<&(bool, String)>,
+    has_diff: bool,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let group = GroupBox::new()
@@ -545,11 +568,20 @@ fn verify_pane(
     op_pane(
         "Verify",
         "Reads the chip and compares against a file byte-by-byte. \
-         Non-destructive; reports the first mismatch's address if any \
-         bytes differ.",
+         Non-destructive. When bytes differ, \"View diff in Hex\" opens \
+         the chip's read-back in the Hex pane with the mismatches \
+         highlighted — step through them with Cmd/Ctrl+G.",
     )
     .child(group)
     .children(result_block(result))
+    .when(has_diff, |this| {
+        this.child(action_button_for(
+            "View diff in Hex",
+            "view-diff",
+            cx,
+            |this, cx| this.show_verify_diff(cx),
+        ))
+    })
 }
 
 /// Path display + Browse button row. Path text wraps if long.
@@ -1121,6 +1153,267 @@ where
                 on_click(this, cx);
             }),
         )
+}
+
+/// Side-by-side verify diff (file vs chip): only the differing runs +
+/// context lines, file-hex on the left, chip-hex on the right, with the
+/// differing bytes lit in the standard diff colours (red = file, green
+/// = chip). Replaces the Hex pane's normal viewer while a diff is open.
+fn diff_pane(
+    diff: &DiffView,
+    selection: Option<(DiffSide, usize, usize)>,
+    scroll: UniformListScrollHandle,
+    font_size: f32,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
+    let region_count = diff.region_rows.len();
+    let header = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .child(
+            div()
+                .flex_1()
+                .text_color(theme::text_secondary())
+                .child(format!(
+                    "{} bytes differ across {region_count} region(s). \
+                     File (red, left) vs chip (green, right).",
+                    diff.total_diffs
+                )),
+        )
+        .when(region_count > 1, |row| {
+            row.child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(diff_nav_button("‹ Prev", "diff-prev", cx, |this, cx| {
+                        this.diff_step_region(false, cx)
+                    }))
+                    .child(
+                        div()
+                            .text_color(theme::text_tertiary())
+                            .child(format!("{}/{region_count}", diff.current + 1)),
+                    )
+                    .child(diff_nav_button("Next ›", "diff-next", cx, |this, cx| {
+                        this.diff_step_region(true, cx)
+                    })),
+            )
+        })
+        .child(diff_nav_button("Close", "diff-close", cx, |this, cx| {
+            this.close_diff(cx)
+        }));
+
+    let file = diff.file.clone();
+    let chip = diff.chip.clone();
+    let rows = diff.rows.clone();
+    let weak = cx.entity().downgrade();
+    // Mirror the hex viewer's box exactly: a `uniform_list` with
+    // `flex_1` fills its column via flex-stretch (a plain scrolling
+    // `div` sizes to content instead, which is what kept the box off the
+    // window edge). With the box full-width, each row's `w_full`
+    // resolves against it and the chip column reaches the right edge.
+    let list = uniform_list("diff-list", diff.rows.len(), move |range, _, _| {
+        range
+            .map(|i| diff_row_view(rows[i], &file, &chip, font_size, selection, weak.clone()))
+            .collect::<Vec<_>>()
+    })
+    .flex_1()
+    .min_h(px(0.0))
+    .border_1()
+    .border_color(theme::workshop_glass_strong())
+    .rounded(px(6.0))
+    .bg(theme::bench_black())
+    .px_3()
+    .py_2()
+    .track_scroll(&scroll);
+
+    // Same outer shell as the hex pane: flex_1 + w_full + flex_col. The
+    // `body()` line (a full-width wrapping paragraph, like every op
+    // pane) is what makes the pane fill the viewport width, which gives
+    // the list a full width to stretch into.
+    div()
+        .flex_1()
+        .min_h(px(0.0))
+        .w_full()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .px_5()
+        .py_5()
+        .child(heading("Verify diff"))
+        .child(body(
+            "Side-by-side: the file you verified against (left, red) vs the chip's \
+             read-back (right, green), showing only the differing regions plus a \
+             couple of context lines. Drag to select bytes on either side; Cmd/Ctrl+C \
+             copies the selection.",
+        ))
+        .child(header)
+        .child(list)
+}
+
+/// A compact button for the diff view's header (Prev / Next / Close).
+fn diff_nav_button<F>(
+    label: &'static str,
+    id: &'static str,
+    cx: &mut Context<AppView>,
+    on_click: F,
+) -> impl IntoElement
+where
+    F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
+{
+    styled_button(id)
+        .bg(theme::workshop_glass())
+        .text_color(theme::text_secondary())
+        .hover(|d| {
+            d.bg(theme::workshop_glass_strong())
+                .text_color(theme::text_primary())
+        })
+        .child(label)
+        .on_click(cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| on_click(this, cx)))
+}
+
+/// One row of the diff list: a region header or a 16-byte data row
+/// (offset · file hex · separator · chip hex), differing bytes lit.
+fn diff_row_view(
+    row: DiffRow,
+    file: &[u8],
+    chip: &[u8],
+    font_size: f32,
+    selection: Option<(DiffSide, usize, usize)>,
+    weak: WeakEntity<AppView>,
+) -> AnyElement {
+    match row {
+        DiffRow::Header {
+            first_diff,
+            diff_count,
+        } => div()
+            .font_family(theme::MONO_FONT)
+            .text_size(px(font_size))
+            .text_color(theme::text_tertiary())
+            .pt_3()
+            .pb_1()
+            .child(format!(
+                "── 0x{first_diff:06X}  ·  {diff_count} byte(s) differ ──"
+            ))
+            .into_any_element(),
+        DiffRow::Bytes { offset } => {
+            let mut file_cells = div().flex().flex_row();
+            let mut chip_cells = div().flex().flex_row();
+            for k in 0..16 {
+                let p = offset + k;
+                let fb = file.get(p).copied();
+                let cb = chip.get(p).copied();
+                let differs = fb != cb;
+                file_cells = file_cells.child(diff_byte_cell(
+                    fb,
+                    differs,
+                    DiffSide::File,
+                    p,
+                    in_diff_selection(DiffSide::File, p, selection),
+                    weak.clone(),
+                ));
+                chip_cells = chip_cells.child(diff_byte_cell(
+                    cb,
+                    differs,
+                    DiffSide::Chip,
+                    p,
+                    in_diff_selection(DiffSide::Chip, p, selection),
+                    weak.clone(),
+                ));
+            }
+            // Columns sit adjacent (offset · file · separator · chip),
+            // left-aligned inside the full-width box — like the hex
+            // viewer packs its content — so a file byte lines up next to
+            // its chip counterpart for easy comparison.
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_4()
+                .font_family(theme::MONO_FONT)
+                .text_size(px(font_size))
+                .child(
+                    div()
+                        .text_color(theme::text_tertiary())
+                        .child(format!("{offset:08X}")),
+                )
+                .child(file_cells)
+                .child(div().text_color(theme::text_tertiary()).child("│"))
+                .child(chip_cells)
+                .into_any_element()
+        }
+    }
+}
+
+/// A single byte cell in the diff. `differs` lights it in the diff
+/// colour (red for the file side, green for the chip side); a missing
+/// byte (past the shorter buffer) renders blank.
+fn diff_byte_cell(
+    b: Option<u8>,
+    differs: bool,
+    side: DiffSide,
+    offset: usize,
+    selected: bool,
+    weak: WeakEntity<AppView>,
+) -> gpui::Stateful<gpui::Div> {
+    let text = b
+        .map(|v| format!("{v:02X} "))
+        .unwrap_or_else(|| "   ".to_string());
+    let fg = if !differs {
+        theme::text_secondary()
+    } else if side == DiffSide::File {
+        theme::diff_removed()
+    } else {
+        theme::diff_added()
+    };
+    // Tuple id (distinct per side) keeps each cell interactive; gpui
+    // needs an id before .on_mouse_down / .on_mouse_move take effect.
+    let id: (&'static str, usize) = match side {
+        DiffSide::File => ("diff-file", offset),
+        DiffSide::Chip => ("diff-chip", offset),
+    };
+    let mut d = div().id(id).text_color(fg).child(text);
+    if selected {
+        // Selection tint wins over the diff colour, like the hex view.
+        d = d.bg(theme::selection_tint());
+    } else if differs {
+        d = d.bg(if side == DiffSide::File {
+            theme::diff_removed_bg()
+        } else {
+            theme::diff_added_bg()
+        });
+    }
+    let weak_down = weak.clone();
+    let weak_move = weak;
+    d.on_mouse_down(MouseButton::Left, move |ev: &MouseDownEvent, _, app| {
+        let shift = ev.modifiers.shift;
+        weak_down
+            .update(app, |this, cx| {
+                this.diff_begin_select(side, offset, shift, cx)
+            })
+            .ok();
+    })
+    .on_mouse_move(move |ev: &MouseMoveEvent, _, app| {
+        if ev.pressed_button == Some(MouseButton::Left) {
+            weak_move
+                .update(app, |this, cx| this.diff_extend_select(side, offset, cx))
+                .ok();
+        }
+    })
+}
+
+/// True if `offset` on `side` is inside the diff selection.
+fn in_diff_selection(side: DiffSide, offset: usize, sel: Option<(DiffSide, usize, usize)>) -> bool {
+    match sel {
+        Some((s, a, b)) if s == side => {
+            let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+            offset >= lo && offset <= hi
+        }
+        _ => false,
+    }
 }
 
 // The hex pane sits at the join point of the file picker, the
