@@ -391,7 +391,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 );
                 return Ok(());
             }
-            Ok(ops::detect(&global)?)
+            Ok(ops::detect(global.verbose)?)
         }
 
         Command::Sr => {
@@ -402,7 +402,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 );
                 return Ok(());
             }
-            Ok(ops::status(&global)?)
+            Ok(ops::status(global.verbose)?)
         }
 
         Command::Sfdp => {
@@ -413,7 +413,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 );
                 return Ok(());
             }
-            Ok(ops::sfdp(&global)?)
+            Ok(ops::sfdp(global.verbose)?)
         }
 
         Command::Otp { action } => match action {
@@ -425,7 +425,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                     );
                     return Ok(());
                 }
-                Ok(ops::otp(&global)?)
+                Ok(ops::otp(global.verbose)?)
             }
             OtpAction::Erase(args) => {
                 if global.dry_run {
@@ -506,7 +506,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
             }
             let mut ch = Programmer::open(global.verbose)?;
             ch.set_clock(speed)?;
-            let chip = ops::resolve_chip(&mut ch, &global)?;
+            let chip = ops::resolve_chip(&mut ch, global.chip.as_deref())?;
             let chip_bytes = chip.size_kb.saturating_mul(1024);
             let len = args.length.unwrap_or(chip_bytes.saturating_sub(args.start));
             let mut sink = IndicatifSink::new("read   ");
@@ -534,7 +534,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
             }
             let mut ch = Programmer::open(global.verbose)?;
             ch.set_clock(speed)?;
-            let chip = ops::resolve_chip(&mut ch, &global)?;
+            let chip = ops::resolve_chip(&mut ch, global.chip.as_deref())?;
             let mut sink = IndicatifSink::new("write  ");
             ops::write(
                 &mut ch,
@@ -572,7 +572,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
             }
             let mut ch = Programmer::open(global.verbose)?;
             ch.set_clock(speed)?;
-            let chip = ops::resolve_chip(&mut ch, &global)?;
+            let chip = ops::resolve_chip(&mut ch, global.chip.as_deref())?;
             let mut sink = IndicatifSink::new("erase  ");
             match args.range.as_deref() {
                 None => ops::erase_chip(&mut ch, &chip, &mut sink)?,
@@ -600,7 +600,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
             }
             let mut ch = Programmer::open(global.verbose)?;
             ch.set_clock(speed)?;
-            let chip = ops::resolve_chip(&mut ch, &global)?;
+            let chip = ops::resolve_chip(&mut ch, global.chip.as_deref())?;
             let mut sink = IndicatifSink::new("verify ");
             if args.diff {
                 // Read the region back and diff it locally so we can show
@@ -651,7 +651,7 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
             }
             let mut ch = Programmer::open(global.verbose)?;
             ch.set_clock(speed)?;
-            let chip = ops::resolve_chip(&mut ch, &global)?;
+            let chip = ops::resolve_chip(&mut ch, global.chip.as_deref())?;
             let mut sink = IndicatifSink::new("blank  ");
             ops::blank_check(&mut ch, &chip, &mut sink)?;
             Ok(())

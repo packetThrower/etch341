@@ -4,7 +4,6 @@
 //! against a mock. Only `detect` opens the real hardware itself.
 
 use crate::chipdb::{Chip, ChipDb};
-use crate::cli::GlobalOpts;
 use crate::error::{Error, Result};
 use crate::programmer::Programmer;
 use crate::spi::{self, Addressing, SpiTransport};
@@ -103,8 +102,8 @@ pub fn run_detect(spi: &mut dyn SpiTransport) -> Result<DetectResult> {
     })
 }
 
-pub fn detect(global: &GlobalOpts) -> Result<()> {
-    let mut ch = Programmer::open(global.verbose)?;
+pub fn detect(verbose: bool) -> Result<()> {
+    let mut ch = Programmer::open(verbose)?;
     let result = run_detect(&mut ch)?;
     println!("JEDEC ID : 0x{}", result.jedec_string());
     match &result.diagnosis {
@@ -169,8 +168,8 @@ fn print_chip_facts(c: &Chip) {
 /// decoded summary of the W25Q-family bit names. Standalone op —
 /// doesn't depend on chip-name lookup, just needs the chip to ACK
 /// SPI and respond to the read-status opcodes.
-pub fn status(global: &GlobalOpts) -> Result<()> {
-    let mut ch = Programmer::open(global.verbose)?;
+pub fn status(verbose: bool) -> Result<()> {
+    let mut ch = Programmer::open(verbose)?;
     // Run a JEDEC probe first so the user gets a clear "no chip"
     // message when MISO is floating instead of a decoded SR1 of
     // 0xFF reading as "WIP=1 WEL=1 BP=7 …" (every bit set looks
@@ -261,8 +260,8 @@ fn bit(b: bool) -> char {
 /// and the decoded BFPT. Same JEDEC-first guard as `status` so
 /// the "no chip" case surfaces a clean message instead of an
 /// all-`0xFF` SFDP dump that decodes as garbage.
-pub fn sfdp(global: &GlobalOpts) -> Result<()> {
-    let mut ch = Programmer::open(global.verbose)?;
+pub fn sfdp(verbose: bool) -> Result<()> {
+    let mut ch = Programmer::open(verbose)?;
     let detect = run_detect(&mut ch)?;
     println!("JEDEC ID : 0x{}", detect.jedec_string());
     match &detect.diagnosis {
@@ -506,8 +505,8 @@ pub fn otp_write(
 /// guard as `status` / `sfdp` so a floating bus surfaces a clean
 /// "no chip" message instead of three registers of meaningless
 /// `0xFF`.
-pub fn otp(global: &GlobalOpts) -> Result<()> {
-    let mut ch = Programmer::open(global.verbose)?;
+pub fn otp(verbose: bool) -> Result<()> {
+    let mut ch = Programmer::open(verbose)?;
     let detect = run_detect(&mut ch)?;
     println!("JEDEC ID : 0x{}", detect.jedec_string());
     match &detect.diagnosis {
@@ -571,13 +570,13 @@ fn print_hexdump(data: &[u8], base: u32) {
 /// (most parts made since ~2011). Hand-named overrides (`--chip`)
 /// always win — that's the escape hatch for chips with damaged or
 /// uncatalogued JEDEC IDs.
-pub fn resolve_chip(spi: &mut dyn SpiTransport, global: &GlobalOpts) -> Result<Chip> {
+pub fn resolve_chip(spi: &mut dyn SpiTransport, chip: Option<&str>) -> Result<Chip> {
     let db = ChipDb::load_embedded();
-    if let Some(name) = &global.chip {
+    if let Some(name) = chip {
         return db
             .find_by_name(name)
             .cloned()
-            .ok_or_else(|| Error::ChipNotRecognized(name.clone()));
+            .ok_or_else(|| Error::ChipNotRecognized(name.to_string()));
     }
     let id = spi::jedec_read(spi)?;
     let jedec = format!("{:02X}{:02X}{:02X}", id[0], id[1], id[2]);
