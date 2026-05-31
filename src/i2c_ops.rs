@@ -67,6 +67,40 @@ pub fn read(
     Ok(())
 }
 
+/// Read a `len`-byte region into memory — the in-memory sibling of
+/// [`read`] (which streams to a file). Used by the GUI's I²C verify-diff
+/// view, which needs the EEPROM's actual bytes alongside the differing
+/// offsets.
+pub fn read_bytes(
+    bus: &mut dyn I2cTransport,
+    chip: &I2cChip,
+    mem_addr: u32,
+    len: u32,
+    pin_straps: u8,
+    progress: &mut dyn ProgressSink,
+) -> Result<Vec<u8>> {
+    let end = mem_addr.saturating_add(len);
+    if end > chip.size_bytes {
+        return Err(Error::AddressOutOfRange {
+            addr: mem_addr,
+            len,
+            chip_size: chip.size_bytes,
+        });
+    }
+    progress.start(len as u64);
+    let mut buf = Vec::with_capacity(len as usize);
+    let mut addr = mem_addr;
+    while addr < end {
+        let n = std::cmp::min(READ_CHUNK_BYTES, end - addr);
+        let data = i2c::read(bus, chip, addr, n, pin_straps)?;
+        buf.extend_from_slice(&data);
+        addr += n;
+        progress.update((addr - mem_addr) as u64);
+    }
+    progress.finish();
+    Ok(buf)
+}
+
 /// Write `data` starting at `mem_addr`. Splits at the smaller of the
 /// EEPROM page boundary and the CH341 packet limit; ACK-polls
 /// between chunks to wait out the chip's internal write cycle.

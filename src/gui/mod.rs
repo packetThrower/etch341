@@ -909,6 +909,9 @@ impl AppView {
         self.bus = bus;
         self.selected = Pane::default_for(bus);
         self.disarm_all();
+        // Drop any stored verify diff so the other bus's Verify pane
+        // doesn't surface a stale "View diff in Hex" button.
+        self.verify_diff = None;
         cx.notify();
     }
 

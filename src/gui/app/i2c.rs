@@ -269,6 +269,7 @@ impl AppView {
             cx.notify();
             return;
         };
+        self.verify_diff = None;
         self.push_log(format!("→ i2c verify ({chip_name}) vs {}", path.display()));
         cx.notify();
         self.spawn_progress_poller(cx);
@@ -285,14 +286,32 @@ impl AppView {
                     let mut ch = Programmer::open_i2c(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let mut sink = GuiSink::new(progress, "i2c-vfy");
-                    crate::i2c_ops::verify(&mut ch, &chip, &data, 0, 0, &mut sink)
-                        .map_err(|e| format!("verify: {e}"))
+                    // Read the region back and diff locally (like the SPI
+                    // verify) so a mismatch can open the byte-level diff
+                    // view, not just report a count.
+                    let len = data.len() as u32;
+                    let chip_bytes =
+                        crate::i2c_ops::read_bytes(&mut ch, &chip, 0, len, 0, &mut sink)
+                            .map_err(|e| format!("verify: {e}"))?;
+                    let offsets = crate::diff::diff_offsets(&data, &chip_bytes);
+                    Ok::<_, String>((chip.name, chip_bytes, offsets, data))
                 })
                 .await;
             weak.update(cx, |this, cx| {
                 match outcome {
-                    Ok(0) => this.set_op_result(true, "Chip matches the file".into()),
-                    Ok(m) => this.set_op_result(false, format!("{m} byte(s) differ")),
+                    Ok((name, _chip, offs, file)) if offs.is_empty() => {
+                        let n = file.len();
+                        this.set_op_result(true, format!("All {n} bytes match {name}"));
+                    }
+                    Ok((name, chip, offs, file)) => {
+                        let (n, m) = (file.len(), offs.len());
+                        this.verify_diff = Some(VerifyDiff {
+                            file_bytes: Arc::new(file),
+                            chip_bytes: Arc::new(chip),
+                            offsets: offs,
+                        });
+                        this.set_op_result(false, format!("{m} of {n} bytes differ ({name})"));
+                    }
                     Err(err) => this.set_op_result(false, format!("Verify failed: {err}")),
                 }
                 cx.notify();

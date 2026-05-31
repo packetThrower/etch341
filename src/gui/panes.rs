@@ -219,6 +219,7 @@ pub fn render(
             inputs.i2c_chip_select,
             inputs.i2c_verify_path,
             inputs.op_result,
+            inputs.verify_has_diff,
             cx,
         )
         .into_any_element(),

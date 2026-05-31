@@ -136,6 +136,7 @@ pub(super) fn i2c_verify_pane(
     chip_select: &Entity<SelectState<Vec<SharedString>>>,
     path: Option<&Path>,
     result: Option<&(bool, String)>,
+    has_diff: bool,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
     let group = GroupBox::new()
@@ -159,10 +160,20 @@ pub(super) fn i2c_verify_pane(
     op_pane(
         "I²C Verify",
         "Reads the EEPROM and compares it against a file byte-by-byte. \
-         Non-destructive; reports how many bytes differ.",
+         Non-destructive. When bytes differ, \"View diff in Hex\" opens \
+         the read-back in the Hex pane with the mismatches highlighted — \
+         step through them with Cmd/Ctrl+G.",
     )
     .child(group)
     .children(result_block(result))
+    .when(has_diff, |this| {
+        this.child(action_button_for(
+            "View diff in Hex",
+            "i2c-view-diff",
+            cx,
+            |this, cx| this.show_verify_diff(cx),
+        ))
+    })
 }
 
 /// I²C erase pane: chip picker + arm/confirm. Writes 0xFF everywhere.
