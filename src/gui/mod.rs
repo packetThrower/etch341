@@ -356,12 +356,15 @@ pub enum DiffSide {
     Chip,
 }
 
-/// Active side-by-side verify-diff view (file vs chip) showing only the
-/// differing runs plus a couple of context lines each side. Built by
-/// `show_verify_diff` from the stored [`VerifyDiff`]; `None` = not in
-/// the diff view (the Hex pane shows its normal viewer).
+/// Active side-by-side diff view showing only the differing runs plus a
+/// couple of context lines each side. Built either by `show_verify_diff`
+/// (file vs chip read-back) or `show_file_diff` (two picked files);
+/// `None` = not in the diff view (the Hex pane shows its normal viewer).
 pub struct DiffView {
+    /// Left side (red / removed). Named `file` for the verify case but
+    /// holds whichever buffer is on the left.
     pub file: Arc<Vec<u8>>,
+    /// Right side (green / added).
     pub chip: Arc<Vec<u8>>,
     /// Flat display rows (headers + data rows) for the virtualized list.
     pub rows: Arc<Vec<DiffRow>>,
@@ -371,6 +374,12 @@ pub struct DiffView {
     pub current: usize,
     /// Total differing bytes (the summary count).
     pub total_diffs: usize,
+    /// Pane heading — "Verify diff" or "Compare files".
+    pub title: String,
+    /// Short name for the left/red side (e.g. "file" or "old.bin").
+    pub left_label: String,
+    /// Short name for the right/green side (e.g. "chip" or "new.bin").
+    pub right_label: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1897,6 +1906,9 @@ impl AppView {
             region_rows,
             current: 0,
             total_diffs,
+            title: "Verify diff".into(),
+            left_label: "file".into(),
+            right_label: "chip".into(),
         });
         self.selected = Pane::Hex;
         cx.notify();
@@ -1906,6 +1918,96 @@ impl AppView {
     pub fn close_diff(&mut self, cx: &mut Context<Self>) {
         self.hex_diff = None;
         self.diff_selection = None;
+        cx.notify();
+    }
+
+    /// Pick two files (sequential pickers — A then B) and open their
+    /// byte-level diff in the Hex pane. Cancelling either picker aborts.
+    /// The Hex pane's "Compare two files…" button drives this.
+    pub fn pick_compare_files(&mut self, cx: &mut Context<Self>) {
+        let start_dir = self.prefs.last_write_dir.clone();
+        cx.spawn(async move |weak, cx| {
+            let pick = |title: &'static str, dir: Option<std::path::PathBuf>| {
+                let mut dialog = rfd::AsyncFileDialog::new()
+                    .set_title(title)
+                    .add_filter("Dumps", &["bin", "rom", "eep"])
+                    .add_filter("All files", &["*"]);
+                if let Some(dir) = dir {
+                    dialog = dialog.set_directory(dir);
+                }
+                dialog.pick_file()
+            };
+
+            let Some(handle_a) = pick("Compare — first file (left, red)", start_dir).await else {
+                return;
+            };
+            let path_a = handle_a.path().to_path_buf();
+            // Second picker opens in the first file's directory — the
+            // two files being compared usually live near each other.
+            let dir_b = path_a.parent().map(|p| p.to_path_buf());
+            let Some(handle_b) = pick("Compare — second file (right, green)", dir_b).await else {
+                return;
+            };
+            let path_b = handle_b.path().to_path_buf();
+
+            weak.update(cx, |this, cx| this.show_file_diff(path_a, path_b, cx))
+                .ok();
+        })
+        .detach();
+    }
+
+    /// Read two files and open their diff in the Hex pane. Surfaces read
+    /// errors and the all-match case as an op result rather than a diff.
+    pub fn show_file_diff(
+        &mut self,
+        path_a: std::path::PathBuf,
+        path_b: std::path::PathBuf,
+        cx: &mut Context<Self>,
+    ) {
+        let read =
+            |p: &std::path::Path| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
+        let (a, b) = match (read(&path_a), read(&path_b)) {
+            (Ok(a), Ok(b)) => (a, b),
+            (Err(e), _) | (_, Err(e)) => {
+                self.set_op_result(false, format!("Compare failed — {e}"));
+                cx.notify();
+                return;
+            }
+        };
+        let name = |p: &std::path::Path| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| p.display().to_string())
+        };
+        let (name_a, name_b) = (name(&path_a), name(&path_b));
+        let offsets = crate::diff::diff_offsets(&a, &b);
+        if offsets.is_empty() {
+            self.set_op_result(
+                true,
+                format!("{name_a} and {name_b} are identical ({} bytes)", a.len()),
+            );
+            cx.notify();
+            return;
+        }
+        let (rows, region_rows) = crate::diff::diff_regions(&offsets, a.len().max(b.len()));
+        let total_diffs = offsets.len();
+        self.push_log(format!(
+            "Compare {name_a} ↔ {name_b}: {total_diffs} differing byte(s) across {} region(s)",
+            region_rows.len()
+        ));
+        self.diff_selection = None;
+        self.hex_diff = Some(DiffView {
+            file: Arc::new(a),
+            chip: Arc::new(b),
+            rows: Arc::new(rows),
+            region_rows,
+            current: 0,
+            total_diffs,
+            title: "Compare files".into(),
+            left_label: name_a,
+            right_label: name_b,
+        });
+        self.selected = Pane::Hex;
         cx.notify();
     }
 

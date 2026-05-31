@@ -1173,12 +1173,17 @@ fn diff_pane(
         .items_center()
         .gap_3()
         .child(
+            // `min_w(0)` lets this flex item shrink below its (nowrap)
+            // text width instead of shoving the nav/Close buttons off
+            // the right edge. The red/left · green/right file mapping is
+            // already spelled out in the body paragraph above, so the
+            // summary only carries the live count here.
             div()
                 .flex_1()
+                .min_w(px(0.0))
                 .text_color(theme::text_secondary())
                 .child(format!(
-                    "{} bytes differ across {region_count} region(s). \
-                     File (red, left) vs chip (green, right).",
+                    "{} bytes differ across {region_count} region(s).",
                     diff.total_diffs
                 )),
         )
@@ -1243,13 +1248,27 @@ fn diff_pane(
         .gap_3()
         .px_5()
         .py_5()
-        .child(heading("Verify diff"))
-        .child(body(
-            "Side-by-side: the file you verified against (left, red) vs the chip's \
-             read-back (right, green), showing only the differing regions plus a \
-             couple of context lines. Drag to select bytes on either side; Cmd/Ctrl+C \
-             copies the selection.",
-        ))
+        // Dynamic heading + body (the verify case vs two-file compare
+        // name the sides differently), inlined because `heading`/`body`
+        // take `&'static str`. The wrapping body paragraph is also what
+        // makes the pane fill the viewport width (see `body`).
+        .child(
+            div()
+                .text_size(px(18.0))
+                .text_color(theme::text_primary())
+                .child(diff.title.clone()),
+        )
+        .child(
+            div()
+                .text_color(theme::text_secondary())
+                .whitespace_normal()
+                .child(format!(
+                    "Side-by-side: {} on the left (red) and {} on the right (green), \
+                     showing only the differing regions plus a couple of context lines. \
+                     Drag to select bytes on either side; Cmd/Ctrl+C copies the selection.",
+                    diff.left_label, diff.right_label
+                )),
+        )
         .child(header)
         .child(list)
 }
@@ -1455,7 +1474,30 @@ fn hex_pane(
         .gap_3()
         .px_5()
         .py_5()
-        .child(heading("Hex viewer"))
+        // Title row: heading on the left, "Compare two files…" pushed to
+        // the top-right as a secondary (glass) header action.
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .child(heading("Hex viewer"))
+                .child(
+                    styled_button("hex-compare")
+                        .bg(theme::workshop_glass())
+                        .text_color(theme::text_secondary())
+                        .hover(|d| {
+                            d.bg(theme::workshop_glass_strong())
+                                .text_color(theme::text_primary())
+                        })
+                        .child("Compare two files…")
+                        .on_click(cx.listener(|this: &mut AppView, _: &ClickEvent, _, cx| {
+                            this.pick_compare_files(cx)
+                        })),
+                ),
+        )
         .child(body(
             "Inspect any binary file in hex+ASCII, or extract its \
              printable strings (≥4 chars). The Find bar below works in \

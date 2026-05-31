@@ -30,6 +30,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
   Colour follows the terminal: on for a TTY, off when piped or with
   `NO_COLOR` set. The GUI view, `diff`, and `verify --diff` share one
   region-grouping core, so all three highlight identically.
+- **Compare two files in the GUI.** The Hex pane gains a "Compare two
+  files…" button: pick two files and their byte-level diff opens in the
+  same side-by-side view used for a failed verify — the GUI counterpart
+  to the CLI's `diff`. Red marks the first file, green the second, with
+  their names shown in the header; Close returns to the hex viewer.
 - **46 more SPI NOR chips** — the database grows from 70 to 116
   entries, adding whole vendor families that were missing: Spansion /
   Cypress / Infineon **S25FL** (a networking / industrial / automotive
