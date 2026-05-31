@@ -7,6 +7,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+## [0.6.0-beta.1] — 2026-05-31
+
 ### Added
 
 - **Side-by-side diff view for a failed verify (GUI).** When a SPI or
@@ -47,6 +49,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
   and are flagged not-yet-silicon-tested in the notes. The
   JEDEC→voltage map learned the IS25WP (9D70) and MT25QU (20BB) 1.8V
   families so the GUI Voltage column stays correct.
+
+### Changed
+
+- **Hex viewer file picker matches the other panes now** — the Hex
+  pane's file selection is wrapped in a titled "File to inspect"
+  GroupBox with the same bordered field the Verify / Write / I²C / OTP
+  panes use, instead of a bare path + Browse row.
 
 ### Fixed
 
