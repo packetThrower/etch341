@@ -218,6 +218,7 @@ etch341 write -i bios.bin --no-erase --no-verify   # raw program
 etch341 erase                        # full chip erase
 etch341 erase --range 0x10000:0x10000   # erase one 64 KB block
 etch341 verify -i bios.bin           # compare without writing
+etch341 verify -i bios.bin --diff    # ...and show where, as a hex diff
 etch341 blank-check                  # confirm all 0xFF
 etch341 sr                           # dump SR1/SR2/SR3 with decoded bits
 etch341 sfdp                         # decode the chip's SFDP table
@@ -254,7 +255,7 @@ for their high memory bits; this is handled automatically.
 Supported families: 24C01 / 02 / 04 / 08 / 16 / 32 / 64 / 128 / 256 /
 512. Other 24Cxx chips work if you add an entry to `chips/i2c_chips.toml`.
 
-The CLI also has three offline inspection commands that work on flash
+The CLI also has four offline inspection commands that work on flash
 dump files (no hardware required):
 
 ```sh
@@ -268,12 +269,24 @@ etch341 strings -i dump.bin --min-len 8  # noisier-but-richer threshold
 etch341 search "55 AA" -i dump.bin       # find hex pattern (spaces optional)
 etch341 search "Award" -i dump.bin       # ASCII (case-insensitive)
 etch341 search "DEADBEEF" -i dump.bin --context 32   # widen the gutter
+
+etch341 diff old.bin new.bin             # side-by-side hex diff of two dumps
 ```
 
 `search` parses the pattern as hex when the condensed form is even-length
 and all hex digits (`55AA`, `DE AD BE EF`); anything else is taken as
 ASCII. Matched bytes print in upper-case hex; surrounding context stays
 lower-case for an at-a-glance visual contrast.
+
+`diff` compares two files and prints only the differing regions as a
+side-by-side hex view — red for the left file, green for the right —
+with a couple of context lines around each run. It exits 1 on any
+difference and 0 when identical, so it drops into scripts like
+`diff(1)`/`cmp(1)`. Colour is automatic: on for a terminal, off when
+piped or when `NO_COLOR` is set. The same byte-level view is available
+against live hardware with `verify --diff` (file vs chip read-back), and
+the GUI's Verify pane offers it as "View diff in Hex" — all three share
+one region-grouping core, so they highlight identically.
 
 Global flags:
 
@@ -295,8 +308,8 @@ Global flags:
   start + length fits the chip) and print a `[dry-run]` summary of
   what would happen. Never opens the CH341. Useful for sanity-
   checking flags before you actually pull the trigger on an erase or
-  write. Offline commands (`chips`, `strings`, `search`) ignore the
-  flag because they don't touch hardware anyway.
+  write. Offline commands (`chips`, `strings`, `search`, `diff`) ignore
+  the flag because they don't touch hardware anyway.
 
 ### GUI
 

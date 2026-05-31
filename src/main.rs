@@ -43,6 +43,7 @@
 mod ch341;
 mod chipdb;
 mod cli;
+mod diff;
 mod error;
 mod i2c;
 mod i2c_ops;

@@ -18,9 +18,18 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
   tinted on both sides; Prev/Next chevrons (and Cmd/Ctrl+G) jump
   between regions, and bytes on either side are selectable and
   copyable like the main Hex viewer. The red/green are fixed standard
-  diff colours, independent of the chosen accent. GUI-only for now —
-  the CLI `verify` still reports a mismatch count and the first
-  differing address but not a byte-level view.
+  diff colours, independent of the chosen accent.
+- **`diff` and `verify --diff` on the CLI.** The same byte-level
+  comparison now has a command-line surface. `etch341 diff A B`
+  compares two files offline (no hardware), printing only the differing
+  regions as a side-by-side hex dump — red for the left file, green for
+  the right — and exits 1 when they differ / 0 when identical, so it
+  slots into scripts like `diff(1)`/`cmp(1)`. `etch341 verify --diff`
+  adds that same region view to a hardware verify (file vs chip
+  read-back) instead of only a count and first differing address.
+  Colour follows the terminal: on for a TTY, off when piped or with
+  `NO_COLOR` set. The GUI view, `diff`, and `verify --diff` share one
+  region-grouping core, so all three highlight identically.
 - **46 more SPI NOR chips** — the database grows from 70 to 116
   entries, adding whole vendor families that were missing: Spansion /
   Cypress / Infineon **S25FL** (a networking / industrial / automotive

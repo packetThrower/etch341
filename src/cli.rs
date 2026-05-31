@@ -117,6 +117,11 @@ pub enum Command {
     Strings(StringsArgs),
     /// Find every offset where a byte pattern (hex or ASCII) occurs in a file.
     Search(SearchArgs),
+    /// Compare two binary files byte-for-byte, printing only the
+    /// differing regions as a side-by-side hex diff (offline; no
+    /// hardware). Exits 1 when they differ, 0 when identical — so it
+    /// drops into scripts like `diff(1)`/`cmp(1)`.
+    Diff(DiffArgs),
 }
 
 #[derive(Args)]
@@ -137,6 +142,14 @@ pub struct StringsArgs {
     /// Minimum run length to report. Common defaults: 4 (lots of noise) or 8 (just labels).
     #[arg(long, default_value_t = 4)]
     pub min_len: usize,
+}
+
+#[derive(Args)]
+pub struct DiffArgs {
+    /// First file — shown on the left (red / removed).
+    pub a: PathBuf,
+    /// Second file — shown on the right (green / added).
+    pub b: PathBuf,
 }
 
 #[derive(Args)]
@@ -312,6 +325,11 @@ pub struct VerifyArgs {
     /// Start address (decimal or 0x-prefixed hex).
     #[arg(long, value_parser = parse_addr, default_value = "0")]
     pub start: u32,
+    /// On mismatch, print a side-by-side hex diff of the differing
+    /// regions (file vs chip read-back) instead of only the count and
+    /// first differing address.
+    #[arg(long)]
+    pub diff: bool,
 }
 
 fn parse_addr(s: &str) -> Result<u32, String> {
@@ -584,6 +602,37 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
             ch.set_clock(speed)?;
             let chip = ops::resolve_chip(&mut ch, &global)?;
             let mut sink = IndicatifSink::new("verify ");
+            if args.diff {
+                // Read the region back and diff it locally so we can show
+                // *where* it differs, not just how much.
+                let chip_bytes =
+                    ops::read_bytes(&mut ch, &chip, args.start, data.len() as u32, &mut sink)?;
+                let offsets = crate::diff::diff_offsets(&data, &chip_bytes);
+                if offsets.is_empty() {
+                    println!("Verify OK: {} bytes match {}", data.len(), chip.name);
+                    return Ok(());
+                }
+                let (rows, region_rows) =
+                    crate::diff::diff_regions(&offsets, data.len().max(chip_bytes.len()));
+                let left = args.input.display().to_string();
+                print!(
+                    "{}",
+                    crate::diff::render_regions(
+                        &data,
+                        &chip_bytes,
+                        &rows,
+                        args.start,
+                        use_color(),
+                        (left.as_str(), chip.name.as_str()),
+                    )
+                );
+                return Err(format!(
+                    "verify failed: {} byte(s) differ across {} region(s)",
+                    offsets.len(),
+                    region_rows.len()
+                )
+                .into());
+            }
             let mismatches = ops::verify(&mut ch, &chip, &data, args.start, &mut sink)?;
             if mismatches > 0 {
                 return Err(format!("verify failed: {} byte(s) differ", mismatches).into());
@@ -650,6 +699,42 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 print_search_hit(&bytes, offset, needle.len(), args.context);
             }
             Ok(())
+        }
+
+        Command::Diff(args) => {
+            let a = std::fs::read(&args.a)?;
+            let b = std::fs::read(&args.b)?;
+            let offsets = crate::diff::diff_offsets(&a, &b);
+            if offsets.is_empty() {
+                println!("Files are identical ({} bytes).", a.len());
+                return Ok(());
+            }
+            let (rows, region_rows) = crate::diff::diff_regions(&offsets, a.len().max(b.len()));
+            let left = args.a.display().to_string();
+            let right = args.b.display().to_string();
+            print!(
+                "{}",
+                crate::diff::render_regions(
+                    &a,
+                    &b,
+                    &rows,
+                    0,
+                    use_color(),
+                    (left.as_str(), right.as_str()),
+                )
+            );
+            println!(
+                "{} byte(s) differ across {} region(s).",
+                offsets.len(),
+                region_rows.len()
+            );
+            // Exit 1 on difference like diff(1)/cmp(1), without the
+            // `Error:` prefix a returned Err would print — the diff
+            // above is the report. Flush first: process::exit skips the
+            // stdout buffer's Drop, which matters when piped.
+            use std::io::Write;
+            std::io::stdout().flush().ok();
+            std::process::exit(1);
         }
     }
 }
@@ -730,6 +815,15 @@ fn print_chips(args: &ChipsArgs) {
 
 fn plural(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
+}
+
+/// Whether to emit ANSI colour in the diff output. On only when stdout
+/// is a real terminal and `NO_COLOR` is unset (the de-facto standard) —
+/// so piping (`| less`, redirect to a file) yields clean, escape-free
+/// text.
+fn use_color() -> bool {
+    use std::io::IsTerminal;
+    std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal()
 }
 
 /// Resolve a SPI chip from the embedded DB by name without touching

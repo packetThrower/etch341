@@ -343,19 +343,11 @@ pub struct VerifyDiff {
     pub offsets: Vec<usize>,
 }
 
-/// One row of the side-by-side verify-diff list: a region header or a
-/// 16-byte data row (rendered as file-hex on the left, chip-hex on the
-/// right with differing bytes lit in the standard diff colours).
-#[derive(Clone, Copy)]
-pub enum DiffRow {
-    Header {
-        first_diff: usize,
-        diff_count: usize,
-    },
-    Bytes {
-        offset: usize,
-    },
-}
+/// One row of the side-by-side verify-diff list. Re-exported from the
+/// shared [`crate::diff`] core so the GUI list and the CLI `diff` /
+/// `verify --diff` renderers group mismatches through the exact same
+/// logic.
+pub use crate::diff::DiffRow;
 
 /// Which column of the side-by-side diff a selection covers.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -379,61 +371,6 @@ pub struct DiffView {
     pub current: usize,
     /// Total differing bytes (the summary count).
     pub total_diffs: usize,
-}
-
-/// Bytes shown per diff row.
-const DIFF_ROW_BYTES: usize = 16;
-/// Context lines kept on each side of a differing run.
-const DIFF_CONTEXT_ROWS: usize = 2;
-
-/// Group `offsets` (sorted differing byte indices) into row-aligned
-/// display regions — each a run of nearby diffs padded by
-/// `DIFF_CONTEXT_ROWS` lines, merged when the padding overlaps — and
-/// flatten to header + data rows. Returns the rows plus the header-row
-/// index of each region (for Prev/Next nav). Only the differing
-/// neighbourhoods are emitted, so matching stretches are skipped.
-fn diff_regions(offsets: &[usize], total_len: usize) -> (Vec<DiffRow>, Vec<usize>) {
-    let ctx = DIFF_CONTEXT_ROWS * DIFF_ROW_BYTES;
-    // (start_aligned, end_clamped, first_diff, diff_count)
-    let mut regions: Vec<(usize, usize, usize, usize)> = Vec::new();
-    let mut i = 0;
-    while i < offsets.len() {
-        let first = offsets[i];
-        let mut last = offsets[i];
-        let mut count = 1usize;
-        let mut j = i + 1;
-        while j < offsets.len() && offsets[j].saturating_sub(last) <= 2 * ctx {
-            last = offsets[j];
-            count += 1;
-            j += 1;
-        }
-        let start = first.saturating_sub(ctx) / DIFF_ROW_BYTES * DIFF_ROW_BYTES;
-        let end = (last + ctx + 1).min(total_len);
-        match regions.last_mut() {
-            // Row-alignment can make adjacent regions touch — fold them.
-            Some(r) if start <= r.1 => {
-                r.1 = r.1.max(end);
-                r.3 += count;
-            }
-            _ => regions.push((start, end, first, count)),
-        }
-        i = j;
-    }
-    let mut rows = Vec::new();
-    let mut region_rows = Vec::new();
-    for &(start, end, first_diff, count) in &regions {
-        region_rows.push(rows.len());
-        rows.push(DiffRow::Header {
-            first_diff,
-            diff_count: count,
-        });
-        let mut off = start;
-        while off < end {
-            rows.push(DiffRow::Bytes { offset: off });
-            off += DIFF_ROW_BYTES;
-        }
-    }
-    (rows, region_rows)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1942,7 +1879,7 @@ impl AppView {
             return;
         };
         let len = d.file_bytes.len().min(d.chip_bytes.len());
-        let (rows, region_rows) = diff_regions(&d.offsets, len);
+        let (rows, region_rows) = crate::diff::diff_regions(&d.offsets, len);
         let total_diffs = d.offsets.len();
         let file = d.file_bytes.clone();
         let chip = d.chip_bytes.clone();
@@ -2353,12 +2290,7 @@ impl AppView {
                     let chip_bytes =
                         ops::read_bytes(&mut ch, &chip, 0, data.len() as u32, &mut sink)
                             .map_err(|e| format!("verify: {e}"))?;
-                    let offsets: Vec<usize> = data
-                        .iter()
-                        .zip(chip_bytes.iter())
-                        .enumerate()
-                        .filter_map(|(i, (e, a))| (e != a).then_some(i))
-                        .collect();
+                    let offsets = crate::diff::diff_offsets(&data, &chip_bytes);
                     Ok::<_, String>((chip.name, chip_bytes, offsets, data))
                 })
                 .await;
