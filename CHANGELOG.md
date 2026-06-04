@@ -7,6 +7,21 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-06-04
+
+Stable release of the 0.6.0 line. Folds in everything from 0.6.0-beta.1
+below, plus:
+
+### Changed
+
+- **Hex viewer restyled with byte-category colours and an 8/8 split.**
+  Both the hex and ASCII panels now colour each byte by category (cyan =
+  printable, green = whitespace / control, gold = non-ASCII, dim for the
+  blank `0x00` / `0xFF` bytes), and each row is split into two 8-byte
+  groups by a dotted divider — making structure and a byte's offset
+  easier to scan. A "?" toggle next to the footer expands a colour
+  legend explaining the scheme.
+
 ## [0.6.0-beta.1] — 2026-05-31
 
 ### Added
