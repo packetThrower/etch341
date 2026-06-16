@@ -153,6 +153,8 @@ The easiest path is the Homebrew tap, which always tracks the
 latest stable release and auto-updates with `brew upgrade`:
 
 ```sh
+brew tap packetThrower/tap
+brew trust packetThrower/tap   # Homebrew 6.0.0+: trust the tap before installing
 brew install packetThrower/tap/etch341
 ```
 
