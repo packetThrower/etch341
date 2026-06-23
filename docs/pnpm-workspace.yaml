@@ -8,3 +8,10 @@ overrides:
   # dep of astro, which allows ^5.6.3 — so we floor it here. Safe to
   # drop once astro's own dependency range moves past 5.8.0.
   devalue: '>=5.8.1'
+  # js-yaml <= 4.1.1 has a quadratic-complexity DoS in merge-key alias
+  # handling (GHSA-h67p-54hq-rp68); 4.2.0 is the fix. js-yaml is a
+  # transitive dep of astro / starlight, part of whose tree still
+  # resolves 4.1.1 — so we floor it here (4.2.0 is a same-major minor
+  # bump already present elsewhere in the tree). Safe to drop once
+  # astro's own dependency range moves past 4.1.1.
+  js-yaml: '>=4.2.0'
