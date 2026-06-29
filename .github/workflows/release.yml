@@ -91,7 +91,7 @@ jobs:
         run: brew install pkg-config
 
       - name: Install cargo-packager
-        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
+        uses: taiki-e/install-action@9bcaee1dcae34154180f412e2fa69355a7cda9f6 # v2.82.6
         with:
           tool: cargo-packager
 
@@ -236,7 +236,7 @@ jobs:
             ruby-dev libarchive-tools
 
       - name: Install cargo-packager
-        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
+        uses: taiki-e/install-action@9bcaee1dcae34154180f412e2fa69355a7cda9f6 # v2.82.6
         with:
           tool: cargo-packager
 
@@ -471,7 +471,7 @@ jobs:
           cache-on-failure: true
 
       - name: Install cargo-packager
-        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
+        uses: taiki-e/install-action@9bcaee1dcae34154180f412e2fa69355a7cda9f6 # v2.82.6
         with:
           tool: cargo-packager
 
@@ -484,7 +484,7 @@ jobs:
       # alphanumeric prerelease identifiers like `0.3.0-beta.1`.
       - name: Install cargo-wix
         if: ${{ !contains(env.EFFECTIVE_VERSION, '-') }}
-        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
+        uses: taiki-e/install-action@9bcaee1dcae34154180f412e2fa69355a7cda9f6 # v2.82.6
         with:
           tool: cargo-wix
 
