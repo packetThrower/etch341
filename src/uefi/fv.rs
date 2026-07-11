@@ -232,14 +232,21 @@ fn parse_sections(
                 if body.len() < 5 {
                     w.skipped.push("truncated compression section".into());
                 } else {
+                    let orig_len = u32::from_le_bytes([body[0], body[1], body[2], body[3]]);
                     match body[4] {
                         0 => parse_sections(&body[5..], depth + 1, w, out, file_guid, file_type),
-                        // ponytail: Tiano/EFI1.1 decompress unimplemented —
-                        // port EDK2 BaseTools Decompress.c when a real dump
-                        // needs it (mostly pre-Aptio-4 era images).
-                        1 => w
-                            .skipped
-                            .push("Tiano-compressed section (unsupported)".into()),
+                        // EFI_STANDARD_COMPRESSION — either the UEFI or the
+                        // Tiano variant of the EDK2 Huffman+LZ codec (they
+                        // differ only in a position-code bit width); try
+                        // both and take whichever decodes.
+                        1 => match efi_decompress(&body[5..], orig_len as usize) {
+                            Some(dec) => {
+                                parse_sections(&dec, depth + 1, w, out, file_guid, file_type)
+                            }
+                            None => w
+                                .skipped
+                                .push("EFI-compressed section failed to decode".into()),
+                        },
                         t => w
                             .skipped
                             .push(format!("compression type {t} (unsupported)")),
@@ -299,6 +306,23 @@ fn lzma_decompress(data: &[u8]) -> Result<Vec<u8>, String> {
     lzma_rs::lzma_decompress(&mut std::io::Cursor::new(data), &mut out)
         .map_err(|e| e.to_string())?;
     Ok(out)
+}
+
+/// Decode an EFI_STANDARD_COMPRESSION payload (the codec's own
+/// CompSize+OrigSize header must lead `src`). `orig_len` is the
+/// section's declared uncompressed length. Tries the Tiano then UEFI
+/// variant — the section header doesn't say which, and they share the
+/// stream format apart from one bit-width. Returns None if neither
+/// decodes.
+fn efi_decompress(src: &[u8], orig_len: usize) -> Option<Vec<u8>> {
+    use uefi_decompress::{DecompressionAlgorithm as Algo, decompress_into_with_algo};
+    for algo in [Algo::TianoDecompress, Algo::UefiDecompress] {
+        let mut dst = vec![0u8; orig_len];
+        if decompress_into_with_algo(src, &mut dst, algo).is_ok() {
+            return Some(dst);
+        }
+    }
+    None
 }
 
 fn align4(x: usize) -> usize {
@@ -493,10 +517,16 @@ mod tests {
     }
 
     #[test]
-    fn tiano_section_is_skipped_not_fatal() {
+    fn undecodable_compressed_section_is_skipped_not_fatal() {
+        // Garbage that can't decode as either EFI/Tiano variant: the
+        // walk must record a skip and keep going, not abort. The codec
+        // stream claims an absurd compressed size (> the data present),
+        // which both variants reject up front.
         let mut body = 100u32.to_le_bytes().to_vec();
-        body.push(1); // compression type: Tiano
-        body.extend_from_slice(&[0; 32]);
+        body.push(1); // EFI_STANDARD_COMPRESSION
+        body.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes()); // CompSize (absurd)
+        body.extend_from_slice(&100u32.to_le_bytes()); // OrigSize
+        body.extend_from_slice(&[0; 8]);
         let image = fv(&[ffs_file(
             TEST_GUID,
             0x07,
@@ -505,7 +535,7 @@ mod tests {
 
         let w = walk_image(&image);
         assert_eq!(w.file_count, 1);
-        assert!(w.skipped.iter().any(|s| s.contains("Tiano")));
+        assert!(w.skipped.iter().any(|s| s.contains("failed to decode")));
     }
 
     #[test]

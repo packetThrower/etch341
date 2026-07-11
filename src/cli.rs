@@ -122,6 +122,30 @@ pub enum Command {
     /// hardware). Exits 1 when they differ, 0 when identical — so it
     /// drops into scripts like `diff(1)`/`cmp(1)`.
     Diff(DiffArgs),
+    /// Explore a UEFI BIOS image (offline; no hardware).
+    Bios {
+        #[command(subcommand)]
+        action: BiosAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum BiosAction {
+    /// List Setup options from a BIOS dump as a human-readable table:
+    /// label, current value, and the choices behind each variable
+    /// byte. Parses firmware volumes → IFR forms → HII strings and
+    /// joins them against the NVRAM store. Read-only.
+    Settings(BiosSettingsArgs),
+}
+
+#[derive(Args)]
+pub struct BiosSettingsArgs {
+    /// BIOS image file (a full flash dump, e.g. from `read`).
+    #[arg(short = 'i', long)]
+    pub input: std::path::PathBuf,
+    /// Case-insensitive substring filter on the setting label.
+    #[arg(long)]
+    pub find: Option<String>,
 }
 
 #[derive(Args)]
@@ -736,6 +760,77 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
             std::io::stdout().flush().ok();
             std::process::exit(1);
         }
+
+        Command::Bios { action } => match action {
+            BiosAction::Settings(args) => {
+                let bytes = std::fs::read(&args.input)?;
+                let settings = crate::uefi::extract_settings(&bytes, args.find.as_deref());
+                if settings.is_empty() {
+                    eprintln!(
+                        "No Setup settings resolved in {} — not a UEFI image, an \
+                         unsupported vendor, or filtered out.",
+                        args.input.display()
+                    );
+                    return Ok(());
+                }
+                print_bios_settings(&settings);
+                Ok(())
+            }
+        },
+    }
+}
+
+/// Render resolved Setup settings as an aligned table.
+fn print_bios_settings(settings: &[crate::uefi::Setting]) {
+    let name_w = settings
+        .iter()
+        .map(|s| s.name.len())
+        .max()
+        .unwrap_or(0)
+        .min(48);
+    let val_w = settings
+        .iter()
+        .filter_map(|s| s.value_label.as_ref().map(|l| l.len()))
+        .max()
+        .unwrap_or(0)
+        .min(24);
+
+    for s in settings {
+        let value = match (&s.value_label, s.value) {
+            (Some(label), Some(v)) => format!("{label} ({v:#x})"),
+            (None, Some(v)) => format!("{v:#x}"),
+            _ => "<not set>".to_string(),
+        };
+        let choices: Vec<&str> = s
+            .options
+            .iter()
+            .map(|(_, l)| l.as_str())
+            .filter(|l| !l.is_empty())
+            .collect();
+        let choices = if choices.is_empty() {
+            String::new()
+        } else {
+            format!("  [{}]", choices.join(" / "))
+        };
+        let flag = if s.conditional { " *" } else { "" };
+        println!(
+            "{:<name_w$}  {:<val_w$}  {}+{:#06x}{choices}{flag}",
+            truncate(&s.name, name_w),
+            value,
+            s.varstore,
+            s.offset,
+        );
+    }
+    if settings.iter().any(|s| s.conditional) {
+        println!("\n* may be hidden or locked at runtime (conditional).");
+    }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..max.saturating_sub(1)])
     }
 }
 

@@ -92,6 +92,7 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "
 # empty rect. Pin to the same rev so the icon set tracks the `IconName`
 # enum in gpui-component.
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "2d2524d89efc47270e9a0ee18f10fa72cd573eff", optional = true }
+mu_uefi_decompress = "4.1.0"
 
 [dev-dependencies]
 mockall = "0.12"
