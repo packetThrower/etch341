@@ -7,6 +7,24 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **UEFI BIOS Setup explorer (read-only)** — browse a BIOS dump's
+  Setup options as a searchable, human-readable list: label, current
+  value, and the choices behind each variable byte (e.g. "VT-d —
+  Enabled; Disabled/Enabled"). Walks firmware volumes → FFS files →
+  sections (LZMA + EFI/Tiano decompression), parses the IFR Setup-form
+  bytecode and HII string packages, and joins them against the AMI
+  NVRAM (NVAR) store for live values. Options the firmware may hide or
+  lock at runtime are flagged. CLI: `etch341 bios settings -i <dump>
+  [--find <substr>]`; GUI: the "BIOS explorer" pane (file picker +
+  label filter + list with per-row help/choices tooltips). Landed on
+  both surfaces together. New `src/uefi/` module, kept free of
+  internal imports for a planned standalone crate; adds the
+  `mu_uefi_decompress` (BSD-2-Clause-Patent) and `lzma-rs`
+  dependencies. Validated end-to-end against a real AMI Aptio (Kaby
+  Lake) image. The Setup *write* side remains out of scope.
+
 ## [0.6.0] — 2026-06-04
 
 Stable release of the 0.6.0 line. Folds in everything from 0.6.0-beta.1

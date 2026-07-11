@@ -107,7 +107,16 @@ priority order.
       GPIO. Useful for dual-BIOS motherboards. The standard
       CH341A breakout only exposes one CS, so this needs the user
       to wire an external switch — limited audience. ~2 hr.
-- [ ] **UEFI Setup explorer (read-only)** — surface a BIOS dump's
+- [x] **UEFI Setup explorer (read-only)** — DONE (`src/uefi/`, CLI
+      `bios settings` + GUI "BIOS explorer" pane). Walks FV→FFS→
+      sections (LZMA + EFI/Tiano via `mu_uefi_decompress`), parses IFR
+      + HII, joins against the AMI NVAR store for live values.
+      Validated on a real AMI Aptio (Kaby Lake) dump. Kept free of
+      internal imports for a planned standalone MIT crate. Remaining:
+      Insyde/Phoenix vendors, NVAR delta-update chains, and IFR
+      condition *evaluation* (currently every suppress/grayout child
+      is flagged conditional rather than evaluated). Original notes on
+      the joining problem kept below for reference:
       Setup options as a *searchable, human-readable* list
       ("Wake on LAN — currently Disabled; values Disabled/Enabled")
       so users don't have to decipher hex to see what a setting is
