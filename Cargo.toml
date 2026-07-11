@@ -40,6 +40,9 @@ toml = "0.8"
 serde = { version = "1", features = ["derive"] }
 hex = "0.4"
 sha2 = "0.10"
+# Pure-Rust LZMA for UEFI compressed firmware-volume sections
+# (src/uefi/). Compression side is only used by tests.
+lzma-rs = "0.3"
 
 # Local-time formatting for the GUI activity log. The original
 # `now_hms()` did HH:MM:SS in UTC by dividing `SystemTime::now()`

@@ -53,6 +53,7 @@ mod prefs;
 mod programmer;
 mod sfdp;
 mod spi;
+mod uefi;
 
 #[cfg(feature = "gui")]
 mod gui;
