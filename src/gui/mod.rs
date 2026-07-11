@@ -291,6 +291,7 @@ pub enum Pane {
     Status,
     Otp,
     Hex,
+    Bios,
     Settings,
     // I²C-mode panes (shown when `bus == Bus::I2c`).
     I2cScan,
@@ -624,6 +625,14 @@ pub struct AppView {
     /// Managed-state entity for the unified Find input. Live typing
     /// drives highlight + filter; Enter dispatches to jump-or-find.
     pub hex_search_state: Entity<InputState>,
+    /// BIOS Setup explorer: the loaded image path, the resolved
+    /// settings (parsed once at load), the list scroll handle, and the
+    /// label filter synced from `bios_search_state`.
+    pub bios_input_path: Option<std::path::PathBuf>,
+    pub bios_settings: Option<Arc<Vec<crate::uefi::Setting>>>,
+    pub bios_scroll: UniformListScrollHandle,
+    pub bios_search_term: String,
+    pub bios_search_state: Entity<InputState>,
     /// Dropdown state for picking the I²C chip (24Cxx). I²C has no
     /// JEDEC auto-detect, so every I²C read/write/verify/erase/blank
     /// op resolves the chip from this selection. Shared across all the
@@ -678,6 +687,22 @@ impl AppView {
         // default selection — the op panes show a "pick a chip"
         // placeholder, and the op methods bail with a log line if none
         // is chosen (I²C has no JEDEC auto-detect to fall back on).
+        // BIOS-explorer label filter — same Input→String bridge as the
+        // hex Find field. Only the Change event matters here (no jump).
+        let bios_search_state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Filter settings by label (e.g. VT-d, SATA)")
+        });
+        let bios_sub = cx.subscribe_in(
+            &bios_search_state,
+            window,
+            |this: &mut AppView, state, event: &InputEvent, _, cx| {
+                if let InputEvent::Change = event {
+                    this.bios_search_term = state.read(cx).value().to_string();
+                    cx.notify();
+                }
+            },
+        );
+
         let i2c_chips: Vec<SharedString> = crate::chipdb::I2cChipDb::load_embedded()
             .iter()
             .map(|c| SharedString::from(c.name.clone()))
@@ -732,8 +757,13 @@ impl AppView {
             hex_selecting: false,
             hex_search_term: String::new(),
             hex_search_state,
+            bios_input_path: None,
+            bios_settings: None,
+            bios_scroll: UniformListScrollHandle::new(),
+            bios_search_term: String::new(),
+            bios_search_state,
             i2c_chip_select,
-            _subscriptions: vec![sub],
+            _subscriptions: vec![sub, bios_sub],
             progress: Arc::new(SharedProgress::default()),
             prefs: Prefs::load(),
             focus_handle: cx.focus_handle(),
@@ -1129,6 +1159,11 @@ impl Render for AppView {
                                     hex_selection: self.selection_range(),
                                     hex_search_term: self.hex_search_term.as_str(),
                                     hex_search_state: &self.hex_search_state,
+                                    bios_path: self.bios_input_path.as_deref(),
+                                    bios_settings: self.bios_settings.clone(),
+                                    bios_scroll: self.bios_scroll.clone(),
+                                    bios_search_term: self.bios_search_term.as_str(),
+                                    bios_search_state: &self.bios_search_state,
                                     spi_speed_khz: self.prefs.spi_speed_khz,
                                     restore_window_bounds: self.prefs.restore_window_bounds,
                                     prefs_path: prefs_path_buf.as_deref(),

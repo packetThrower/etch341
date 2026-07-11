@@ -20,6 +20,7 @@ use std::collections::HashMap;
 
 /// One resolved Setup setting: a human label joined to the variable
 /// byte that backs it and, when found, its current value.
+#[derive(Clone)]
 pub struct Setting {
     pub name: String,
     pub help: String,

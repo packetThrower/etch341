@@ -180,6 +180,7 @@ fn spi_workflow(selected: Pane, cx: &mut Context<AppView>) -> impl IntoElement {
         .child(item(Pane::Status, "Status regs", selected, false, cx))
         .child(item(Pane::Otp, "Security regs", selected, false, cx))
         .child(item(Pane::Hex, "Hex viewer", selected, false, cx))
+        .child(item(Pane::Bios, "BIOS explorer", selected, false, cx))
 }
 
 /// I²C: the same rail shape, then Blank check and the shared Hex

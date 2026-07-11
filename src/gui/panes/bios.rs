@@ -1,0 +1,191 @@
+//! BIOS Setup explorer pane: pick a flash image, list its Setup
+//! options as label → current value → choices, filterable by label.
+//! The read-only GUI twin of `etch341 bios settings`.
+
+// The parent module is this submodule's prelude (see panes.rs).
+use super::*;
+
+/// Fixed row height so `uniform_list` can virtualise the (often
+/// thousands of) settings without measuring each row.
+const ROW_H: f32 = 30.0;
+
+pub(super) fn bios_pane(
+    path: Option<&Path>,
+    settings: Option<Arc<Vec<crate::uefi::Setting>>>,
+    scroll: UniformListScrollHandle,
+    search_term: &str,
+    search_state: &Entity<InputState>,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
+    let mut col = div()
+        .flex_1()
+        .min_h(px(0.0))
+        .w_full()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .px_5()
+        .py_5()
+        .child(heading("BIOS explorer"))
+        .child(body(
+            "Load a UEFI BIOS dump to browse its Setup options — the label, \
+             its current value, and the choices behind each variable byte. \
+             Parses firmware volumes → IFR forms → HII strings and joins them \
+             against the NVRAM store. Read-only. A ✷ marks options the firmware \
+             may hide or lock at runtime.",
+        ))
+        .child(
+            GroupBox::new()
+                .id("bios-file-box")
+                .outline()
+                .max_w(px(680.0))
+                .title("BIOS image to explore")
+                .child(bordered_file_row(path, "pick-bios", cx, |this, cx| {
+                    this.pick_bios_file(cx)
+                })),
+        );
+
+    let Some(settings) = settings else {
+        // Nothing loaded yet — the file row above is the whole pane.
+        return col;
+    };
+
+    // Filter by label (case-insensitive substring), mirroring the CLI's
+    // `--find`. Precompute the surviving indices so `uniform_list` can
+    // map virtual rows onto the shared `Arc` without cloning the Vec.
+    let needle = search_term.to_lowercase();
+    let visible: Arc<Vec<usize>> = Arc::new(
+        settings
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| needle.is_empty() || s.name.to_lowercase().contains(&needle))
+            .map(|(i, _)| i)
+            .collect(),
+    );
+
+    col = col
+        .child(div().flex_1().child(Input::new(search_state)))
+        .child(
+            div()
+                .text_size(px(12.0))
+                .text_color(theme::text_tertiary())
+                .child(format!(
+                    "{} of {} settings{}",
+                    visible.len(),
+                    settings.len(),
+                    if needle.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" matching “{search_term}”")
+                    },
+                )),
+        )
+        .child(settings_list(settings, visible, scroll));
+
+    col
+}
+
+/// The virtualised list of setting rows.
+fn settings_list(
+    settings: Arc<Vec<crate::uefi::Setting>>,
+    visible: Arc<Vec<usize>>,
+    scroll: UniformListScrollHandle,
+) -> impl IntoElement {
+    let count = visible.len();
+    uniform_list("bios-settings-list", count, move |range, _, _| {
+        range
+            .map(|virtual_i| setting_row(&settings[visible[virtual_i]], virtual_i))
+            .collect()
+    })
+    .flex_1()
+    .min_h(px(0.0))
+    .border_1()
+    .border_color(theme::workshop_glass_strong())
+    .rounded(px(6.0))
+    .bg(theme::bench_black())
+    .px_3()
+    .py_2()
+    .track_scroll(&scroll)
+}
+
+/// One setting row: label · current value · source (variable+offset),
+/// with a hover tooltip carrying the help text and the full choice
+/// list. Single line at a fixed height for the virtualised list.
+fn setting_row(s: &crate::uefi::Setting, virtual_i: usize) -> impl IntoElement + use<> {
+    let value = match (&s.value_label, s.value) {
+        (Some(label), Some(v)) => format!("{label} (0x{v:x})"),
+        (None, Some(v)) => format!("0x{v:x}"),
+        _ => "—".to_string(),
+    };
+    let value_color = if s.value.is_some() {
+        theme::success_green()
+    } else {
+        theme::text_tertiary()
+    };
+
+    // Tooltip: help line (if any) plus the choices behind the byte.
+    let mut tip = s.help.clone();
+    if !s.options.is_empty() {
+        let choices: Vec<&str> = s
+            .options
+            .iter()
+            .map(|(_, l)| l.as_str())
+            .filter(|l| !l.is_empty())
+            .collect();
+        if !choices.is_empty() {
+            if !tip.is_empty() {
+                tip.push_str("\n\n");
+            }
+            tip.push_str(&format!("Choices: {}", choices.join(" / ")));
+        }
+    }
+    let source = format!("{}+0x{:04x}", s.varstore, s.offset);
+
+    let mut row = div()
+        .id(("bios-row", virtual_i))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .h(px(ROW_H))
+        .whitespace_nowrap()
+        // Label — flexes, truncates when long.
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .overflow_hidden()
+                .text_color(theme::text_primary())
+                .child(s.name.clone()),
+        )
+        // Conditional marker.
+        .when(s.conditional, |r| {
+            r.child(div().text_color(theme::warning_amber()).child("✷"))
+        })
+        // Current value.
+        .child(
+            div()
+                .w(px(190.0))
+                .text_color(value_color)
+                .overflow_hidden()
+                .child(value),
+        )
+        // Source variable + offset.
+        .child(
+            div()
+                .w(px(180.0))
+                .font_family(theme::MONO_FONT)
+                .text_size(px(12.0))
+                .text_color(theme::text_tertiary())
+                .child(source),
+        );
+
+    if !tip.is_empty() {
+        row = row.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx));
+    }
+    // Ledger stripe for horizontal tracking.
+    if virtual_i % 2 == 1 {
+        row = row.bg(theme::workshop_glass());
+    }
+    row
+}

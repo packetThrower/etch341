@@ -18,12 +18,14 @@ use std::sync::Arc;
 // (`render`) and the shared widget toolkit they build on. `use X::*`
 // pulls each family's `pub(super)` pane fns back into scope so `render`
 // calls them unqualified.
+mod bios;
 mod diff;
 mod hex;
 mod i2c;
 mod settings;
 mod spi;
 mod status;
+use bios::*;
 use diff::*;
 use hex::*;
 use i2c::*;
@@ -63,6 +65,11 @@ pub struct PaneInputs<'a> {
     pub hex_selection: Option<(usize, usize)>,
     pub hex_search_term: &'a str,
     pub hex_search_state: &'a Entity<InputState>,
+    pub bios_path: Option<&'a Path>,
+    pub bios_settings: Option<Arc<Vec<crate::uefi::Setting>>>,
+    pub bios_scroll: UniformListScrollHandle,
+    pub bios_search_term: &'a str,
+    pub bios_search_state: &'a Entity<InputState>,
     pub spi_speed_khz: u32,
     /// Current value of the "restore window position on startup"
     /// toggle in Settings. The actual save/restore plumbing lives
@@ -189,6 +196,15 @@ pub fn render(
             inputs.hex_search_state,
             inputs.hex_font_size,
             inputs.strings_font_size,
+            cx,
+        )
+        .into_any_element(),
+        Pane::Bios => bios_pane(
+            inputs.bios_path,
+            inputs.bios_settings,
+            inputs.bios_scroll,
+            inputs.bios_search_term,
+            inputs.bios_search_state,
             cx,
         )
         .into_any_element(),
