@@ -85,6 +85,32 @@ pub(super) fn bios_pane(
     col
 }
 
+/// Word-wrap `text` to at most `width` columns per line, preserving
+/// any newlines already present. Keeps the tooltip from overflowing
+/// the window.
+fn wrap(text: &str, width: usize) -> String {
+    let mut out = String::new();
+    for (li, line) in text.split('\n').enumerate() {
+        if li > 0 {
+            out.push('\n');
+        }
+        let mut col = 0;
+        for (wi, word) in line.split_whitespace().enumerate() {
+            let sep = if wi == 0 { 0 } else { 1 };
+            if wi > 0 && col + sep + word.len() > width {
+                out.push('\n');
+                col = 0;
+            } else if wi > 0 {
+                out.push(' ');
+                col += 1;
+            }
+            out.push_str(word);
+            col += word.len();
+        }
+    }
+    out
+}
+
 /// The virtualised list of setting rows.
 fn settings_list(
     settings: Arc<Vec<crate::uefi::Setting>>,
@@ -181,6 +207,11 @@ fn setting_row(s: &crate::uefi::Setting, virtual_i: usize) -> impl IntoElement +
         );
 
     if !tip.is_empty() {
+        // gpui-component's tooltip lays its text out on a single line
+        // with no width cap, so long help strings run off-screen —
+        // hard-wrap to a readable column ourselves (newlines render as
+        // line breaks).
+        let tip = wrap(&tip, 64);
         row = row.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx));
     }
     // Ledger stripe for horizontal tracking.
