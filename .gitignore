@@ -1,2 +1,5 @@
 /target
 .DS_Store
+
+# Local chip dumps (BIOS/VBIOS/EEPROM captures) — never commit
+dumps/
