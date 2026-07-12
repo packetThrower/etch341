@@ -77,4 +77,12 @@ impl AppView {
             .scroll_to_item(0, gpui::ScrollStrategy::Top);
         cx.notify();
     }
+
+    /// Toggle the "changed from default only" filter.
+    pub fn toggle_bios_changed_only(&mut self, cx: &mut Context<Self>) {
+        self.bios_changed_only = !self.bios_changed_only;
+        self.bios_scroll
+            .scroll_to_item(0, gpui::ScrollStrategy::Top);
+        cx.notify();
+    }
 }

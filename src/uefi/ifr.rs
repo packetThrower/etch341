@@ -21,7 +21,15 @@ const OP_NUMERIC: u8 = 0x07;
 const OP_ONE_OF_OPTION: u8 = 0x09;
 const OP_VARSTORE: u8 = 0x24;
 const OP_VARSTORE_EFI: u8 = 0x26;
+const OP_DEFAULT: u8 = 0x5B;
 const OP_END: u8 = 0x29;
+
+/// EFI_IFR_OPTION_DEFAULT — a one-of option flagged as the standard default.
+const OPTION_DEFAULT: u8 = 0x10;
+/// EFI_IFR_CHECKBOX_DEFAULT — a checkbox that defaults to checked.
+const CHECKBOX_DEFAULT: u8 = 0x01;
+/// EFI_HII_DEFAULT_CLASS_STANDARD — the "standard/optimised" default store.
+const DEFAULT_CLASS_STANDARD: u16 = 0x0000;
 const OP_SUPPRESS_IF: u8 = 0x0A;
 const OP_GRAY_OUT_IF: u8 = 0x19;
 const OP_DISABLE_IF: u8 = 0x1E;
@@ -45,6 +53,8 @@ pub struct Question {
     pub kind: QKind,
     /// (value, option-label string-id) — empty for CheckBox/Numeric.
     pub options: Vec<(u64, u16)>,
+    /// The standard/factory default value, when the form declares one.
+    pub default_value: Option<u64>,
     /// True when nested inside a suppress_if / grayout_if / disable_if
     /// scope, i.e. the firmware may hide or lock it at runtime. We
     /// record the flag but do not evaluate the condition.
@@ -212,6 +222,24 @@ fn parse_stream(buf: &[u8], data: &mut FormData) -> usize {
             OP_ONE_OF_OPTION => {
                 if let (Some(idx), Some(opt)) = (cur_q, parse_option(body)) {
                     data.questions[idx].options.push(opt);
+                    // An option flagged DEFAULT is the standard default,
+                    // unless an explicit DEFAULT opcode already set one.
+                    if body.get(4).is_some_and(|f| f & OPTION_DEFAULT != 0)
+                        && data.questions[idx].default_value.is_none()
+                    {
+                        data.questions[idx].default_value = Some(opt.0);
+                    }
+                }
+            }
+            // EFI_IFR_DEFAULT: DefaultId(u16) Type(u8) Value(...). Take
+            // only the standard-defaults store; it wins over option flags.
+            OP_DEFAULT => {
+                if let Some(idx) = cur_q
+                    && u16le(body, 2) == Some(DEFAULT_CLASS_STANDARD)
+                    && let Some(ty) = body.get(4).copied()
+                    && let Some(v) = read_value(body, 5, ty)
+                {
+                    data.questions[idx].default_value = Some(v);
                 }
             }
             _ => {}
@@ -256,10 +284,19 @@ fn parse_question(body: &[u8], opcode: u8, conditional: bool) -> Option<Question
     let help_id = u16le(body, 4)?;
     let varstore_id = u16le(body, 8)?;
     let var_offset = u16le(body, 10)?;
-    let (kind, width) = match opcode {
-        OP_CHECKBOX => (QKind::CheckBox, 1),
-        OP_ONE_OF => (QKind::OneOf, width_from_flags(*body.get(12)?)),
-        OP_NUMERIC => (QKind::Numeric, width_from_flags(*body.get(12)?)),
+    // A checkbox carries its default in the Flags byte; one-of / numeric
+    // defaults arrive later as option flags or DEFAULT opcodes.
+    let (kind, width, default_value) = match opcode {
+        OP_CHECKBOX => {
+            let flags = *body.get(12)?;
+            (
+                QKind::CheckBox,
+                1,
+                Some((flags & CHECKBOX_DEFAULT != 0) as u64),
+            )
+        }
+        OP_ONE_OF => (QKind::OneOf, width_from_flags(*body.get(12)?), None),
+        OP_NUMERIC => (QKind::Numeric, width_from_flags(*body.get(12)?), None),
         _ => return None,
     };
     Some(Question {
@@ -270,6 +307,7 @@ fn parse_question(body: &[u8], opcode: u8, conditional: bool) -> Option<Question
         width,
         kind,
         options: Vec::new(),
+        default_value,
         conditional,
         form_title_id: 0,
         formset_title_id: 0,

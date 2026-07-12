@@ -39,6 +39,13 @@ pub struct Setting {
     pub value: Option<u64>,
     /// Option label matching `value`, or a synthesized one for checkbox.
     pub value_label: Option<String>,
+    /// The form's declared standard/factory default, if any.
+    pub default_value: Option<u64>,
+    /// Option label matching `default_value`.
+    pub default_label: Option<String>,
+    /// `Some(true)` when the current value differs from the default,
+    /// `Some(false)` when it matches, `None` when either is unknown.
+    pub changed: Option<bool>,
     /// True when the firmware may hide/lock it (suppress/grayout scope).
     pub conditional: bool,
 }
@@ -147,6 +154,11 @@ pub fn extract_model(image: &[u8]) -> Model {
                 .and_then(|data| nvram::read_at(data, q.var_offset as usize, q.width));
 
             let value_label = value.and_then(|v| label_for(q.kind, &options, v));
+            let default_label = q.default_value.and_then(|d| label_for(q.kind, &options, d));
+            let changed = match (value, q.default_value) {
+                (Some(v), Some(d)) => Some(v != d),
+                _ => None,
+            };
 
             settings.push(Setting {
                 name,
@@ -166,6 +178,9 @@ pub fn extract_model(image: &[u8]) -> Model {
                 options,
                 value,
                 value_label,
+                default_value: q.default_value,
+                default_label,
+                changed,
                 conditional: q.conditional,
             });
         }

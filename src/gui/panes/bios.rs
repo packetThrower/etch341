@@ -22,6 +22,7 @@ pub(super) fn bios_pane(
     settings: Option<Arc<Vec<crate::uefi::Setting>>>,
     tree: Option<Arc<Vec<crate::uefi::FormNode>>>,
     selected_form: Option<&str>,
+    changed_only: bool,
     scroll: UniformListScrollHandle,
     nav_scroll: UniformListScrollHandle,
     search_term: &str,
@@ -69,6 +70,7 @@ pub(super) fn bios_pane(
         settings
             .iter()
             .enumerate()
+            .filter(|(_, s)| !changed_only || s.changed == Some(true))
             .filter(|(_, s)| {
                 if searching {
                     s.name.to_lowercase().contains(&needle)
@@ -105,13 +107,25 @@ pub(super) fn bios_pane(
             div()
                 .flex()
                 .flex_row()
-                .child(div().flex_1().child(Input::new(search_state))),
+                .items_center()
+                .gap_3()
+                .child(div().flex_1().child(Input::new(search_state)))
+                .child(changed_toggle(changed_only, cx)),
         )
         .child(
             div()
-                .text_size(px(12.0))
-                .text_color(theme::text_tertiary())
-                .child(count_line),
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(theme::text_tertiary())
+                        .child(count_line),
+                )
+                .child(legend()),
         )
         .child(
             // Split: menu navigator on the left, settings on the right.
@@ -234,6 +248,67 @@ fn flatten_tree(
         out.push((depth, n.title.clone(), n.setting_count));
         flatten_tree(&n.children, depth + 1, out);
     }
+}
+
+/// Colour key for the value column, shown beside the count.
+fn legend() -> impl IntoElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .flex_shrink_0()
+        .text_size(px(11.0))
+        .text_color(theme::text_tertiary())
+        .child(legend_dot(theme::warning_amber(), "changed"))
+        .child(legend_dot(theme::success_green(), "set"))
+        .child(legend_dot(theme::text_tertiary(), "not set"))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_1()
+                .child(div().text_color(theme::warning_amber()).child("✷"))
+                .child("conditional"),
+        )
+}
+
+fn legend_dot(color: gpui::Hsla, label: &'static str) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .child(div().size(px(8.0)).flex_shrink_0().rounded_full().bg(color))
+        .child(label)
+}
+
+/// The "Changed only" filter pill next to the search box.
+fn changed_toggle(active: bool, cx: &mut Context<AppView>) -> impl IntoElement {
+    let (bg, fg) = if active {
+        (theme::accent_tint(), theme::text_primary())
+    } else {
+        (theme::workshop_glass(), theme::text_secondary())
+    };
+    div()
+        .id("bios-changed-toggle")
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .flex_shrink_0()
+        .px_3()
+        .py_1p5()
+        .rounded(px(6.0))
+        .cursor_pointer()
+        .bg(bg)
+        .text_color(fg)
+        .text_size(px(12.0))
+        .hover(|d| d.bg(theme::workshop_glass_strong()))
+        .child(if active { "☑" } else { "☐" })
+        .child("Changed only")
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_bios_changed_only(cx)))
 }
 
 /// A rendered list entry: either a form section header or a setting.
@@ -371,15 +446,20 @@ fn setting_row(s: &crate::uefi::Setting, virtual_i: usize) -> impl IntoElement +
         (None, Some(v)) => format!("0x{v:x}"),
         _ => "—".to_string(),
     };
-    let value_color = if s.value.is_some() {
+    let changed = s.changed == Some(true);
+    // Amber flags a value changed from default; green = a resolved
+    // current value; dim = not set.
+    let value_color = if changed {
+        theme::warning_amber()
+    } else if s.value.is_some() {
         theme::success_green()
     } else {
         theme::text_tertiary()
     };
 
-    // Tooltip: help line (if any) plus the choices behind the byte.
-    // Many HII help strings are blank or whitespace-only — trim so they
-    // don't leave empty leading lines above the choices.
+    // Tooltip: help line (if any), the choices, and — when changed —
+    // the default it differs from. Many HII help strings are blank or
+    // whitespace-only, so trim to avoid empty leading lines.
     let mut tip = s.help.trim().to_string();
     let choices: Vec<&str> = s
         .options
@@ -392,6 +472,17 @@ fn setting_row(s: &crate::uefi::Setting, virtual_i: usize) -> impl IntoElement +
             tip.push_str("\n\n");
         }
         tip.push_str(&format!("Choices: {}", choices.join(" / ")));
+    }
+    if changed {
+        let def = match (&s.default_label, s.default_value) {
+            (Some(d), _) => d.clone(),
+            (None, Some(d)) => format!("0x{d:x}"),
+            _ => "?".to_string(),
+        };
+        if !tip.is_empty() {
+            tip.push_str("\n\n");
+        }
+        tip.push_str(&format!("Changed from default: {def}"));
     }
     let source = format!("{}+0x{:04x}", s.varstore, s.offset);
 

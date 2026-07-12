@@ -634,6 +634,8 @@ pub struct AppView {
     pub bios_tree: Option<Arc<Vec<crate::uefi::FormNode>>>,
     /// Selected form in the navigator; `None` shows every setting.
     pub bios_selected_form: Option<String>,
+    /// When true, the settings list shows only changed-from-default rows.
+    pub bios_changed_only: bool,
     pub bios_scroll: UniformListScrollHandle,
     pub bios_nav_scroll: UniformListScrollHandle,
     pub bios_search_term: String,
@@ -766,6 +768,7 @@ impl AppView {
             bios_settings: None,
             bios_tree: None,
             bios_selected_form: None,
+            bios_changed_only: false,
             bios_scroll: UniformListScrollHandle::new(),
             bios_nav_scroll: UniformListScrollHandle::new(),
             bios_search_term: String::new(),
@@ -1171,6 +1174,7 @@ impl Render for AppView {
                                     bios_settings: self.bios_settings.clone(),
                                     bios_tree: self.bios_tree.clone(),
                                     bios_selected_form: self.bios_selected_form.as_deref(),
+                                    bios_changed_only: self.bios_changed_only,
                                     bios_scroll: self.bios_scroll.clone(),
                                     bios_nav_scroll: self.bios_nav_scroll.clone(),
                                     bios_search_term: self.bios_search_term.as_str(),

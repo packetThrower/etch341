@@ -146,6 +146,10 @@ pub struct BiosSettingsArgs {
     /// Case-insensitive substring filter on the setting label.
     #[arg(long)]
     pub find: Option<String>,
+    /// Show only settings whose current value differs from the
+    /// firmware's standard default.
+    #[arg(long)]
+    pub changed: bool,
 }
 
 #[derive(Args)]
@@ -764,7 +768,10 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
         Command::Bios { action } => match action {
             BiosAction::Settings(args) => {
                 let bytes = std::fs::read(&args.input)?;
-                let settings = crate::uefi::extract_settings(&bytes, args.find.as_deref());
+                let mut settings = crate::uefi::extract_settings(&bytes, args.find.as_deref());
+                if args.changed {
+                    settings.retain(|s| s.changed == Some(true));
+                }
                 if settings.is_empty() {
                     eprintln!(
                         "No Setup settings resolved in {} — not a UEFI image, an \
@@ -826,8 +833,21 @@ fn print_bios_settings(settings: &[crate::uefi::Setting]) {
             format!("  [{}]", choices.join(" / "))
         };
         let flag = if s.conditional { " *" } else { "" };
+        // Call out settings changed from their default, showing the
+        // default they'd reset to.
+        let changed = if s.changed == Some(true) {
+            match &s.default_label {
+                Some(d) => format!("  Δ default: {d}"),
+                None => match s.default_value {
+                    Some(d) => format!("  Δ default: {d:#x}"),
+                    None => "  Δ".to_string(),
+                },
+            }
+        } else {
+            String::new()
+        };
         println!(
-            "  {:<name_w$}  {:<val_w$}  {}+{:#06x}{choices}{flag}",
+            "  {:<name_w$}  {:<val_w$}  {}+{:#06x}{choices}{flag}{changed}",
             truncate(&s.name, name_w),
             value,
             s.varstore,
@@ -836,6 +856,9 @@ fn print_bios_settings(settings: &[crate::uefi::Setting]) {
     }
     if settings.iter().any(|s| s.conditional) {
         println!("\n* may be hidden or locked at runtime (conditional).");
+    }
+    if settings.iter().any(|s| s.changed == Some(true)) {
+        println!("Δ changed from the firmware default.");
     }
 }
 
