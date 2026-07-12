@@ -14,6 +14,7 @@ use std::collections::HashMap;
 
 // --- opcodes we care about ---
 const OP_FORM_SET: u8 = 0x0E;
+const OP_FORM: u8 = 0x01;
 const OP_ONE_OF: u8 = 0x05;
 const OP_CHECKBOX: u8 = 0x06;
 const OP_NUMERIC: u8 = 0x07;
@@ -46,6 +47,10 @@ pub struct Question {
     /// scope, i.e. the firmware may hide or lock it at runtime. We
     /// record the flag but do not evaluate the condition.
     pub conditional: bool,
+    /// String-ids of the enclosing form and form set titles, for
+    /// grouping the flat question list back into its menu structure.
+    pub form_title_id: u16,
+    pub formset_title_id: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -127,6 +132,11 @@ fn parse_stream(buf: &[u8], data: &mut FormData) -> usize {
     let mut cond_depth = 0usize;
     // The most recently opened question, so ONE_OF_OPTIONs attach to it.
     let mut cur_q: Option<usize> = None;
+    // Enclosing form-set title, and the current form title (cleared
+    // when the form's scope ends), so each question can be grouped
+    // back under its menu page.
+    let mut formset_title = 0u16;
+    let mut form_title = 0u16;
 
     while off + 2 <= buf.len() {
         let opcode = buf[off];
@@ -138,6 +148,10 @@ fn parse_stream(buf: &[u8], data: &mut FormData) -> usize {
         let body = &buf[off..off + len];
 
         match opcode {
+            // FORM_SET title sits after the 16-byte GUID.
+            OP_FORM_SET => formset_title = u16le(body, 18).unwrap_or(0),
+            // FORM: FormId(u16) then Title(u16 string-id).
+            OP_FORM => form_title = u16le(body, 4).unwrap_or(0),
             OP_VARSTORE => {
                 if let Some(vs) = parse_varstore(body) {
                     data.varstores.insert(vs.id, vs);
@@ -149,7 +163,9 @@ fn parse_stream(buf: &[u8], data: &mut FormData) -> usize {
                 }
             }
             OP_ONE_OF | OP_CHECKBOX | OP_NUMERIC => {
-                if let Some(q) = parse_question(body, opcode, cond_depth > 0) {
+                if let Some(mut q) = parse_question(body, opcode, cond_depth > 0) {
+                    q.form_title_id = form_title;
+                    q.formset_title_id = formset_title;
                     data.questions.push(q);
                     cur_q = Some(data.questions.len() - 1);
                 }
@@ -176,6 +192,10 @@ fn parse_stream(buf: &[u8], data: &mut FormData) -> usize {
                 // Leaving a question's own scope clears the option target.
                 if matches!(open, OP_ONE_OF | OP_CHECKBOX | OP_NUMERIC) {
                     cur_q = None;
+                }
+                // Leaving a form clears its title for the next form.
+                if open == OP_FORM {
+                    form_title = 0;
                 }
             }
             // Form set closed and we're back at the top: done.
@@ -211,6 +231,8 @@ fn parse_question(body: &[u8], opcode: u8, conditional: bool) -> Option<Question
         kind,
         options: Vec::new(),
         conditional,
+        form_title_id: 0,
+        formset_title_id: 0,
     })
 }
 
@@ -328,5 +350,44 @@ mod tests {
         assert_eq!(data.questions.len(), 1);
         assert!(data.questions[0].conditional);
         assert_eq!(data.questions[0].kind, QKind::CheckBox);
+    }
+
+    fn checkbox(prompt: u16, offset: u16) -> Vec<u8> {
+        let mut c = op_header(OP_CHECKBOX, 13, false).to_vec();
+        c.extend_from_slice(&prompt.to_le_bytes());
+        c.extend_from_slice(&(prompt + 1).to_le_bytes()); // help
+        c.extend_from_slice(&1u16.to_le_bytes()); // qid
+        c.extend_from_slice(&2u16.to_le_bytes()); // varstore
+        c.extend_from_slice(&offset.to_le_bytes());
+        c.push(0); // flags
+        c
+    }
+
+    #[test]
+    fn captures_form_and_formset_titles() {
+        let mut s = Vec::new();
+        // FORM_SET, title id 50
+        s.extend_from_slice(&op_header(OP_FORM_SET, 23, true));
+        s.extend_from_slice(&[0x11; 16]);
+        s.extend_from_slice(&50u16.to_le_bytes()); // formset title
+        s.extend_from_slice(&51u16.to_le_bytes()); // help
+        s.push(0); // flags
+        // FORM id 1, title id 60, with a checkbox inside
+        s.extend_from_slice(&op_header(OP_FORM, 6, true));
+        s.extend_from_slice(&1u16.to_le_bytes()); // form id
+        s.extend_from_slice(&60u16.to_le_bytes()); // form title
+        s.extend_from_slice(&checkbox(10, 0));
+        s.extend_from_slice(&op_header(OP_END, 2, false)); // close form
+        // A checkbox outside any form — form title must have cleared.
+        s.extend_from_slice(&checkbox(20, 4));
+        s.extend_from_slice(&op_header(OP_END, 2, false)); // close form set
+
+        let data = parse(&s);
+        assert_eq!(data.questions.len(), 2);
+        assert_eq!(data.questions[0].form_title_id, 60);
+        assert_eq!(data.questions[0].formset_title_id, 50);
+        // Outside the form: form cleared to 0, form set still in scope.
+        assert_eq!(data.questions[1].form_title_id, 0);
+        assert_eq!(data.questions[1].formset_title_id, 50);
     }
 }

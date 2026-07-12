@@ -795,7 +795,20 @@ fn print_bios_settings(settings: &[crate::uefi::Setting]) {
         .unwrap_or(0)
         .min(24);
 
+    // Settings arrive grouped by form (menu page); print a header each
+    // time the form changes so the flat list reads as its menu tree.
+    let mut last_form: Option<&str> = None;
     for s in settings {
+        let form = if s.form.is_empty() {
+            "(uncategorised)"
+        } else {
+            s.form.as_str()
+        };
+        if last_form != Some(form) {
+            println!("\n── {form} ──");
+            last_form = Some(form);
+        }
+
         let value = match (&s.value_label, s.value) {
             (Some(label), Some(v)) => format!("{label} ({v:#x})"),
             (None, Some(v)) => format!("{v:#x}"),
@@ -814,7 +827,7 @@ fn print_bios_settings(settings: &[crate::uefi::Setting]) {
         };
         let flag = if s.conditional { " *" } else { "" };
         println!(
-            "{:<name_w$}  {:<val_w$}  {}+{:#06x}{choices}{flag}",
+            "  {:<name_w$}  {:<val_w$}  {}+{:#06x}{choices}{flag}",
             truncate(&s.name, name_w),
             value,
             s.varstore,

@@ -70,6 +70,20 @@ pub(super) fn bios_pane(
             .collect(),
     );
 
+    let count_line = format!(
+        "{} of {} settings{}",
+        visible.len(),
+        settings.len(),
+        if needle.is_empty() {
+            String::new()
+        } else {
+            format!(" matching “{search_term}”")
+        },
+    );
+    // Group visible rows under form headers before moving `settings`
+    // into the list renderer.
+    let items = build_items(&settings, &visible);
+
     col = col
         // Row wrapper so the Input's flex_1 grows horizontally; placing
         // flex_1 directly in this column would stretch it vertically and
@@ -84,20 +98,37 @@ pub(super) fn bios_pane(
             div()
                 .text_size(px(12.0))
                 .text_color(theme::text_tertiary())
-                .child(format!(
-                    "{} of {} settings{}",
-                    visible.len(),
-                    settings.len(),
-                    if needle.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" matching “{search_term}”")
-                    },
-                )),
+                .child(count_line),
         )
-        .child(settings_list(settings, visible, scroll));
+        .child(settings_list(settings, items, scroll));
 
     col
+}
+
+/// A rendered list entry: either a form section header or a setting.
+enum Item {
+    FormHeader(String),
+    Setting(usize),
+}
+
+/// Flatten the visible settings into header+row items, inserting a
+/// form header each time the (already form-sorted) form changes.
+fn build_items(settings: &[crate::uefi::Setting], visible: &[usize]) -> Arc<Vec<Item>> {
+    let mut items = Vec::new();
+    let mut last_form: Option<&str> = None;
+    for &idx in visible {
+        let form = if settings[idx].form.is_empty() {
+            "(uncategorised)"
+        } else {
+            settings[idx].form.as_str()
+        };
+        if last_form != Some(form) {
+            items.push(Item::FormHeader(form.to_string()));
+            last_form = Some(form);
+        }
+        items.push(Item::Setting(idx));
+    }
+    Arc::new(items)
 }
 
 /// Word-wrap `text` to at most `width` columns per line, preserving
@@ -131,10 +162,10 @@ fn wrap(text: &str, width: usize) -> String {
 /// sibling of `uniform_list`, not part of its scrolled content.
 fn settings_list(
     settings: Arc<Vec<crate::uefi::Setting>>,
-    visible: Arc<Vec<usize>>,
+    items: Arc<Vec<Item>>,
     scroll: UniformListScrollHandle,
 ) -> impl IntoElement {
-    let count = visible.len();
+    let count = items.len();
     div()
         .flex_1()
         .min_h(px(0.0))
@@ -149,7 +180,10 @@ fn settings_list(
         .child(
             uniform_list("bios-settings-list", count, move |range, _, _| {
                 range
-                    .map(|virtual_i| setting_row(&settings[visible[virtual_i]], virtual_i))
+                    .map(|i| match &items[i] {
+                        Item::FormHeader(name) => form_header(name).into_any_element(),
+                        Item::Setting(idx) => setting_row(&settings[*idx], i).into_any_element(),
+                    })
                     .collect()
             })
             .flex_1()
@@ -157,6 +191,22 @@ fn settings_list(
             .py_1()
             .track_scroll(&scroll),
         )
+}
+
+/// An inline form section header (the BIOS menu page name), scrolling
+/// with the rows beneath the fixed column header.
+fn form_header(name: &str) -> impl IntoElement + use<> {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .w_full()
+        .h(px(ROW_H))
+        .px(px(ROW_PX))
+        .bg(theme::workshop_glass_strong())
+        .text_color(theme::accent())
+        .text_size(px(12.0))
+        .child(name.to_string())
 }
 
 /// Column titles, styled distinctly and pinned above the scroll.

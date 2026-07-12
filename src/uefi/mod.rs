@@ -24,6 +24,11 @@ use std::collections::HashMap;
 pub struct Setting {
     pub name: String,
     pub help: String,
+    /// Menu page (IFR form) this setting lives on, e.g. "CPU
+    /// Configuration". Empty when the form title didn't resolve.
+    pub form: String,
+    /// Enclosing form set title (usually "Setup"). Empty when unresolved.
+    pub formset: String,
     pub varstore: String,
     pub offset: u16,
     pub width: u8,
@@ -100,6 +105,14 @@ pub fn extract_settings(image: &[u8], filter: Option<&str>) -> Vec<Setting> {
             settings.push(Setting {
                 name,
                 help: strings.get(&q.help_id).cloned().unwrap_or_default(),
+                form: strings
+                    .get(&q.form_title_id)
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default(),
+                formset: strings
+                    .get(&q.formset_title_id)
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default(),
                 varstore,
                 offset: q.var_offset,
                 width: q.width,
@@ -112,13 +125,26 @@ pub fn extract_settings(image: &[u8], filter: Option<&str>) -> Vec<Setting> {
         }
     }
 
-    // Stable, human order: by variable then offset.
-    settings.sort_by(|a, b| (&a.varstore, a.offset).cmp(&(&b.varstore, b.offset)));
+    // Group by menu page: form set, then form, then a stable order
+    // within the form (variable + offset) so output is deterministic
+    // despite the HashMap-ordered driver walk above.
+    settings.sort_by(|a, b| {
+        (&a.formset, &a.form, &a.varstore, a.offset).cmp(&(
+            &b.formset,
+            &b.form,
+            &b.varstore,
+            b.offset,
+        ))
+    });
     // A driver often appears more than once (e.g. an uncompressed copy
     // plus a compressed one), yielding identical questions. Collapse
     // exact duplicates now that they're adjacent.
     settings.dedup_by(|a, b| {
-        a.name == b.name && a.varstore == b.varstore && a.offset == b.offset && a.width == b.width
+        a.name == b.name
+            && a.form == b.form
+            && a.varstore == b.varstore
+            && a.offset == b.offset
+            && a.width == b.width
     });
     settings
 }
