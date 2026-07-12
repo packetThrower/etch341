@@ -156,8 +156,9 @@ priority order.
         option/checkbox default flags; `--changed` (CLI) and a
         "Changed only" toggle + amber markers + legend (GUI).
       - [x] **Export + diff.** DONE — `bios settings --json`, GUI
-        "Export JSON…", and `bios diff -a X -b Y` (CLI). *GUI two-dump
-        settings-diff still TODO for full parity.*
+        "Export JSON…", `bios diff -a X -b Y` (CLI), and the GUI
+        two-dump diff window ("Compare with…" → `bios_diff.rs`, A red /
+        B green, grouped by form).
       - [x] **`$VSS` / standard EDK2 variable store.** DONE —
         `nvram::parse` now decodes `$VSS` (format 0x5A / state 0xFE →
         0x55AA variable entries) alongside AMI NVAR; unit-tested with a
@@ -176,13 +177,16 @@ priority order.
         legacy `LegacyDevOrder`/BBS still raw.
       Marginal (only if asked): [x] `String` + `OrderedList` opcodes
       DONE (Date/Time skipped — runtime RTC-backed, no stored value;
-      `Password` stays skipped — it's a hash). Still open: numeric
-      min/max/step in the tooltip; IFR condition
-      *evaluation* (resolve suppress/grayout instead of just flagging
-      "conditional" — real work, mostly cosmetic for a read tool);
-      SMBIOS/DMI decode for clean board/BIOS identity (adjacent to the
-      flash-descriptor item). YAGNI: per-language string tables,
-      NameValue varstores, NVAR delta-update chains.
+      `Password` stays skipped — it's a hash). Numeric min/max/step in
+      the tooltip: DONE (CLI `[min–max, step N]`, GUI tooltip range
+      line). Still open: IFR condition *evaluation* (resolve
+      suppress/grayout instead of just flagging "conditional" — real
+      work, mostly cosmetic for a read tool); boot-entry device-path
+      decode (refinement over the load-option description). SMBIOS/DMI:
+      dropped — those tables are assembled in RAM at boot, not stored
+      in flash (no `_SM_`/`_DMI_` anchors in a dump); the lightweight
+      BIOS ID covers identity instead. YAGNI: per-language string
+      tables, NameValue varstores, NVAR delta-update chains.
       Out of scope: **pre-UEFI legacy BIOS** (Award / AMIBIOS /
       Phoenix, no FV/IFR/HII) — bespoke per-vendor blobs for obsolete
       hardware; leave those to the Hex viewer + `strings`. Note that
