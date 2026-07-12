@@ -1,16 +1,33 @@
-//! AMI NVAR variable-store parser: finds `NVAR` entry runs anywhere in
-//! a flash image and returns `variable-name → current data`, which is
-//! where Setup reads its live values from. Reads the whole raw image
-//! (the store often sits outside the FV structure the FFS walker
-//! covers), so it operates independently of `fv.rs`.
+//! UEFI variable-store parser: `variable-name → current data`, where
+//! Setup reads its live values from. Handles both stores etch341 has
+//! seen: AMI's `NVAR` entry runs and the standard EDK2 `$VSS` store
+//! (Insyde / Phoenix / EDK2-NVRAM builds). Scans the whole raw image
+//! (a store often sits outside the FFS structure `fv.rs` walks), so it
+//! runs independently of the walker.
 //!
-//! Format reference: LongSoft/UEFITool (nvram.cpp). Only what the
-//! Setup explorer needs — named, non-data-only entries — is decoded;
-//! the GUID store and extended headers are skipped.
+//! Format reference: LongSoft/UEFITool (nvram.cpp). Only what the Setup
+//! explorer needs is decoded; GUID stores / extended headers are skipped.
 
 use std::collections::HashMap;
 
 const SIG: &[u8; 4] = b"NVAR";
+
+// --- EDK2 $VSS store ---
+const VSS_SIG: &[u8; 4] = b"$VSS";
+/// VARIABLE_STORE_FORMATTED — a live, formatted store.
+const VSS_FORMATTED: u8 = 0x5A;
+/// VARIABLE_STORE_HEALTHY.
+const VSS_HEALTHY: u8 = 0xFE;
+/// 16-byte $VSS store header: Signature(4) Size(4) Format(1) State(1)
+/// Reserved(2) Reserved(4).
+const VSS_HDR: usize = 16;
+/// Each variable begins with this marker (EFI_VARIABLE_DATA StartId).
+const VSS_START_ID: u16 = 0x55AA;
+/// Variable state VAR_ADDED — the live copy (others are deleted/partial).
+const VSS_VAR_ADDED: u8 = 0x3F;
+/// VSS variable header: StartId(2) State(1) Reserved(1) Attributes(4)
+/// NameSize(4) DataSize(4) VendorGuid(16).
+const VSS_VAR_HDR: usize = 32;
 
 /// NVAR_ENTRY_HEADER: Signature(4) Size(2) Next(3) Attributes(1).
 const HDR: usize = 10;
@@ -25,14 +42,84 @@ const ATTR_HW_ERROR: u8 = 0x20;
 const ATTR_AUTH_WRITE: u8 = 0x40;
 const ATTR_VALID: u8 = 0x80;
 
-/// Parse all NVAR stores in `image`; later valid entries win, matching
-/// the update-in-place chain semantics closely enough for reads.
+/// Parse every variable store in `image` — AMI NVAR and EDK2 `$VSS` —
+/// into `name → data`. First writer wins, so the primary store's live
+/// copy isn't overwritten by a backup or by `$VSS` on a mixed image.
 pub fn parse(image: &[u8]) -> HashMap<String, Vec<u8>> {
     let mut vars = HashMap::new();
     for start in find_stores(image) {
         parse_store(image, start, &mut vars);
     }
+    parse_vss(image, &mut vars);
     vars
+}
+
+/// Find and parse every healthy `$VSS` store: its variables are a
+/// contiguous run of `0x55AA` entries after the 16-byte header, ending
+/// at the first non-marker (erased 0xFF free space).
+fn parse_vss(image: &[u8], vars: &mut HashMap<String, Vec<u8>>) {
+    let mut i = 0;
+    while i + VSS_HDR <= image.len() {
+        // A real store is formatted + healthy; the signature also occurs
+        // by chance inside strings/code, which these two bytes reject.
+        if &image[i..i + 4] == VSS_SIG
+            && image[i + 8] == VSS_FORMATTED
+            && image[i + 9] == VSS_HEALTHY
+        {
+            let size = u32::from_le_bytes([image[i + 4], image[i + 5], image[i + 6], image[i + 7]])
+                as usize;
+            // Size is 0xFFFFFFFF for the open active store; otherwise
+            // trust it when sane.
+            let end = if (VSS_HDR..=image.len() - i).contains(&size) {
+                i + size
+            } else {
+                image.len()
+            };
+            parse_vss_vars(image, i + VSS_HDR, end, vars);
+            i = end;
+            continue;
+        }
+        i += 1;
+    }
+}
+
+fn parse_vss_vars(image: &[u8], mut p: usize, end: usize, vars: &mut HashMap<String, Vec<u8>>) {
+    while p + VSS_VAR_HDR <= end {
+        if u16::from_le_bytes([image[p], image[p + 1]]) != VSS_START_ID {
+            break; // erased free space / end of the used region
+        }
+        let state = image[p + 2];
+        let name_size =
+            u32::from_le_bytes([image[p + 8], image[p + 9], image[p + 10], image[p + 11]]) as usize;
+        let data_size =
+            u32::from_le_bytes([image[p + 12], image[p + 13], image[p + 14], image[p + 15]])
+                as usize;
+        let name_off = p + VSS_VAR_HDR;
+        let data_off = name_off + name_size;
+        let entry_end = data_off + data_size;
+        if entry_end > end || name_size == 0 || name_size > 1024 {
+            break; // malformed — stop rather than desync
+        }
+        // Live copy only; keep the first (primary store wins).
+        if state == VSS_VAR_ADDED {
+            let name = ucs2z(&image[name_off..data_off]);
+            if !name.is_empty() {
+                vars.entry(name)
+                    .or_insert_with(|| image[data_off..entry_end].to_vec());
+            }
+        }
+        p = (entry_end + 3) & !3; // 4-byte aligned
+    }
+}
+
+/// Decode a NUL-terminated little-endian UCS-2 name.
+fn ucs2z(b: &[u8]) -> String {
+    let units: Vec<u16> = b
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .take_while(|&u| u != 0)
+        .collect();
+    String::from_utf16_lossy(&units)
 }
 
 /// The signature `NVAR` also appears by chance inside strings and
@@ -238,5 +325,61 @@ mod tests {
         ]);
         let vars = parse(&img);
         assert_eq!(vars["Setup"], vec![0x01]);
+    }
+
+    // --- $VSS ---
+
+    fn ucs2(s: &str) -> Vec<u8> {
+        let mut v: Vec<u8> = s.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+        v.extend_from_slice(&[0, 0]); // NUL terminator
+        v
+    }
+
+    fn vss_var(name: &str, state: u8, data: &[u8]) -> Vec<u8> {
+        let nm = ucs2(name);
+        let mut v = VSS_START_ID.to_le_bytes().to_vec();
+        v.push(state);
+        v.push(0); // reserved
+        v.extend_from_slice(&7u32.to_le_bytes()); // attributes
+        v.extend_from_slice(&(nm.len() as u32).to_le_bytes());
+        v.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        v.extend_from_slice(&[0xAB; 16]); // vendor guid
+        v.extend_from_slice(&nm);
+        v.extend_from_slice(data);
+        while !v.len().is_multiple_of(4) {
+            v.push(0xFF);
+        }
+        v
+    }
+
+    #[test]
+    fn parses_vss_store() {
+        let mut store = VSS_SIG.to_vec();
+        store.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes()); // size: open store
+        store.push(VSS_FORMATTED);
+        store.push(VSS_HEALTHY);
+        store.extend_from_slice(&[0u8; 6]); // reserved
+        store.extend_from_slice(&vss_var("Setup", VSS_VAR_ADDED, &[0x11, 0x22, 0x33]));
+        store.extend_from_slice(&vss_var("Ghost", 0x7F, &[0x00])); // deleted → skipped
+        store.extend_from_slice(&vss_var("Other", VSS_VAR_ADDED, &[0x99]));
+        store.extend_from_slice(&[0xFF; 32]); // erased free space
+
+        // Place the store mid-image so the scanner has to find it.
+        let mut img = vec![0u8; 64];
+        img.extend_from_slice(&store);
+
+        let vars = parse(&img);
+        assert_eq!(vars["Setup"], vec![0x11, 0x22, 0x33]);
+        assert_eq!(vars["Other"], vec![0x99]);
+        assert!(!vars.contains_key("Ghost")); // deleted state
+        assert_eq!(read_at(&vars["Setup"], 1, 2), Some(0x3322));
+    }
+
+    #[test]
+    fn vss_rejects_unformatted_signature() {
+        // "$VSS" that isn't formatted+healthy (e.g. a string) is ignored.
+        let mut img = VSS_SIG.to_vec();
+        img.extend_from_slice(&[0xAA; 12]); // wrong format/state bytes
+        assert!(parse(&img).is_empty());
     }
 }
