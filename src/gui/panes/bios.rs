@@ -9,6 +9,13 @@ use super::*;
 /// thousands of) settings without measuring each row.
 const ROW_H: f32 = 30.0;
 
+/// Shared column widths so the sticky header and the data rows line up.
+const MARKER_W: f32 = 56.0;
+const VALUE_W: f32 = 200.0;
+const SOURCE_W: f32 = 190.0;
+/// Horizontal inset applied identically to the header and every row.
+const ROW_PX: f32 = 12.0;
+
 pub(super) fn bios_pane(
     path: Option<&Path>,
     settings: Option<Arc<Vec<crate::uefi::Setting>>>,
@@ -31,8 +38,8 @@ pub(super) fn bios_pane(
             "Load a UEFI BIOS dump to browse its Setup options — the label, \
              its current value, and the choices behind each variable byte. \
              Parses firmware volumes → IFR forms → HII strings and joins them \
-             against the NVRAM store. Read-only. A ✷ marks options the firmware \
-             may hide or lock at runtime.",
+             against the NVRAM store. Read-only. A “cond” tag marks options the \
+             firmware may hide or lock at runtime.",
         ))
         .child(
             GroupBox::new()
@@ -119,27 +126,59 @@ fn wrap(text: &str, width: usize) -> String {
     out
 }
 
-/// The virtualised list of setting rows.
+/// Bordered list box: a fixed header row on top, then the virtualised
+/// rows scrolling beneath it. The header stays put because it's a
+/// sibling of `uniform_list`, not part of its scrolled content.
 fn settings_list(
     settings: Arc<Vec<crate::uefi::Setting>>,
     visible: Arc<Vec<usize>>,
     scroll: UniformListScrollHandle,
 ) -> impl IntoElement {
     let count = visible.len();
-    uniform_list("bios-settings-list", count, move |range, _, _| {
-        range
-            .map(|virtual_i| setting_row(&settings[visible[virtual_i]], virtual_i))
-            .collect()
-    })
-    .flex_1()
-    .min_h(px(0.0))
-    .border_1()
-    .border_color(theme::workshop_glass_strong())
-    .rounded(px(6.0))
-    .bg(theme::bench_black())
-    .px_3()
-    .py_2()
-    .track_scroll(&scroll)
+    div()
+        .flex_1()
+        .min_h(px(0.0))
+        .flex()
+        .flex_col()
+        .border_1()
+        .border_color(theme::workshop_glass_strong())
+        .rounded(px(6.0))
+        .bg(theme::bench_black())
+        .overflow_hidden()
+        .child(header_row())
+        .child(
+            uniform_list("bios-settings-list", count, move |range, _, _| {
+                range
+                    .map(|virtual_i| setting_row(&settings[visible[virtual_i]], virtual_i))
+                    .collect()
+            })
+            .flex_1()
+            .min_h(px(0.0))
+            .py_1()
+            .track_scroll(&scroll),
+        )
+}
+
+/// Column titles, styled distinctly and pinned above the scroll.
+fn header_row() -> impl IntoElement {
+    let cell = |w: f32, label: &str| div().w(px(w)).flex_shrink_0().child(label.to_string());
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .w_full()
+        .gap_3()
+        .px(px(ROW_PX))
+        .py_2()
+        .bg(theme::workshop_glass())
+        .border_b_1()
+        .border_color(theme::workshop_glass_strong())
+        .text_size(px(11.0))
+        .text_color(theme::text_tertiary())
+        .child(div().flex_1().min_w(px(0.0)).child("SETTING"))
+        .child(cell(MARKER_W, ""))
+        .child(cell(VALUE_W, "VALUE"))
+        .child(cell(SOURCE_W, "VARIABLE + OFFSET"))
 }
 
 /// One setting row: label · current value · source (variable+offset),
@@ -188,7 +227,7 @@ fn setting_row(s: &crate::uefi::Setting, virtual_i: usize) -> impl IntoElement +
         .w_full()
         .gap_3()
         .h(px(ROW_H))
-        .px_2()
+        .px(px(ROW_PX))
         .whitespace_nowrap()
         // Label — flexes to fill, truncates when long.
         .child(
@@ -199,18 +238,30 @@ fn setting_row(s: &crate::uefi::Setting, virtual_i: usize) -> impl IntoElement +
                 .text_color(theme::text_primary())
                 .child(s.name.clone()),
         )
-        // Conditional marker — fixed slot, always present.
+        // Conditional "cond" tag — fixed slot, always present so it
+        // never shifts the value column.
         .child(
             div()
-                .w(px(16.0))
+                .w(px(MARKER_W))
                 .flex_shrink_0()
-                .text_color(theme::warning_amber())
-                .child(if s.conditional { "✷" } else { "" }),
+                .flex()
+                .flex_row()
+                .when(s.conditional, |slot| {
+                    slot.child(
+                        div()
+                            .px_1p5()
+                            .rounded(px(4.0))
+                            .bg(theme::workshop_glass_strong())
+                            .text_size(px(10.0))
+                            .text_color(theme::warning_amber())
+                            .child("cond"),
+                    )
+                }),
         )
         // Current value.
         .child(
             div()
-                .w(px(200.0))
+                .w(px(VALUE_W))
                 .flex_shrink_0()
                 .overflow_hidden()
                 .text_color(value_color)
@@ -219,7 +270,7 @@ fn setting_row(s: &crate::uefi::Setting, virtual_i: usize) -> impl IntoElement +
         // Source variable + offset.
         .child(
             div()
-                .w(px(190.0))
+                .w(px(SOURCE_W))
                 .flex_shrink_0()
                 .overflow_hidden()
                 .font_family(theme::MONO_FONT)
