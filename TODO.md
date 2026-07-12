@@ -155,12 +155,17 @@ priority order.
       - [x] **Export + diff.** DONE — `bios settings --json`, GUI
         "Export JSON…", and `bios diff -a X -b Y` (CLI). *GUI two-dump
         settings-diff still TODO for full parity.*
-      - [ ] **`$VSS` / standard EDK2 variable store.** We only do AMI
-        NVAR; `$VSS` (GUID+name+data) is the standard format used by
-        Insyde / Phoenix and EDK2-NVRAM AMI builds. Roughly doubles
-        board coverage. *BLOCKED on a test image* — every dump on hand
-        is AMI/NVAR (or non-UEFI); need an Insyde/Phoenix dump to build
-        it against rather than blind to spec. *(biggest coverage gap)*
+      - [x] **`$VSS` / standard EDK2 variable store.** DONE —
+        `nvram::parse` now decodes `$VSS` (format 0x5A / state 0xFE →
+        0x55AA variable entries) alongside AMI NVAR; unit-tested with a
+        synthetic populated store. Validated structurally against a real
+        Insyde image (Acer V5WE2217, BIOS appended raw in its
+        InsydeFlash installer): FV walker reads its volumes and the
+        `$VSS` store is found healthy. Two caveats remain before Insyde
+        settings fully resolve: (1) that image is a BIOS *update*, so
+        its NVRAM is factory-blank — a live chip dump is needed for real
+        values; (2) Insyde form sections use a compression the walker
+        skips (see next item), so labels don't resolve yet either.
       - [x] **Boot-order decode.** DONE — `BootOrder` + `Boot####`
         `EFI_LOAD_OPTION` decode (description + active flag); CLI
         `bios boot` and a GUI navigator "Boot order" view. Device-path
@@ -181,6 +186,13 @@ priority order.
       *legacy options inside a UEFI BIOS* (CSM, Legacy USB, OpROM
       policy, BBS order) are already covered — they're ordinary IFR
       questions.
+- [ ] **Insyde form-section decompression** — the FV walker skips
+      Insyde's compressed form sections ("compression type 2
+      (unsupported)"), so Setup labels/options don't resolve on Insyde
+      images even though the volumes are read. Identify the codec
+      (likely an Insyde/EDK2 variant) and decode it, mirroring the
+      LZMA/Tiano handling. Needed for Insyde/Phoenix settings coverage;
+      testable on the Acer V5WE2217 image already on hand.
 - [ ] **Vendor the EFI/Tiano decompressor** — `mu_uefi_decompress`
       (Microsoft `mu_rust_helpers`) is deprecated; the umbrella repo
       recommends the Patina SDK (issue #107). Do **not** switch to
