@@ -36,26 +36,29 @@ impl AppView {
             let parsed = cx
                 .background_spawn(async move {
                     std::fs::read(&path).map(|bytes| {
-                        let settings = crate::uefi::extract_settings(&bytes, None);
-                        (path, settings)
+                        let model = crate::uefi::extract_model(&bytes);
+                        (path, model)
                     })
                 })
                 .await;
 
             weak.update(cx, |this, cx| {
                 match parsed {
-                    Ok((path, settings)) => {
+                    Ok((path, model)) => {
                         this.push_log(format!(
-                            "Parsed BIOS image: {} ({} Setup settings)",
+                            "Parsed BIOS image: {} ({} Setup settings, {} menu pages)",
                             path.display(),
-                            settings.len()
+                            model.settings.len(),
+                            model.tree.len()
                         ));
                         if let Some(parent) = path.parent() {
                             this.prefs.last_hex_dir = Some(parent.to_path_buf());
                             let _ = this.prefs.save();
                         }
                         this.bios_input_path = Some(path);
-                        this.bios_settings = Some(Arc::new(settings));
+                        this.bios_settings = Some(Arc::new(model.settings));
+                        this.bios_tree = Some(Arc::new(model.tree));
+                        this.bios_selected_form = None;
                     }
                     Err(e) => this.push_log(format!("BIOS parse failed: {e}")),
                 }
@@ -64,5 +67,14 @@ impl AppView {
             .ok();
         })
         .detach();
+    }
+
+    /// Select a form in the BIOS navigator (or `None` for "all
+    /// settings"), scrolling the settings list back to the top.
+    pub fn select_bios_form(&mut self, form: Option<String>, cx: &mut Context<Self>) {
+        self.bios_selected_form = form;
+        self.bios_scroll
+            .scroll_to_item(0, gpui::ScrollStrategy::Top);
+        cx.notify();
     }
 }

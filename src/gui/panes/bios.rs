@@ -16,10 +16,14 @@ const SOURCE_W: f32 = 190.0;
 /// Horizontal inset applied identically to the header and every row.
 const ROW_PX: f32 = 12.0;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn bios_pane(
     path: Option<&Path>,
     settings: Option<Arc<Vec<crate::uefi::Setting>>>,
+    tree: Option<Arc<Vec<crate::uefi::FormNode>>>,
+    selected_form: Option<&str>,
     scroll: UniformListScrollHandle,
+    nav_scroll: UniformListScrollHandle,
     search_term: &str,
     search_state: &Entity<InputState>,
     cx: &mut Context<AppView>,
@@ -38,8 +42,8 @@ pub(super) fn bios_pane(
             "Load a UEFI BIOS dump to browse its Setup options — the label, \
              its current value, and the choices behind each variable byte. \
              Parses firmware volumes → IFR forms → HII strings and joins them \
-             against the NVRAM store. Read-only. A ✷ marks options the firmware \
-             may hide or lock at runtime.",
+             against the NVRAM store. Read-only. Pick a menu page on the left \
+             to drill in; a ✷ marks options the firmware may hide or lock.",
         ))
         .child(
             GroupBox::new()
@@ -57,15 +61,23 @@ pub(super) fn bios_pane(
         return col;
     };
 
-    // Filter by label (case-insensitive substring), mirroring the CLI's
-    // `--find`. Precompute the surviving indices so `uniform_list` can
-    // map virtual rows onto the shared `Arc` without cloning the Vec.
+    // Search overrides navigation (matches across every form); otherwise
+    // the selected form scopes the list, and with neither we show all.
     let needle = search_term.to_lowercase();
+    let searching = !needle.is_empty();
     let visible: Arc<Vec<usize>> = Arc::new(
         settings
             .iter()
             .enumerate()
-            .filter(|(_, s)| needle.is_empty() || s.name.to_lowercase().contains(&needle))
+            .filter(|(_, s)| {
+                if searching {
+                    s.name.to_lowercase().contains(&needle)
+                } else if let Some(f) = selected_form {
+                    s.form == f
+                } else {
+                    true
+                }
+            })
             .map(|(i, _)| i)
             .collect(),
     );
@@ -74,15 +86,16 @@ pub(super) fn bios_pane(
         "{} of {} settings{}",
         visible.len(),
         settings.len(),
-        if needle.is_empty() {
-            String::new()
-        } else {
+        if searching {
             format!(" matching “{search_term}”")
+        } else if let Some(f) = selected_form {
+            format!(" in {f}")
+        } else {
+            String::new()
         },
     );
-    // Group visible rows under form headers before moving `settings`
-    // into the list renderer.
     let items = build_items(&settings, &visible);
+    let weak = cx.entity().downgrade();
 
     col = col
         // Row wrapper so the Input's flex_1 grows horizontally; placing
@@ -100,9 +113,127 @@ pub(super) fn bios_pane(
                 .text_color(theme::text_tertiary())
                 .child(count_line),
         )
-        .child(settings_list(settings, items, scroll));
+        .child(
+            // Split: menu navigator on the left, settings on the right.
+            div()
+                .flex_1()
+                .min_h(px(0.0))
+                .flex()
+                .flex_row()
+                .gap_3()
+                .when_some(tree.filter(|t| !t.is_empty()), |row, t| {
+                    row.child(navigator(t, selected_form, nav_scroll, weak))
+                })
+                .child(settings_list(settings, items, scroll)),
+        );
 
     col
+}
+
+/// Left navigator: the menu tree, flattened + indented, each row a
+/// click target that scopes the settings list to that form.
+fn navigator(
+    tree: Arc<Vec<crate::uefi::FormNode>>,
+    selected: Option<&str>,
+    nav_scroll: UniformListScrollHandle,
+    weak: WeakEntity<AppView>,
+) -> impl IntoElement {
+    let mut flat: Vec<(usize, String, usize)> = Vec::new();
+    flatten_tree(&tree, 0, &mut flat);
+    let flat = Arc::new(flat);
+    let selected = selected.map(|s| s.to_string());
+
+    div()
+        .w(px(280.0))
+        .flex_shrink_0()
+        .flex()
+        .flex_col()
+        .border_1()
+        .border_color(theme::workshop_glass_strong())
+        .rounded(px(6.0))
+        .bg(theme::bench_black())
+        .overflow_hidden()
+        .child(
+            uniform_list("bios-nav", flat.len() + 1, move |range, _, _| {
+                range
+                    .map(|i| {
+                        // Row 0 is the "All settings" reset; the rest are
+                        // forms, indented one extra level under it.
+                        let (depth, label, count, target) = if i == 0 {
+                            (0usize, "All settings".to_string(), None, None)
+                        } else {
+                            let (d, t, c) = &flat[i - 1];
+                            (*d + 1, t.clone(), Some(*c), Some(t.clone()))
+                        };
+                        let is_sel = match (&selected, &target) {
+                            (None, None) => true,
+                            (Some(s), Some(t)) => s == t,
+                            _ => false,
+                        };
+                        let weak = weak.clone();
+                        let mut row = div()
+                            .id(("bios-nav-row", i))
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .w_full()
+                            .h(px(26.0))
+                            .cursor_pointer()
+                            .pl(px(8.0 + depth as f32 * 14.0))
+                            .pr(px(8.0))
+                            .text_size(px(12.0))
+                            .hover(|d| d.bg(theme::workshop_glass()))
+                            .on_click(move |_: &ClickEvent, _, app| {
+                                weak.update(app, |this, cx| {
+                                    this.select_bios_form(target.clone(), cx)
+                                })
+                                .ok();
+                            });
+                        row = if is_sel {
+                            row.bg(theme::accent_tint())
+                                .text_color(theme::text_primary())
+                        } else {
+                            row.text_color(theme::text_secondary())
+                        };
+                        row = row.child(
+                            div()
+                                .flex_1()
+                                .min_w(px(0.0))
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .child(label),
+                        );
+                        if let Some(c) = count.filter(|c| *c > 0) {
+                            row = row.child(
+                                div()
+                                    .flex_shrink_0()
+                                    .text_size(px(11.0))
+                                    .text_color(theme::text_tertiary())
+                                    .child(c.to_string()),
+                            );
+                        }
+                        row
+                    })
+                    .collect()
+            })
+            .flex_1()
+            .min_h(px(0.0))
+            .py_1()
+            .track_scroll(&nav_scroll),
+        )
+}
+
+/// Depth-first flatten of the menu tree into `(depth, title, count)`.
+fn flatten_tree(
+    nodes: &[crate::uefi::FormNode],
+    depth: usize,
+    out: &mut Vec<(usize, String, usize)>,
+) {
+    for n in nodes {
+        out.push((depth, n.title.clone(), n.setting_count));
+        flatten_tree(&n.children, depth + 1, out);
+    }
 }
 
 /// A rendered list entry: either a form section header or a setting.

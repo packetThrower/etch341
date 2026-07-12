@@ -630,7 +630,12 @@ pub struct AppView {
     /// label filter synced from `bios_search_state`.
     pub bios_input_path: Option<std::path::PathBuf>,
     pub bios_settings: Option<Arc<Vec<crate::uefi::Setting>>>,
+    /// Menu tree (form → sub-forms) for the drill-down navigator.
+    pub bios_tree: Option<Arc<Vec<crate::uefi::FormNode>>>,
+    /// Selected form in the navigator; `None` shows every setting.
+    pub bios_selected_form: Option<String>,
     pub bios_scroll: UniformListScrollHandle,
+    pub bios_nav_scroll: UniformListScrollHandle,
     pub bios_search_term: String,
     pub bios_search_state: Entity<InputState>,
     /// Dropdown state for picking the I²C chip (24Cxx). I²C has no
@@ -759,7 +764,10 @@ impl AppView {
             hex_search_state,
             bios_input_path: None,
             bios_settings: None,
+            bios_tree: None,
+            bios_selected_form: None,
             bios_scroll: UniformListScrollHandle::new(),
+            bios_nav_scroll: UniformListScrollHandle::new(),
             bios_search_term: String::new(),
             bios_search_state,
             i2c_chip_select,
@@ -1161,7 +1169,10 @@ impl Render for AppView {
                                     hex_search_state: &self.hex_search_state,
                                     bios_path: self.bios_input_path.as_deref(),
                                     bios_settings: self.bios_settings.clone(),
+                                    bios_tree: self.bios_tree.clone(),
+                                    bios_selected_form: self.bios_selected_form.as_deref(),
                                     bios_scroll: self.bios_scroll.clone(),
+                                    bios_nav_scroll: self.bios_nav_scroll.clone(),
                                     bios_search_term: self.bios_search_term.as_str(),
                                     bios_search_state: &self.bios_search_state,
                                     spi_speed_khz: self.prefs.spi_speed_khz,
