@@ -335,13 +335,17 @@ where
             div()
                 .flex_1()
                 .min_w(px(0.0))
+                // Clip a long path at the box edge instead of letting it
+                // spill under the Browse button (paths have no spaces,
+                // so whitespace wrapping can't break them).
+                .overflow_hidden()
                 .px_3()
                 .py_2()
                 .rounded(px(6.0))
                 .border_1()
                 .border_color(theme::workshop_glass_strong())
                 .bg(theme::bench_black())
-                .whitespace_normal()
+                .whitespace_nowrap()
                 .text_color(path_color)
                 .text_size(px(12.0))
                 .font_family(theme::MONO_FONT)

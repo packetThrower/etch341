@@ -64,7 +64,15 @@ pub(super) fn bios_pane(
     );
 
     col = col
-        .child(div().flex_1().child(Input::new(search_state)))
+        // Row wrapper so the Input's flex_1 grows horizontally; placing
+        // flex_1 directly in this column would stretch it vertically and
+        // shove the list down the pane.
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .child(div().flex_1().child(Input::new(search_state))),
+        )
         .child(
             div()
                 .text_size(px(12.0))
