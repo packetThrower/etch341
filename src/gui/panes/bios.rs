@@ -111,7 +111,18 @@ pub(super) fn bios_pane(
                 .gap_3()
                 .child(div().flex_1().child(Input::new(search_state)))
                 .child(changed_toggle(changed_only, cx))
-                .child(export_button(cx)),
+                .child(action_pill(
+                    "Compare with…",
+                    "bios-compare",
+                    cx,
+                    |this, cx| this.pick_bios_compare(cx),
+                ))
+                .child(action_pill(
+                    "Export JSON…",
+                    "bios-export",
+                    cx,
+                    |this, cx| this.export_bios_json(cx),
+                )),
         )
         .child(
             div()
@@ -312,10 +323,18 @@ fn changed_toggle(active: bool, cx: &mut Context<AppView>) -> impl IntoElement {
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_bios_changed_only(cx)))
 }
 
-/// The "Export JSON…" button — saves the loaded settings to a file.
-fn export_button(cx: &mut Context<AppView>) -> impl IntoElement {
+/// A secondary glass action button (Export / Compare).
+fn action_pill<F>(
+    label: &'static str,
+    id: &'static str,
+    cx: &mut Context<AppView>,
+    on_click: F,
+) -> impl IntoElement
+where
+    F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
+{
     div()
-        .id("bios-export")
+        .id(id)
         .flex_shrink_0()
         .px_3()
         .py_1p5()
@@ -325,8 +344,8 @@ fn export_button(cx: &mut Context<AppView>) -> impl IntoElement {
         .text_color(theme::text_secondary())
         .text_size(px(12.0))
         .hover(|d| d.bg(theme::workshop_glass_strong()))
-        .child("Export JSON…")
-        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.export_bios_json(cx)))
+        .child(label)
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on_click(this, cx)))
 }
 
 /// A rendered list entry: either a form section header or a setting.

@@ -86,6 +86,7 @@ fn apply_accent_to_component_theme(cx: &mut App) {
 pub use crate::inspect::{byte_match_ci, extract_strings, parse_hex_needle};
 
 mod app;
+mod bios_diff;
 mod chipdb_browser;
 mod header;
 mod log;
@@ -543,6 +544,9 @@ pub struct AppView {
     /// a repeat "Browse chip database" click activates the existing
     /// window instead of spawning a duplicate. `None` when closed.
     pub chip_db_window: Option<WindowHandle<Root>>,
+    /// Handle to the BIOS settings-diff window, replaced on each new
+    /// comparison and cleared on close.
+    pub bios_diff_window: Option<WindowHandle<Root>>,
     /// First click on the Erase button arms it (label/color swap);
     /// the second click within the same pane visit fires the actual
     /// erase. Reset to false when the user navigates away.
@@ -737,6 +741,7 @@ impl AppView {
             log_popped_out: false,
             log_window: None,
             chip_db_window: None,
+            bios_diff_window: None,
             erase_armed: false,
             write_armed: false,
             write_input_path: None,
@@ -937,6 +942,74 @@ impl AppView {
                 Err(e) => {
                     app.update(cx, |this, cx| {
                         this.push_log(format!("chip-database window failed: {e}"));
+                        cx.notify();
+                    });
+                }
+            }
+        });
+    }
+
+    /// Open (or replace) the BIOS settings-diff window with a computed
+    /// comparison. Each compare replaces the previous window so the
+    /// content is never stale. Modelled on `open_chip_db`.
+    pub fn open_bios_diff(
+        &mut self,
+        diffs: Vec<crate::uefi::SettingDiff>,
+        a_name: String,
+        b_name: String,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(handle) = self.bios_diff_window.take() {
+            let _ = handle.update(cx, |_, window, _| window.remove_window());
+        }
+        let app = cx.entity();
+        let diffs = std::sync::Arc::new(diffs);
+        cx.defer(move |cx| {
+            let bounds = Bounds::centered(None, gpui::size(px(1000.0), px(700.0)), cx);
+            let opened = cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    titlebar: Some(TitlebarOptions {
+                        title: Some("etch341 — BIOS Setting Diff".into()),
+                        ..TitleBar::title_bar_options()
+                    }),
+                    app_id: Some("etch341".into()),
+                    window_decorations: Some(WindowDecorations::Client),
+                    ..Default::default()
+                },
+                {
+                    let app = app.clone();
+                    move |window, cx| {
+                        window.set_client_inset(px(10.0));
+                        let view = cx.new(|cx| {
+                            bios_diff::BiosDiffView::new(
+                                app.downgrade(),
+                                diffs.clone(),
+                                a_name.clone(),
+                                b_name.clone(),
+                                window,
+                                cx,
+                            )
+                        });
+                        let close_app = app.downgrade();
+                        window.on_window_should_close(cx, move |_window, cx| {
+                            let _ = close_app.update(cx, |this, cx| {
+                                this.bios_diff_window = None;
+                                cx.notify();
+                            });
+                            true
+                        });
+                        cx.new(|cx| Root::new(view, window, cx))
+                    }
+                },
+            );
+            match opened {
+                Ok(handle) => {
+                    app.update(cx, |this, _| this.bios_diff_window = Some(handle));
+                }
+                Err(e) => {
+                    app.update(cx, |this, cx| {
+                        this.push_log(format!("BIOS diff window failed: {e}"));
                         cx.notify();
                     });
                 }

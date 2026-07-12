@@ -78,6 +78,61 @@ impl AppView {
         cx.notify();
     }
 
+    /// Pick a second BIOS image, diff its settings against the loaded
+    /// one, and open the result in the diff window. Deferred dialog +
+    /// background parse, like the open picker.
+    pub fn pick_bios_compare(&mut self, cx: &mut Context<Self>) {
+        let Some(a_settings) = self.bios_settings.clone() else {
+            return;
+        };
+        let a_name = self
+            .bios_input_path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "(loaded image)".into());
+        let start_dir = self.prefs.last_hex_dir.clone();
+        cx.spawn(async move |weak, cx| {
+            let mut dialog = rfd::AsyncFileDialog::new()
+                .add_filter("BIOS images", &["bin", "rom", "fd"])
+                .add_filter("All files", &["*"]);
+            if let Some(dir) = start_dir {
+                dialog = dialog.set_directory(dir);
+            }
+            let Some(handle) = dialog.pick_file().await else {
+                return;
+            };
+            let bpath = handle.path().to_path_buf();
+            let b_name = bpath
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "(image B)".into());
+
+            let parsed = cx
+                .background_spawn(async move {
+                    std::fs::read(&bpath).map(|bytes| crate::uefi::extract_settings(&bytes, None))
+                })
+                .await;
+
+            weak.update(cx, |this, cx| {
+                match parsed {
+                    Ok(b_settings) => {
+                        let diffs = crate::uefi::diff_settings(&a_settings, &b_settings);
+                        this.push_log(format!(
+                            "BIOS diff vs {b_name}: {} setting(s) differ",
+                            diffs.len()
+                        ));
+                        this.open_bios_diff(diffs, a_name, b_name, cx);
+                    }
+                    Err(e) => this.push_log(format!("Compare load failed: {e}")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Toggle the "changed from default only" filter.
     pub fn toggle_bios_changed_only(&mut self, cx: &mut Context<Self>) {
         self.bios_changed_only = !self.bios_changed_only;
