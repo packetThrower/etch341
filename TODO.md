@@ -166,9 +166,10 @@ priority order.
         `bios boot` and a GUI navigator "Boot order" view. Device-path
         decode (vs. the load-option description) left as a refinement;
         legacy `LegacyDevOrder`/BBS still raw.
-      Marginal (only if asked): more IFR opcodes (`String` /
-      `OrderedList` / `Date` / `Time`, numeric min/max/step in the
-      tooltip; `Password` stays skipped — it's a hash); IFR condition
+      Marginal (only if asked): [x] `String` + `OrderedList` opcodes
+      DONE (Date/Time skipped — runtime RTC-backed, no stored value;
+      `Password` stays skipped — it's a hash). Still open: numeric
+      min/max/step in the tooltip; IFR condition
       *evaluation* (resolve suppress/grayout instead of just flagging
       "conditional" — real work, mostly cosmetic for a read tool);
       SMBIOS/DMI decode for clean board/BIOS identity (adjacent to the
