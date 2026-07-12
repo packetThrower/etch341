@@ -102,8 +102,9 @@ priority order.
       matrix + Descriptor/ME lock summary. Verified on two Acer Insyde
       dumps and the AMI dump. `src/ifd.rs`, standalone (no region-file
       dependency). ME/FD *version* skipped — those live in the ME
-      region's FPT/manifest, a separate parser (YAGNI here). CLI-only;
-      GUI pane not added.
+      region's FPT/manifest, a separate parser (YAGNI here). Shown in
+      both CLI (`ifd`) and GUI (a "Flash layout (IFD)" strip in the
+      BIOS explorer, from the same loaded dump).
 - [ ] **Multi-chip on bus** (`--chip-select 1 / 2`) — pick between
       two SPI chips wired to the same CH341A on D0 vs an external
       GPIO. Useful for dual-BIOS motherboards. The standard

@@ -37,6 +37,7 @@ pub(super) fn bios_pane(
     tree: Option<Arc<Vec<crate::uefi::FormNode>>>,
     boot: Option<Arc<Vec<crate::uefi::BootEntry>>>,
     bios_id: Option<&crate::uefi::BiosId>,
+    bios_ifd: Option<&crate::ifd::Ifd>,
     selected_form: Option<&str>,
     changed_only: bool,
     scroll: UniformListScrollHandle,
@@ -74,7 +75,8 @@ pub(super) fn bios_pane(
         )
         .when_some(bios_id.filter(|id| !id.is_empty()), |c, id| {
             c.child(bios_id_line(id))
-        });
+        })
+        .when_some(bios_ifd, |c, ifd| c.child(ifd_box(ifd)));
 
     let Some(settings) = settings else {
         // Nothing loaded yet — the file row above is the whole pane.
@@ -420,6 +422,63 @@ fn bios_id_line(id: &crate::uefi::BiosId) -> impl IntoElement + use<> {
         .text_size(px(12.0))
         .text_color(theme::text_secondary())
         .child(parts.join("   ·   "))
+}
+
+/// Compact Intel Flash Descriptor strip: region map + lock summary.
+/// Mirrors the `etch341 ifd` CLI output for GUI/CLI parity.
+fn ifd_box(ifd: &crate::ifd::Ifd) -> impl IntoElement + use<> {
+    let mut rows = div().flex().flex_col().gap_1();
+    for r in &ifd.regions {
+        let locked = match r.index {
+            0 => Some(!ifd.bios_can_write(0)), // Descriptor
+            2 => Some(!ifd.bios_can_write(2)), // Intel ME
+            _ => None,
+        };
+        let tag = match locked {
+            Some(true) => "  🔒 locked",
+            Some(false) => "  ⚠ host-writable",
+            None => "",
+        };
+        rows = rows.child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_3()
+                .text_size(px(12.0))
+                .text_color(theme::text_secondary())
+                .child(div().w(px(120.0)).flex_shrink_0().child(r.name))
+                .child(
+                    div()
+                        .w(px(180.0))
+                        .flex_shrink_0()
+                        .text_color(theme::text_tertiary())
+                        .child(format!("{:#08x}–{:#08x}", r.base, r.limit)),
+                )
+                .child(format!("{}{tag}", fmt_bytes(r.size() as u64))),
+        );
+    }
+    let subtitle = match ifd.density_bytes {
+        Some(d) => format!("Flash layout (IFD) — {} chip", fmt_bytes(d)),
+        None => "Flash layout (IFD)".to_string(),
+    };
+    GroupBox::new()
+        .id("bios-ifd-box")
+        .outline()
+        .max_w(px(680.0))
+        .title(subtitle)
+        .child(rows)
+}
+
+/// Human byte size, matching the CLI's `fmt_bytes` (binary units, "MB").
+fn fmt_bytes(n: u64) -> String {
+    if n >= 1 << 20 {
+        format!("{} MB", n >> 20)
+    } else if n >= 1 << 10 {
+        format!("{} KB", n >> 10)
+    } else {
+        format!("{n} B")
+    }
 }
 
 /// The "Changed only" filter pill next to the search box.

@@ -37,14 +37,15 @@ impl AppView {
                 .background_spawn(async move {
                     std::fs::read(&path).map(|bytes| {
                         let model = crate::uefi::extract_model(&bytes);
-                        (path, model)
+                        let ifd = crate::ifd::parse(&bytes);
+                        (path, model, ifd)
                     })
                 })
                 .await;
 
             weak.update(cx, |this, cx| {
                 match parsed {
-                    Ok((path, model)) => {
+                    Ok((path, model, ifd)) => {
                         this.push_log(format!(
                             "Parsed BIOS image: {} ({} Setup settings, {} menu pages)",
                             path.display(),
@@ -60,6 +61,7 @@ impl AppView {
                         this.bios_tree = Some(Arc::new(model.tree));
                         this.bios_boot = Some(Arc::new(model.boot));
                         this.bios_id = Some(model.bios_id);
+                        this.bios_ifd = ifd;
                         this.bios_selected_form = None;
                     }
                     Err(e) => this.push_log(format!("BIOS parse failed: {e}")),
