@@ -7,6 +7,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-07-12
+
 ### Added
 
 - **Application menus (all platforms)** — a proper menu bar with
@@ -652,7 +654,9 @@ Initial release.
   VBIOS chip — full erase → write → verify cycle, byte-identical
   SHA-256 match.
 
-[Unreleased]: https://github.com/packetThrower/etch341/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/packetThrower/etch341/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/packetThrower/etch341/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/packetThrower/etch341/compare/v0.6.0-beta.1...v0.6.0
 [0.5.0]: https://github.com/packetThrower/etch341/compare/v0.5.0-beta.2...v0.5.0
 [0.2.0]: https://github.com/packetThrower/etch341/releases/tag/v0.2.0
 [0.1.0]: https://github.com/packetThrower/etch341/releases/tag/v0.1.0
