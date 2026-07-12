@@ -148,7 +148,8 @@ fn detect_vendor(image: &[u8]) -> Option<String> {
         (b"AMITSE".as_slice(), "AMI Aptio"),
         (b"Aptio".as_slice(), "AMI Aptio"),
         (b"American Megatrends".as_slice(), "AMI"),
-        (b"InsydeH2O".as_slice(), "Insyde"),
+        // Plain "Insyde" (not just "InsydeH2O", which is often absent).
+        (b"Insyde".as_slice(), "Insyde"),
         (b"Phoenix".as_slice(), "Phoenix"),
         (b"ALASKA".as_slice(), "AMI"),
     ] {
