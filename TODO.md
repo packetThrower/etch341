@@ -161,10 +161,11 @@ priority order.
         board coverage. *BLOCKED on a test image* — every dump on hand
         is AMI/NVAR (or non-UEFI); need an Insyde/Phoenix dump to build
         it against rather than blind to spec. *(biggest coverage gap)*
-      - [ ] **Boot-order decode.** `BootOrder`/`Boot####` +
-        `LegacyDevOrder`/BBS are read raw today; decode
-        `EFI_LOAD_OPTION` + device paths into readable entries ("UEFI:
-        Kingston…"). Fully testable on the AMI dump.
+      - [x] **Boot-order decode.** DONE — `BootOrder` + `Boot####`
+        `EFI_LOAD_OPTION` decode (description + active flag); CLI
+        `bios boot` and a GUI navigator "Boot order" view. Device-path
+        decode (vs. the load-option description) left as a refinement;
+        legacy `LegacyDevOrder`/BBS still raw.
       Marginal (only if asked): more IFR opcodes (`String` /
       `OrderedList` / `Date` / `Time`, numeric min/max/step in the
       tooltip; `Password` stays skipped — it's a hash); IFR condition

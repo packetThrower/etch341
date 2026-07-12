@@ -58,6 +58,7 @@ impl AppView {
                         this.bios_input_path = Some(path);
                         this.bios_settings = Some(Arc::new(model.settings));
                         this.bios_tree = Some(Arc::new(model.tree));
+                        this.bios_boot = Some(Arc::new(model.boot));
                         this.bios_selected_form = None;
                     }
                     Err(e) => this.push_log(format!("BIOS parse failed: {e}")),

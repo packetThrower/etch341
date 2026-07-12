@@ -15,12 +15,16 @@ const VALUE_W: f32 = 200.0;
 const SOURCE_W: f32 = 190.0;
 /// Horizontal inset applied identically to the header and every row.
 const ROW_PX: f32 = 12.0;
+/// Sentinel `selected_form` value for the navigator's boot-order view
+/// (a control char so it can't collide with a real form title).
+const BOOT_VIEW: &str = "\u{1}boot-order";
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn bios_pane(
     path: Option<&Path>,
     settings: Option<Arc<Vec<crate::uefi::Setting>>>,
     tree: Option<Arc<Vec<crate::uefi::FormNode>>>,
+    boot: Option<Arc<Vec<crate::uefi::BootEntry>>>,
     selected_form: Option<&str>,
     changed_only: bool,
     scroll: UniformListScrollHandle,
@@ -97,6 +101,7 @@ pub(super) fn bios_pane(
         },
     );
     let items = build_items(&settings, &visible);
+    let has_boot = boot.as_ref().is_some_and(|b| !b.is_empty());
     let weak = cx.entity().downgrade();
 
     col = col
@@ -140,7 +145,8 @@ pub(super) fn bios_pane(
                 .child(legend()),
         )
         .child(
-            // Split: menu navigator on the left, settings on the right.
+            // Split: menu navigator on the left, settings (or the boot
+            // list) on the right.
             div()
                 .flex_1()
                 .min_h(px(0.0))
@@ -148,9 +154,13 @@ pub(super) fn bios_pane(
                 .flex_row()
                 .gap_3()
                 .when_some(tree.filter(|t| !t.is_empty()), |row, t| {
-                    row.child(navigator(t, selected_form, nav_scroll, weak))
+                    row.child(navigator(t, has_boot, selected_form, nav_scroll, weak))
                 })
-                .child(settings_list(settings, items, scroll)),
+                .child(if selected_form == Some(BOOT_VIEW) {
+                    boot_panel(boot).into_any_element()
+                } else {
+                    settings_list(settings, items, scroll).into_any_element()
+                }),
         );
 
     col
@@ -160,13 +170,25 @@ pub(super) fn bios_pane(
 /// click target that scopes the settings list to that form.
 fn navigator(
     tree: Arc<Vec<crate::uefi::FormNode>>,
+    has_boot: bool,
     selected: Option<&str>,
     nav_scroll: UniformListScrollHandle,
     weak: WeakEntity<AppView>,
 ) -> impl IntoElement {
+    // Build the flat row list: optional "Boot order", then "All
+    // settings", then the indented form tree. `target` is the value
+    // passed to select_bios_form (None = all, sentinel = boot).
+    let mut rows: Vec<(usize, String, Option<usize>, Option<String>)> = Vec::new();
+    if has_boot {
+        rows.push((0, "Boot order".into(), None, Some(BOOT_VIEW.into())));
+    }
+    rows.push((0, "All settings".into(), None, None));
     let mut flat: Vec<(usize, String, usize)> = Vec::new();
     flatten_tree(&tree, 0, &mut flat);
-    let flat = Arc::new(flat);
+    for (d, t, c) in flat {
+        rows.push((d + 1, t.clone(), Some(c), Some(t)));
+    }
+    let rows = Arc::new(rows);
     let selected = selected.map(|s| s.to_string());
 
     div()
@@ -180,17 +202,10 @@ fn navigator(
         .bg(theme::bench_black())
         .overflow_hidden()
         .child(
-            uniform_list("bios-nav", flat.len() + 1, move |range, _, _| {
+            uniform_list("bios-nav", rows.len(), move |range, _, _| {
                 range
                     .map(|i| {
-                        // Row 0 is the "All settings" reset; the rest are
-                        // forms, indented one extra level under it.
-                        let (depth, label, count, target) = if i == 0 {
-                            (0usize, "All settings".to_string(), None, None)
-                        } else {
-                            let (d, t, c) = &flat[i - 1];
-                            (*d + 1, t.clone(), Some(*c), Some(t.clone()))
-                        };
+                        let (depth, label, count, target) = rows[i].clone();
                         let is_sel = match (&selected, &target) {
                             (None, None) => true,
                             (Some(s), Some(t)) => s == t,
@@ -260,6 +275,90 @@ fn flatten_tree(
         out.push((depth, n.title.clone(), n.setting_count));
         flatten_tree(&n.children, depth + 1, out);
     }
+}
+
+/// The boot-order view shown when the navigator's "Boot order" entry
+/// is selected: the decoded `BootOrder` in menu order.
+fn boot_panel(boot: Option<Arc<Vec<crate::uefi::BootEntry>>>) -> impl IntoElement {
+    let entries = boot.map(|b| (*b).clone()).unwrap_or_default();
+    let mut inner = div().flex().flex_col().gap_1().px_3().py_2();
+    for (i, e) in entries.iter().enumerate() {
+        let color = if e.active {
+            theme::text_primary()
+        } else {
+            theme::text_tertiary()
+        };
+        let mut row = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_3()
+            .h(px(28.0))
+            .whitespace_nowrap()
+            .child(
+                div()
+                    .w(px(24.0))
+                    .flex_shrink_0()
+                    .text_color(theme::text_tertiary())
+                    .child(format!("{}.", i + 1)),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .text_color(color)
+                    .child(e.description.clone()),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .font_family(theme::MONO_FONT)
+                    .text_size(px(11.0))
+                    .text_color(theme::text_tertiary())
+                    .child(e.slot.clone()),
+            );
+        if !e.active {
+            row = row.child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(px(11.0))
+                    .text_color(theme::caution_red())
+                    .child("inactive"),
+            );
+        }
+        inner = inner.child(row);
+    }
+
+    div()
+        .flex_1()
+        .min_h(px(0.0))
+        .flex()
+        .flex_col()
+        .border_1()
+        .border_color(theme::workshop_glass_strong())
+        .rounded(px(6.0))
+        .bg(theme::bench_black())
+        .overflow_hidden()
+        .child(
+            div()
+                .px_3()
+                .py_2()
+                .bg(theme::workshop_glass())
+                .border_b_1()
+                .border_color(theme::workshop_glass_strong())
+                .text_size(px(11.0))
+                .text_color(theme::text_tertiary())
+                .child("BOOT ORDER"),
+        )
+        .child(
+            div()
+                .id("bios-boot-list")
+                .flex_1()
+                .min_h(px(0.0))
+                .overflow_y_scroll()
+                .child(inner),
+        )
 }
 
 /// Colour key for the value column, shown beside the count.

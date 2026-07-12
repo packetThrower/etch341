@@ -59,11 +59,76 @@ pub struct FormNode {
     pub children: Vec<FormNode>,
 }
 
-/// Everything resolved from an image: the flat settings plus the menu
-/// tree that organises them.
+/// One boot menu entry, decoded from a `Boot####` load-option variable
+/// in the order given by `BootOrder`.
+#[derive(Clone, Serialize)]
+pub struct BootEntry {
+    /// The variable slot, e.g. "Boot0001".
+    pub slot: String,
+    /// Human description ("UEFI: Kingston…", "Windows Boot Manager").
+    pub description: String,
+    /// LOAD_OPTION_ACTIVE — whether the entry is enabled in the menu.
+    pub active: bool,
+}
+
+/// Everything resolved from an image: the flat settings, the menu tree
+/// that organises them, and the decoded boot order.
 pub struct Model {
     pub settings: Vec<Setting>,
     pub tree: Vec<FormNode>,
+    pub boot: Vec<BootEntry>,
+}
+
+/// Decode the UEFI boot menu: `BootOrder` (an array of u16 option
+/// numbers) resolved against each `Boot####` load-option variable.
+/// Empty when the image has no boot variables.
+pub fn boot_order(image: &[u8]) -> Vec<BootEntry> {
+    boot_from_nvram(&nvram::parse(image))
+}
+
+fn boot_from_nvram(nvram: &HashMap<String, Vec<u8>>) -> Vec<BootEntry> {
+    let Some(order) = nvram.get("BootOrder") else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for chunk in order.chunks_exact(2) {
+        let num = u16::from_le_bytes([chunk[0], chunk[1]]);
+        let slot = format!("Boot{num:04X}");
+        if let Some(data) = nvram.get(&slot)
+            && let Some(entry) = parse_load_option(&slot, data)
+        {
+            out.push(entry);
+        }
+    }
+    out
+}
+
+/// EFI_LOAD_OPTION: Attributes(u32) FilePathListLength(u16)
+/// Description(UCS-2, NUL-terminated) FilePathList[] OptionalData[].
+/// We surface the description + active flag; decoding the device path
+/// into a readable form is a later refinement.
+fn parse_load_option(slot: &str, data: &[u8]) -> Option<BootEntry> {
+    if data.len() < 6 {
+        return None;
+    }
+    let attrs = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let active = attrs & 0x0000_0001 != 0;
+    let description = ucs2_z(&data[6..]);
+    Some(BootEntry {
+        slot: slot.to_string(),
+        description,
+        active,
+    })
+}
+
+/// Decode a NUL-terminated little-endian UCS-2 string.
+fn ucs2_z(b: &[u8]) -> String {
+    let units: Vec<u16> = b
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .take_while(|&u| u != 0)
+        .collect();
+    String::from_utf16_lossy(&units)
 }
 
 /// Parse an image and return every Setup setting we can resolve.
@@ -254,7 +319,12 @@ pub fn extract_model(image: &[u8]) -> Model {
         }
     }
 
-    Model { settings, tree }
+    let boot = boot_from_nvram(&nvram);
+    Model {
+        settings,
+        tree,
+        boot,
+    }
 }
 
 /// Build a menu node and its descendants, guarding against cycles and

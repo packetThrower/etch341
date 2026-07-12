@@ -139,6 +139,16 @@ pub enum BiosAction {
     /// Compare the Setup settings of two BIOS dumps, printing only the
     /// options whose current value differs (or exist in just one).
     Diff(BiosDiffArgs),
+    /// Decode the UEFI boot menu (BootOrder + Boot#### load options)
+    /// into a readable, ordered list.
+    Boot(BiosBootArgs),
+}
+
+#[derive(Args)]
+pub struct BiosBootArgs {
+    /// BIOS image file (a full flash dump).
+    #[arg(short = 'i', long)]
+    pub input: std::path::PathBuf,
 }
 
 #[derive(Args)]
@@ -816,6 +826,23 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 use std::io::Write;
                 std::io::stdout().flush().ok();
                 std::process::exit(1); // differ → exit 1, like diff(1)
+            }
+            BiosAction::Boot(args) => {
+                let bytes = std::fs::read(&args.input)?;
+                let boot = crate::uefi::boot_order(&bytes);
+                if boot.is_empty() {
+                    eprintln!(
+                        "No boot order found (no BootOrder variable in {}).",
+                        args.input.display()
+                    );
+                    return Ok(());
+                }
+                println!("Boot order:");
+                for (i, e) in boot.iter().enumerate() {
+                    let flag = if e.active { "" } else { "  (inactive)" };
+                    println!("  {}. {}  [{}]{flag}", i + 1, e.description, e.slot);
+                }
+                Ok(())
             }
         },
     }

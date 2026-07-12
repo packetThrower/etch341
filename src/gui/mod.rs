@@ -636,6 +636,8 @@ pub struct AppView {
     pub bios_settings: Option<Arc<Vec<crate::uefi::Setting>>>,
     /// Menu tree (form → sub-forms) for the drill-down navigator.
     pub bios_tree: Option<Arc<Vec<crate::uefi::FormNode>>>,
+    /// Decoded boot order, shown via the navigator's "Boot order" entry.
+    pub bios_boot: Option<Arc<Vec<crate::uefi::BootEntry>>>,
     /// Selected form in the navigator; `None` shows every setting.
     pub bios_selected_form: Option<String>,
     /// When true, the settings list shows only changed-from-default rows.
@@ -772,6 +774,7 @@ impl AppView {
             bios_input_path: None,
             bios_settings: None,
             bios_tree: None,
+            bios_boot: None,
             bios_selected_form: None,
             bios_changed_only: false,
             bios_scroll: UniformListScrollHandle::new(),
@@ -1246,6 +1249,7 @@ impl Render for AppView {
                                     bios_path: self.bios_input_path.as_deref(),
                                     bios_settings: self.bios_settings.clone(),
                                     bios_tree: self.bios_tree.clone(),
+                                    bios_boot: self.bios_boot.clone(),
                                     bios_selected_form: self.bios_selected_form.as_deref(),
                                     bios_changed_only: self.bios_changed_only,
                                     bios_scroll: self.bios_scroll.clone(),
