@@ -40,8 +40,21 @@ actions!(
         Quit,
         About,
         OpenBios,
+        // Run the current bus's identify op: Detect (SPI) or Scan (I²C).
+        Identify,
     ]
 );
+
+/// Navigate to a pane (menu item or shortcut). Carries the target so a
+/// single action covers every destination.
+#[derive(Clone, PartialEq, Eq, Debug, serde::Deserialize, gpui::Action)]
+#[action(namespace = etch341, no_json)]
+pub struct Navigate(pub Pane);
+
+/// Switch the active bus (View menu radio items).
+#[derive(Clone, PartialEq, Eq, Debug, serde::Deserialize, gpui::Action)]
+#[action(namespace = etch341, no_json)]
+pub struct SetBus(pub Bus);
 
 /// Best-effort topmost-visible row for a uniform list. Returns 0 if
 /// neither signal is available (fresh handle, never rendered).
@@ -292,7 +305,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
 pub enum Pane {
     Detect,
     Read,
@@ -318,7 +331,7 @@ pub enum Pane {
 /// swaps the workflow: SPI shows Detect/Read/Erase/Write/Verify plus
 /// the SPI-only diagnostics; I²C shows Scan/Read/Write/Verify/Erase/
 /// Blank-check. The CH341 opens in the matching mode per-op.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Deserialize)]
 pub enum Bus {
     #[default]
     Spi,
@@ -331,6 +344,18 @@ impl Pane {
         match bus {
             Bus::Spi => Pane::Detect,
             Bus::I2c => Pane::I2cScan,
+        }
+    }
+
+    /// The bus a pane belongs to, or `None` for bus-independent panes
+    /// (Hex / BIOS / Settings). Used to keep the sidebar's bus in sync
+    /// when a menu navigates straight to a pane.
+    pub fn bus(self) -> Option<Bus> {
+        use Pane::*;
+        match self {
+            Detect | Read | Erase | Write | Verify | Blank | Status | Otp => Some(Bus::Spi),
+            I2cScan | I2cRead | I2cWrite | I2cVerify | I2cErase | I2cBlank => Some(Bus::I2c),
+            Hex | Bios | Settings => None,
         }
     }
 }
@@ -1057,7 +1082,32 @@ impl AppView {
         // Drop any stored verify diff so the other bus's Verify pane
         // doesn't surface a stale "View diff in Hex" button.
         self.verify_diff = None;
+        self.refresh_menus(cx);
         cx.notify();
+    }
+
+    /// Navigate straight to a pane (from a menu item or shortcut),
+    /// syncing the bus so the sidebar workflow matches. Mirrors the
+    /// sidebar's own click behaviour (disarm on change).
+    pub fn goto_pane(&mut self, pane: Pane, cx: &mut Context<Self>) {
+        if self.selected != pane {
+            self.disarm_all();
+        }
+        if let Some(b) = pane.bus()
+            && self.bus != b
+        {
+            self.bus = b;
+            self.refresh_menus(cx);
+        }
+        self.selected = pane;
+        cx.notify();
+    }
+
+    /// Rebuild the OS / in-window menus to reflect the current bus
+    /// (Actions-menu contents + the View-menu SPI/I²C radio state).
+    fn refresh_menus(&mut self, cx: &mut Context<Self>) {
+        menus::publish(cx, self.bus);
+        self.app_menu_bar.update(cx, |bar, cx| bar.reload(cx));
     }
 
     /// Reset every armed destructive trigger (SPI + OTP + I²C). Called
@@ -1226,6 +1276,18 @@ impl Render for AppView {
                 ));
                 cx.notify();
             }))
+            .on_action(cx.listener(|this: &mut AppView, nav: &Navigate, _, cx| {
+                this.goto_pane(nav.0, cx);
+            }))
+            .on_action(cx.listener(|this: &mut AppView, sb: &SetBus, _, cx| {
+                this.set_bus(sb.0, cx);
+            }))
+            .on_action(
+                cx.listener(|this: &mut AppView, _: &Identify, _, cx| match this.bus {
+                    Bus::Spi => this.refresh_detect(cx),
+                    Bus::I2c => this.start_i2c_scan(cx),
+                }),
+            )
             .child({
                 // macOS uses the native menu bar; Windows/Linux get the
                 // in-window bar embedded on the left of the title bar.

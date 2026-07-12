@@ -9,13 +9,19 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ### Added
 
-- **Application menus (all platforms)** — a proper File / Edit / app
-  menu with keyboard shortcuts, including **Cmd/Ctrl+Q to quit** (the
-  app previously had no Quit affordance). macOS gets a native menu bar;
+- **Application menus (all platforms)** — a proper menu bar with
+  keyboard shortcuts, including **Cmd/Ctrl+Q to quit** (the app
+  previously had no Quit affordance). macOS gets a native menu bar;
   Windows and Linux get an in-window menu bar in the title bar (as Zed
-  does, since those platforms have no OS menu bar). Items: Open BIOS
-  Image… (Cmd/Ctrl+O), Copy Selection, Find / Find Next / Find
-  Previous, About, Quit. GUI-only by nature.
+  does, since those platforms have no OS menu bar). Menus: **etch341**
+  (About, Settings… Cmd/Ctrl+,, Quit), **File** (Open BIOS Image…
+  Cmd/Ctrl+O), **Edit** (Copy Selection, Find / Find Next / Find
+  Previous), **View** (SPI/I²C mode radio, Hex Viewer, BIOS Explorer),
+  and a bus-aware **Actions** menu that lists the current bus's
+  operations — Detect Chip (Cmd/Ctrl+D) / Read / Erase / Write / Verify
+  / Blank Check / Status / OTP on SPI, or Scan Bus / Read / Erase /
+  Write / Verify / Blank Check on I²C — rebuilding when the bus toggles.
+  GUI-only by nature.
 
 - **Intel Flash Descriptor (IFD) parsing** — `etch341 ifd -i <dump>`
   reads the descriptor at the start of an Intel-chipset flash and
