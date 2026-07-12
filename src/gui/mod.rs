@@ -9,6 +9,7 @@ use gpui::{
 use gpui_component::{
     Root, Theme, ThemeMode, TitleBar,
     input::{InputEvent, InputState},
+    menu::AppMenuBar,
     resizable::{resizable_panel, v_resizable},
     select::SelectState,
 };
@@ -35,6 +36,10 @@ actions!(
         HexZoomIn,
         HexZoomOut,
         HexZoomReset,
+        // Menu-driven actions (File / Edit / app menu).
+        Quit,
+        About,
+        OpenBios,
     ]
 );
 
@@ -90,6 +95,7 @@ mod bios_diff;
 mod chipdb_browser;
 mod header;
 mod log;
+mod menus;
 mod panes;
 mod sidebar;
 mod theme;
@@ -156,6 +162,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             KeyBinding::new("ctrl--", HexZoomOut, None),
             KeyBinding::new("ctrl-0", HexZoomReset, None),
         ]);
+
+        // Install the File/Edit/app menus (native bar on macOS, in-window
+        // bar on Windows/Linux) after every key binding above so each
+        // menu item shows its accelerator. Also binds Cmd/Ctrl+Q → Quit.
+        menus::install(cx);
 
         // Load prefs once up front so we can honour
         // `restore_window_bounds` at open time. Loaded again inside
@@ -670,6 +681,10 @@ pub struct AppView {
     /// on startup gives global shortcuts (Cmd+F, Cmd+G) somewhere to
     /// land.
     pub focus_handle: FocusHandle,
+    /// In-window menu bar for Windows/Linux (unused on macOS, which has
+    /// a native menu bar). Reads the menu tree published by `menus`.
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
+    app_menu_bar: Entity<AppMenuBar>,
 }
 
 impl AppView {
@@ -792,6 +807,9 @@ impl AppView {
             progress: Arc::new(SharedProgress::default()),
             prefs: Prefs::load(),
             focus_handle: cx.focus_handle(),
+            // Menus were published in `menus::install` before the window
+            // opened, so the bar picks them up on construction.
+            app_menu_bar: AppMenuBar::new(cx),
         }
     }
 
@@ -1195,7 +1213,32 @@ impl Render for AppView {
             .on_action(cx.listener(|this: &mut AppView, _: &HexZoomReset, _, cx| {
                 this.hex_zoom_reset(cx);
             }))
-            .child(TitleBar::new())
+            .on_action(cx.listener(|this: &mut AppView, _: &OpenBios, _, cx| {
+                this.selected = Pane::Bios;
+                this.pick_bios_file(cx);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this: &mut AppView, _: &About, _, cx| {
+                this.push_log(format!(
+                    "etch341 v{} — {}",
+                    env!("CARGO_PKG_VERSION"),
+                    env!("CARGO_PKG_HOMEPAGE"),
+                ));
+                cx.notify();
+            }))
+            .child({
+                // macOS uses the native menu bar; Windows/Linux get the
+                // in-window bar embedded on the left of the title bar.
+                let title_bar = TitleBar::new();
+                #[cfg(not(target_os = "macos"))]
+                let title_bar = title_bar.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .child(self.app_menu_bar.clone()),
+                );
+                title_bar
+            })
             .child(
                 div()
                     .flex()

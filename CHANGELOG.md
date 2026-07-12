@@ -9,6 +9,14 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ### Added
 
+- **Application menus (all platforms)** — a proper File / Edit / app
+  menu with keyboard shortcuts, including **Cmd/Ctrl+Q to quit** (the
+  app previously had no Quit affordance). macOS gets a native menu bar;
+  Windows and Linux get an in-window menu bar in the title bar (as Zed
+  does, since those platforms have no OS menu bar). Items: Open BIOS
+  Image… (Cmd/Ctrl+O), Copy Selection, Find / Find Next / Find
+  Previous, About, Quit. GUI-only by nature.
+
 - **Intel Flash Descriptor (IFD) parsing** — `etch341 ifd -i <dump>`
   reads the descriptor at the start of an Intel-chipset flash and
   prints the region map (Descriptor / BIOS / ME / GbE …) with exact
