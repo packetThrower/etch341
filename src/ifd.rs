@@ -181,7 +181,10 @@ mod tests {
         assert_eq!(ifd.regions.len(), 3);
         assert_eq!(ifd.regions[0].name, "Flash Descriptor");
         assert_eq!(ifd.regions[1].name, "BIOS");
-        assert_eq!((ifd.regions[1].base, ifd.regions[1].limit), (0x40_0000, 0x7f_ffff));
+        assert_eq!(
+            (ifd.regions[1].base, ifd.regions[1].limit),
+            (0x40_0000, 0x7f_ffff)
+        );
         assert_eq!(ifd.regions[1].size(), 0x40_0000);
         assert_eq!(ifd.regions[2].name, "Intel ME");
         assert_eq!(ifd.density_bytes, Some(8 << 20));

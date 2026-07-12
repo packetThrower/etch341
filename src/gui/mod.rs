@@ -1293,12 +1293,8 @@ impl Render for AppView {
                 // in-window bar embedded on the left of the title bar.
                 let title_bar = TitleBar::new();
                 #[cfg(not(target_os = "macos"))]
-                let title_bar = title_bar.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .child(self.app_menu_bar.clone()),
-                );
+                let title_bar =
+                    title_bar.child(div().flex().items_center().child(self.app_menu_bar.clone()));
                 title_bar
             })
             .child(
