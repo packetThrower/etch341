@@ -143,6 +143,55 @@ priority order.
       to need per-vendor handling. Applies only to real UEFI BIOS
       images (8-32 MB Intel-platform chips with FVs) — not MCU / EC
       firmware. ~2-4 days for a first vendor (AMI), more to broaden.
+- [ ] **UEFI Setup explorer — read-side enhancements** — the explorer
+      above works but is a flat, AMI-only, current-value-only view.
+      Ranked by value:
+      - **Form hierarchy instead of a flat list.** We parse
+        `FORMSET`/`FORM` but discard the tree, flattening ~3000 rows.
+        Keep the structure → menu grouping + breadcrumbs (Advanced →
+        CPU Config → …), so a setting reads in context. Data's already
+        there; we're throwing it away. *(highest UX win)*
+      - **Current vs. default.** IFR carries `Default` opcodes (factory
+        / standard). Show current-vs-default + a "changed only" filter
+        — tells you what was actually customised on this board. Low
+        effort, we already parse the store. *(highest info win)*
+      - **`$VSS` / standard EDK2 variable store.** We only do AMI NVAR;
+        `$VSS` (GUID+name+data) is the standard format used by Insyde /
+        Phoenix and EDK2-NVRAM AMI builds. Adding it roughly doubles
+        the boards that resolve live values. *(biggest coverage gap)*
+      - **Export + diff.** Dump settings to JSON/CSV and diff two BIOS
+        configs ("what differs from a known-good board"). Feeds the
+        existing diff feature; real fleet/repair workflow.
+      - **Boot-order decode.** `BootOrder`/`Boot####` + `LegacyDevOrder`
+        /BBS are read raw today; decode `EFI_LOAD_OPTION` + device
+        paths into readable entries ("UEFI: Kingston…").
+      Marginal (only if asked): more IFR opcodes (`String` /
+      `OrderedList` / `Date` / `Time`, numeric min/max/step in the
+      tooltip; `Password` stays skipped — it's a hash); IFR condition
+      *evaluation* (resolve suppress/grayout instead of just flagging
+      "conditional" — real work, mostly cosmetic for a read tool);
+      SMBIOS/DMI decode for clean board/BIOS identity (adjacent to the
+      flash-descriptor item). YAGNI: per-language string tables,
+      NameValue varstores, NVAR delta-update chains.
+      Out of scope: **pre-UEFI legacy BIOS** (Award / AMIBIOS /
+      Phoenix, no FV/IFR/HII) — bespoke per-vendor blobs for obsolete
+      hardware; leave those to the Hex viewer + `strings`. Note that
+      *legacy options inside a UEFI BIOS* (CSM, Legacy USB, OpROM
+      policy, BBS order) are already covered — they're ordinary IFR
+      questions.
+- [ ] **Vendor the EFI/Tiano decompressor** — `mu_uefi_decompress`
+      (Microsoft `mu_rust_helpers`) is deprecated; the umbrella repo
+      recommends the Patina SDK (issue #107). Do **not** switch to
+      `patina`: it's a 23-dep firmware-*development* SDK (serial /
+      MMIO / spinlock drivers, v22) for building UEFI firmware in Rust
+      — wrong domain for one `decompress()` call, and it doesn't even
+      expose decompression. The current crate is fine short-term: not
+      yanked, Cargo.lock-pinned, and EFI/Tiano decompress is a frozen
+      ~20-year spec that will never need updates. The clean long-term
+      move (for the planned MIT `src/uefi/` crate extraction) is to
+      vendor a ~250-line pure-Rust EFI/Tiano decoder (port of EDK2
+      `Decompress.c`), so the crate carries zero deprecated /
+      BSD-2-Patent deps. Revisit sooner only if the crate is yanked.
 - [ ] **UEFI Setup *write* + reflash** — the editing half of the
       explorer above: toggle a setting, recompute the Setup
       variable's checksum / store integrity, repack, write back.
