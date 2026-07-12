@@ -626,6 +626,12 @@ fn setting_row(s: &crate::uefi::Setting, virtual_i: usize) -> impl IntoElement +
         }
         tip.push_str(&format!("Choices: {}", choices.join(" / ")));
     }
+    if let Some((min, max, step)) = s.range {
+        if !tip.is_empty() {
+            tip.push_str("\n\n");
+        }
+        tip.push_str(&format!("Range: {min}–{max}, step {step}"));
+    }
     if changed {
         let def = match (&s.default_label, s.default_value) {
             (Some(d), _) => d.clone(),

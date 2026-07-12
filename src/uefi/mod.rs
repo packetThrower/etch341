@@ -47,6 +47,8 @@ pub struct Setting {
     /// `Some(true)` when the current value differs from the default,
     /// `Some(false)` when it matches, `None` when either is unknown.
     pub changed: Option<bool>,
+    /// (min, max, step) for a Numeric setting.
+    pub range: Option<(u64, u64, u64)>,
     /// True when the firmware may hide/lock it (suppress/grayout scope).
     pub conditional: bool,
 }
@@ -369,6 +371,7 @@ pub fn extract_model(image: &[u8]) -> Model {
                 default_value: q.default_value,
                 default_label,
                 changed,
+                range: q.range,
                 conditional: q.conditional,
             });
         }
@@ -633,6 +636,7 @@ mod tests {
             default_value: None,
             default_label: None,
             changed: None,
+            range: None,
             conditional: false,
         }
     }

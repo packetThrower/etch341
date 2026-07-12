@@ -62,6 +62,8 @@ pub struct Question {
     pub options: Vec<(u64, u16)>,
     /// The standard/factory default value, when the form declares one.
     pub default_value: Option<u64>,
+    /// (min, max, step) for a Numeric question, from its MINMAXSTEP data.
+    pub range: Option<(u64, u64, u64)>,
     /// True when nested inside a suppress_if / grayout_if / disable_if
     /// scope, i.e. the firmware may hide or lock it at runtime. We
     /// record the flag but do not evaluate the condition.
@@ -315,6 +317,24 @@ fn parse_question(body: &[u8], opcode: u8, conditional: bool) -> Option<Question
         OP_ORDERED_LIST => (QKind::OrderedList, *body.get(12)?, None),
         _ => return None,
     };
+    // Numeric MINMAXSTEP (min, max, step) sits at body offset 14 in this
+    // build — after Flags(12) plus a one-byte field (the same +1 quirk
+    // as REF's FormId at 13, verified empirically: offset 13 yields
+    // min > max nonsense, offset 14 yields clean ranges). Only kept when
+    // it's a real range (min < max); many numerics carry filler here.
+    let range = if opcode == OP_NUMERIC {
+        let w = width as usize;
+        match (
+            read_uint(body, 14, w),
+            read_uint(body, 14 + w, w),
+            read_uint(body, 14 + 2 * w, w),
+        ) {
+            (Some(min), Some(max), Some(step)) if min < max => Some((min, max, step)),
+            _ => None,
+        }
+    } else {
+        None
+    };
     Some(Question {
         prompt_id,
         help_id,
@@ -324,10 +344,19 @@ fn parse_question(body: &[u8], opcode: u8, conditional: bool) -> Option<Question
         kind,
         options: Vec::new(),
         default_value,
+        range,
         conditional,
         form_title_id: 0,
         formset_title_id: 0,
     })
+}
+
+/// Read a little-endian unsigned integer of `width` (1/2/4/8) bytes.
+fn read_uint(b: &[u8], off: usize, width: usize) -> Option<u64> {
+    let s = b.get(off..off + width)?;
+    let mut v = [0u8; 8];
+    v[..width].copy_from_slice(s);
+    Some(u64::from_le_bytes(v))
 }
 
 /// EFI_IFR_ONE_OF_OPTION: option(u16) flags(u8) type(u8) value(...).
@@ -518,5 +547,44 @@ mod tests {
         let data = parse(&s);
         assert_eq!(data.forms.len(), 2);
         assert_eq!(data.links, vec![(1, 2)]);
+    }
+
+    #[test]
+    fn parses_numeric_range() {
+        // width-1 numeric; MINMAXSTEP sits at body offset 14 (Flags at
+        // 12 + a one-byte field at 13). len = 2+10+1+1+3 = 17.
+        let mut n = op_header(OP_NUMERIC, 17, false).to_vec();
+        n.extend_from_slice(&100u16.to_le_bytes()); // prompt
+        n.extend_from_slice(&101u16.to_le_bytes()); // help
+        n.extend_from_slice(&5u16.to_le_bytes()); // qid
+        n.extend_from_slice(&1u16.to_le_bytes()); // varstore id
+        n.extend_from_slice(&0x20u16.to_le_bytes()); // offset
+        n.push(0); // flags @12 (size 0 → width 1)
+        n.push(0); // filler @13
+        n.push(2); // min @14
+        n.push(50); // max @15
+        n.push(1); // step @16
+
+        let mut s = op_header(OP_FORM_SET, 23, true).to_vec();
+        s.extend_from_slice(&[0x11; 16]);
+        s.extend_from_slice(&[0, 0, 0, 0, 0]);
+        s.extend_from_slice(&n);
+        s.extend_from_slice(&op_header(OP_END, 2, false));
+
+        let data = parse(&s);
+        assert_eq!(data.questions.len(), 1);
+        assert_eq!(data.questions[0].kind, QKind::Numeric);
+        assert_eq!(data.questions[0].range, Some((2, 50, 1)));
+
+        // A degenerate range (min >= max) is dropped.
+        let mut n2 = n.clone();
+        n2[14] = 50;
+        n2[15] = 2; // min 50 > max 2
+        let mut s2 = op_header(OP_FORM_SET, 23, true).to_vec();
+        s2.extend_from_slice(&[0x11; 16]);
+        s2.extend_from_slice(&[0, 0, 0, 0, 0]);
+        s2.extend_from_slice(&n2);
+        s2.extend_from_slice(&op_header(OP_END, 2, false));
+        assert_eq!(parse(&s2).questions[0].range, None);
     }
 }

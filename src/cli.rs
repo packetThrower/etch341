@@ -943,10 +943,12 @@ fn print_bios_settings(settings: &[crate::uefi::Setting]) {
             .map(|(_, l)| l.as_str())
             .filter(|l| !l.is_empty())
             .collect();
-        let choices = if choices.is_empty() {
-            String::new()
-        } else {
+        let choices = if !choices.is_empty() {
             format!("  [{}]", choices.join(" / "))
+        } else if let Some((min, max, step)) = s.range {
+            format!("  [{min}–{max}, step {step}]")
+        } else {
+            String::new()
         };
         let flag = if s.conditional { " *" } else { "" };
         // Call out settings changed from their default, showing the
