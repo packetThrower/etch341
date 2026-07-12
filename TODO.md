@@ -143,28 +143,28 @@ priority order.
       to need per-vendor handling. Applies only to real UEFI BIOS
       images (8-32 MB Intel-platform chips with FVs) — not MCU / EC
       firmware. ~2-4 days for a first vendor (AMI), more to broaden.
-- [ ] **UEFI Setup explorer — read-side enhancements** — the explorer
-      above works but is a flat, AMI-only, current-value-only view.
-      Ranked by value:
-      - **Form hierarchy instead of a flat list.** We parse
-        `FORMSET`/`FORM` but discard the tree, flattening ~3000 rows.
-        Keep the structure → menu grouping + breadcrumbs (Advanced →
-        CPU Config → …), so a setting reads in context. Data's already
-        there; we're throwing it away. *(highest UX win)*
-      - **Current vs. default.** IFR carries `Default` opcodes (factory
-        / standard). Show current-vs-default + a "changed only" filter
-        — tells you what was actually customised on this board. Low
-        effort, we already parse the store. *(highest info win)*
-      - **`$VSS` / standard EDK2 variable store.** We only do AMI NVAR;
-        `$VSS` (GUID+name+data) is the standard format used by Insyde /
-        Phoenix and EDK2-NVRAM AMI builds. Adding it roughly doubles
-        the boards that resolve live values. *(biggest coverage gap)*
-      - **Export + diff.** Dump settings to JSON/CSV and diff two BIOS
-        configs ("what differs from a known-good board"). Feeds the
-        existing diff feature; real fleet/repair workflow.
-      - **Boot-order decode.** `BootOrder`/`Boot####` + `LegacyDevOrder`
-        /BBS are read raw today; decode `EFI_LOAD_OPTION` + device
-        paths into readable entries ("UEFI: Kingston…").
+- [ ] **UEFI Setup explorer — read-side enhancements** — ranked by
+      value; three done, two left:
+      - [x] **Form hierarchy + drill-down navigator.** DONE — IFR
+        FORM/FORMSET + REF links build the menu tree; CLI groups by
+        form, GUI has a left navigator that scopes the list. (Also
+        fixed OP_DISABLE_IF, which was mis-set to REF's opcode.)
+      - [x] **Current vs. default.** DONE — parse `EFI_IFR_DEFAULT` +
+        option/checkbox default flags; `--changed` (CLI) and a
+        "Changed only" toggle + amber markers + legend (GUI).
+      - [x] **Export + diff.** DONE — `bios settings --json`, GUI
+        "Export JSON…", and `bios diff -a X -b Y` (CLI). *GUI two-dump
+        settings-diff still TODO for full parity.*
+      - [ ] **`$VSS` / standard EDK2 variable store.** We only do AMI
+        NVAR; `$VSS` (GUID+name+data) is the standard format used by
+        Insyde / Phoenix and EDK2-NVRAM AMI builds. Roughly doubles
+        board coverage. *BLOCKED on a test image* — every dump on hand
+        is AMI/NVAR (or non-UEFI); need an Insyde/Phoenix dump to build
+        it against rather than blind to spec. *(biggest coverage gap)*
+      - [ ] **Boot-order decode.** `BootOrder`/`Boot####` +
+        `LegacyDevOrder`/BBS are read raw today; decode
+        `EFI_LOAD_OPTION` + device paths into readable entries ("UEFI:
+        Kingston…"). Fully testable on the AMI dump.
       Marginal (only if asked): more IFR opcodes (`String` /
       `OrderedList` / `Date` / `Time`, numeric min/max/step in the
       tooltip; `Password` stays skipped — it's a hash); IFR condition
