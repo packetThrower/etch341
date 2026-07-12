@@ -47,6 +47,7 @@ mod diff;
 mod error;
 mod i2c;
 mod i2c_ops;
+mod ifd;
 mod inspect;
 mod ops;
 mod prefs;

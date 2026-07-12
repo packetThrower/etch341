@@ -127,6 +127,10 @@ pub enum Command {
         #[command(subcommand)]
         action: BiosAction,
     },
+    /// Parse the Intel Flash Descriptor from a full flash dump: region
+    /// map (Descriptor / BIOS / ME / GbE …), chip density, and per-master
+    /// read/write access + descriptor/ME lock state. Read-only, offline.
+    Ifd(BiosBootArgs),
 }
 
 #[derive(Subcommand)]
@@ -868,6 +872,88 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 Ok(())
             }
         },
+
+        Command::Ifd(args) => {
+            let bytes = std::fs::read(&args.input)?;
+            match crate::ifd::parse(&bytes) {
+                Some(ifd) => {
+                    print_ifd(&ifd, &args.input);
+                    Ok(())
+                }
+                None => {
+                    eprintln!(
+                        "No Intel Flash Descriptor in {} (signature 0x0FF0A55A absent \
+                         at offset 0x10 — not an Intel-chipset flash, or a BIOS-only \
+                         region dump without the descriptor).",
+                        args.input.display()
+                    );
+                    Ok(())
+                }
+            }
+        }
+    }
+}
+
+/// Print the parsed Intel Flash Descriptor: region map, density, and
+/// the master access matrix with a plain-language lock summary.
+fn print_ifd(ifd: &crate::ifd::Ifd, path: &std::path::Path) {
+    println!("Intel Flash Descriptor: {}", path.display());
+    if let Some(d) = ifd.density_bytes {
+        println!("  Flash size : {} (component density)", fmt_bytes(d));
+    }
+    println!("  Components : {}", ifd.components);
+    println!("  Regions:");
+    for r in &ifd.regions {
+        println!(
+            "    {:16} {:#08x} – {:#08x}  ({})",
+            r.name,
+            r.base,
+            r.limit,
+            fmt_bytes(r.size() as u64)
+        );
+    }
+    if !ifd.masters.is_empty() {
+        println!("  Access (master → writable regions):");
+        for m in &ifd.masters {
+            let regs: Vec<&str> = ifd
+                .regions
+                .iter()
+                .filter(|r| m.write & (1 << r.index) != 0)
+                .map(|r| r.name)
+                .collect();
+            let list = if regs.is_empty() {
+                "(none)".to_string()
+            } else {
+                regs.join(", ")
+            };
+            println!("    {:10} {list}", m.name);
+        }
+        // Lock summary: is the host/BIOS master kept out of the sensitive
+        // regions? That's the normal, secure state.
+        let desc = ifd.regions.iter().any(|r| r.index == 0);
+        let me = ifd.regions.iter().any(|r| r.index == 2);
+        if desc {
+            let locked = !ifd.bios_can_write(0);
+            println!(
+                "  Descriptor : {}",
+                if locked {
+                    "read-only to host (locked)"
+                } else {
+                    "host-writable (UNLOCKED)"
+                }
+            );
+        }
+        if me {
+            let locked = !ifd.bios_can_write(2);
+            println!(
+                "  Intel ME   : {}",
+                if locked {
+                    "not host-writable (protected)"
+                } else {
+                    "host-writable (UNLOCKED)"
+                }
+            );
+        }
     }
 }
 

@@ -9,6 +9,15 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ### Added
 
+- **Intel Flash Descriptor (IFD) parsing** — `etch341 ifd -i <dump>`
+  reads the descriptor at the start of an Intel-chipset flash and
+  prints the region map (Descriptor / BIOS / ME / GbE …) with exact
+  start/end/size, the component density (chip capacity), and the
+  per-master write-access matrix, plus a plain-language lock summary
+  (whether the host can write the Descriptor and ME regions). Offline,
+  read-only. CLI-only for now (no GUI pane yet). The master masks are
+  decoded with the classic pre-Skylake layout.
+
 - **UEFI BIOS Setup explorer (read-only)** — browse a BIOS dump's
   Setup options as a searchable, human-readable list: label, current
   value, and the choices behind each variable byte (e.g. "VT-d —

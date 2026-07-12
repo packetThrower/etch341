@@ -96,12 +96,14 @@ priority order.
       where touching the ME region risks bricking. ~5 hr
       including a layout-file parser, a region-overlay engine,
       and updated verify-after-partial-write semantics.
-- [ ] **IFD (Intel Flash Descriptor) parsing** — recognise the
-      magic header at offset 0x10 (`0x0FF0A55A`), parse the
-      descriptor, auto-derive region boundaries instead of
-      requiring a hand-written layout file. Built on top of the
-      region/layout work. Reports ME version, FD version, and
-      lock state. ~3-4 hr.
+- [x] **IFD (Intel Flash Descriptor) parsing** — DONE. `etch341 ifd
+      -i <dump>`: magic at 0x10, region map (Descriptor/BIOS/ME/GbE)
+      with start/end/size, component density, per-master write-access
+      matrix + Descriptor/ME lock summary. Verified on two Acer Insyde
+      dumps and the AMI dump. `src/ifd.rs`, standalone (no region-file
+      dependency). ME/FD *version* skipped — those live in the ME
+      region's FPT/manifest, a separate parser (YAGNI here). CLI-only;
+      GUI pane not added.
 - [ ] **Multi-chip on bus** (`--chip-select 1 / 2`) — pick between
       two SPI chips wired to the same CH341A on D0 vs an external
       GPIO. Useful for dual-BIOS motherboards. The standard
