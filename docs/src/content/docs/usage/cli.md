@@ -1,6 +1,6 @@
 ---
 title: CLI reference
-description: Every etch341 subcommand and global flag, with examples for detect / read / write / erase / verify / blank-check / i2c / chips / strings / search.
+description: Every etch341 subcommand and global flag, with examples for detect / read / write / erase / verify / blank-check / i2c / chips / strings / search / bios / ifd.
 editUrl: https://github.com/packetThrower/etch341/edit/main/docs/src/content/docs/usage/cli.md
 ---
 
@@ -140,6 +140,54 @@ form is even-length and all hex digits (so `55AA`, `55 AA`, and
 `DE AD BE EF` all become byte sequences). Anything else is ASCII.
 Matched bytes print in upper-case hex; surrounding context in
 lower-case for visual contrast.
+
+```sh
+etch341 diff old.bin new.bin                   # side-by-side hex diff of two dumps
+```
+
+`diff` prints only the differing regions of two files — red for the
+left, green for the right, with a couple of context lines around each
+run — and exits 1 on any difference (0 when identical), so it drops
+into scripts like `diff(1)`. The same view is available against live
+hardware with `verify --diff`.
+
+## Firmware inspection (UEFI / IFD)
+
+These also run offline, on a full flash dump, and decode its
+*structure* rather than its raw bytes.
+
+```sh
+etch341 bios settings -i dump.bin              # UEFI Setup options: label, value, choices
+etch341 bios settings -i dump.bin --find vt-d  # filter by label substring
+etch341 bios settings -i dump.bin --changed    # only options that differ from default
+etch341 bios settings -i dump.bin --json       # machine-readable output
+etch341 bios diff -a old.bin -b new.bin        # Setup options that changed between dumps
+etch341 bios boot -i dump.bin                  # decode BootOrder + Boot#### entries
+etch341 bios id   -i dump.bin                  # vendor / project / platform identity
+
+etch341 ifd -i dump.bin                        # Intel Flash Descriptor: region map + lock state
+```
+
+`bios` reconstructs the firmware Setup menu from a UEFI image: it walks
+the firmware volumes, decompresses the section trees (LZMA / EFI-Tiano /
+Insyde's type-2 LZMA), parses the IFR Setup-form bytecode and HII string
+packages, and joins them against the on-chip NVRAM store (AMI `NVAR` and
+the standard EDK2 `$VSS`) for live values. `bios settings` lists options
+grouped by menu page — the label, current value, and the choices behind
+each variable byte (e.g. `VT-d — Enabled; Disabled/Enabled`); options
+the firmware may hide or lock at runtime are marked. It is **read-only**:
+there is no Setup-write path. AMI Aptio is validated end-to-end; Insyde
+and Phoenix images parse, but their factory values only populate from a
+live chip dump (a BIOS *update* ships blank NVRAM). `bios diff` exits 1
+when the two dumps' Setup values differ, like `diff(1)`.
+
+`ifd` parses the Intel Flash Descriptor at the start of an
+Intel-chipset flash: the region layout (Descriptor / BIOS / ME / GbE /
+…) with exact offsets and sizes, the chip density, the per-master
+write-access matrix, and a plain-language lock summary (whether the
+host can write the Descriptor and ME regions). Worth a look before
+touching a modern Intel board, where writing the ME region can brick
+it. Descriptor-less or BIOS-region-only dumps report no descriptor.
 
 ## `--dry-run` examples
 

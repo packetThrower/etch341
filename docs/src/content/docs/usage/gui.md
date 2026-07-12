@@ -1,6 +1,6 @@
 ---
 title: GUI tour
-description: A walkthrough of etch341's desktop GUI — what's in each pane, how the hex viewer's Find bar works, and the chip-detect / read / write / verify flow.
+description: A walkthrough of etch341's desktop GUI — what's in each pane, the menu bar, the BIOS explorer, how the hex viewer's Find bar works, and the chip-detect / read / write / verify flow.
 editUrl: https://github.com/packetThrower/etch341/edit/main/docs/src/content/docs/usage/gui.md
 ---
 
@@ -22,8 +22,8 @@ The window is split into three regions:
   Read → Erase → Write → Verify); click any step at any time, no
   enforced ordering. Below a thin divider sit the inspection /
   diagnostic tools (**Blank check**, **Status regs**, **Security
-  regs**, **Hex viewer**), and **⚙ Settings** is pinned to the
-  bottom.
+  regs**, **Hex viewer**, **BIOS explorer**), and **⚙ Settings** is
+  pinned to the bottom.
 - **Main pane** (top right) — the current pane's controls and
   content.
 - **Activity log** (bottom) — chronological log of operations,
@@ -34,6 +34,29 @@ The window is split into three regions:
 
 The window's own size + position is also persisted, so it opens
 where you left it.
+
+## Menu bar
+
+etch341 has a full application menu. On **macOS** it's the native menu
+bar; on **Windows and Linux** the same menus render as an in-window bar
+in the title bar (those platforms have no OS-level menu bar).
+
+- **etch341** — About, **Settings…** (`Cmd/Ctrl+,`), **Quit**
+  (`Cmd/Ctrl+Q`).
+- **File** — **Open BIOS Image…** (`Cmd/Ctrl+O`) loads a dump straight
+  into the BIOS explorer.
+- **Edit** — Copy Selection, Find / Find Next / Find Previous (the same
+  hex-viewer shortcuts).
+- **View** — an **SPI / I²C** mode radio (mirrors the sidebar bus
+  toggle) plus quick jumps to the Hex viewer and BIOS explorer.
+- **Actions** — *bus-aware*: it lists the current bus's operations and
+  rebuilds when you switch buses. On SPI: **Detect Chip** (`Cmd/Ctrl+D`),
+  Read / Erase / Write / Verify, Blank Check, Status Registers, Security
+  / OTP. On I²C: **Scan Bus** (`Cmd/Ctrl+D`), Read / Erase / Write /
+  Verify, Blank Check. The identify item (Detect / Scan) runs
+  immediately; the destructive ops open their pane, where the file
+  pickers and arm/confirm step live, so nothing fires from a stray
+  keystroke.
 
 ## Header
 
@@ -156,6 +179,38 @@ clipboard. Cmd+C only fires when the Hex pane is the visible pane
 (Ctrl on Linux/Windows for all of the above.) The Hex and Strings
 views have independent font sizes — the shortcut zooms whichever is
 visible, and the sizes also have controls in Settings → Hex viewer.
+
+## BIOS explorer
+
+The **BIOS explorer** pane reads a UEFI BIOS dump and reconstructs the
+firmware Setup menu — the same view as the CLI's
+[`bios settings`](/etch341/usage/cli/#firmware-inspection-uefi--ifd),
+but browsable. Point it at a full flash dump (the file picker, or
+**File → Open BIOS Image…**) and it walks the firmware volumes,
+decompresses the section trees, and parses the IFR forms + HII strings.
+
+- A **navigator** on the left mirrors the firmware's menu hierarchy;
+  click a page to scope the list to it, or pick **All settings**.
+  A **Boot order** entry decodes `BootOrder` + the `Boot####` load
+  options when the dump has them.
+- Each row shows the option **label**, its **current value**, and the
+  **variable + offset** it lives at. Hover for the help text, the full
+  list of choices, the numeric range, and the changed-from-default
+  delta. A colour dot marks state — changed (amber), set (green), not
+  set (grey) — and a **✷** flags options the firmware may hide or lock.
+- The **filter** box narrows by label (e.g. `vt-d`), **Changed only**
+  hides defaults, **Export JSON…** saves the parsed settings, and
+  **Compare with…** opens a second dump in a side-by-side diff window
+  (A red / B green, grouped by menu page).
+- When the dump carries an **Intel Flash Descriptor**, a **Flash layout
+  (IFD)** strip appears with the region map (Descriptor / BIOS / ME /
+  GbE) — offsets, sizes, and a 🔒 / ⚠ lock badge on the Descriptor and
+  ME regions. This is the GUI form of [`etch341 ifd`](/etch341/usage/cli/#firmware-inspection-uefi--ifd).
+
+It's **read-only** — there's no Setup-write path. AMI Aptio images
+resolve fully; Insyde/Phoenix images parse, but factory values only
+show up from a live chip dump (a BIOS *update* ships blank NVRAM, so
+values read as `not set`).
 
 ## Status regs
 

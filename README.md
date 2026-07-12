@@ -69,6 +69,9 @@ match) to the original VBIOS.
 | Settings (clock, accent, updates, …) | ✅ (`--speed`) | ✅ |
 | 4-byte addressing (>16 MB chips) | ✅ | ✅ |
 | I²C scan / read / write / verify / blank-check / erase \* | ✅ | ✅ |
+| UEFI BIOS Setup explorer (read-only) | ✅ (`bios`) | ✅ (BIOS explorer pane) |
+| Intel Flash Descriptor / region map | ✅ (`ifd`) | ✅ (BIOS explorer strip) |
+| Offline dump inspection (strings / search / diff) | ✅ | ✅ (Hex viewer) |
 
 > \* **Silicon-validated on a 24C02** (1-byte address, no
 > bit-stuffing): scan / read / write / verify / blank-check / erase
@@ -78,11 +81,12 @@ match) to the original VBIOS.
 > anything above 400 kHz — over-clocking bricked a part during
 > bring-up.
 
-69 unit tests covering the SPI / I²C protocols (including the SFDP
-parser and the OTP / security-register ops), the high-level ops,
-and the inspect/search primitives, all running against mock transports
-or pure inputs. Hardware-touching tests are gated behind
-`--features hardware`.
+103 unit tests covering the SPI / I²C protocols (including the SFDP
+parser and the OTP / security-register ops), the high-level ops, the
+inspect/search primitives, the UEFI firmware parsers (firmware-volume
+walk, IFR/HII decode, NVRAM stores) and the Intel Flash Descriptor
+parser — all running against mock transports or pure inputs.
+Hardware-touching tests are gated behind `--features hardware`.
 
 ### Hardware-validated
 
@@ -290,6 +294,39 @@ against live hardware with `verify --diff` (file vs chip read-back), and
 the GUI's Verify pane offers it as "View diff in Hex" — all three share
 one region-grouping core, so they highlight identically.
 
+Two more offline commands decode the *structure* of a BIOS/firmware
+dump rather than just its bytes:
+
+```sh
+etch341 bios settings -i dump.bin            # UEFI Setup options: label, value, choices
+etch341 bios settings -i dump.bin --find vt-d    # filter by label substring
+etch341 bios settings -i dump.bin --changed      # only options that differ from default
+etch341 bios settings -i dump.bin --json         # machine-readable, for archival/diffing
+etch341 bios diff -a old.bin -b new.bin       # Setup options that changed between two dumps
+etch341 bios boot -i dump.bin                 # decode BootOrder + Boot#### entries
+etch341 bios id   -i dump.bin                 # vendor / project / platform identity
+
+etch341 ifd -i dump.bin                       # Intel Flash Descriptor: region map + lock state
+```
+
+`bios` reads a UEFI BIOS image (a full flash dump) and reconstructs the
+Setup menu you'd see in firmware setup: it walks the firmware volumes,
+decompresses the section trees (LZMA / EFI-Tiano / Insyde), parses the
+IFR Setup-form bytecode and HII string packages, and joins them against
+the on-chip NVRAM store (AMI `NVAR` and the standard EDK2 `$VSS`) for
+live values. Options the firmware may hide or lock at runtime are
+flagged. It's **read-only** — there's no Setup-write path. AMI Aptio is
+validated end-to-end; Insyde/Phoenix images parse, but their factory
+values only populate from a live chip dump (an update image ships blank
+NVRAM).
+
+`ifd` parses the Intel Flash Descriptor at the start of an Intel-chipset
+flash and prints the region layout (Descriptor / BIOS / ME / GbE / …)
+with exact offsets and sizes, the chip density, the per-master
+write-access matrix, and a plain-language lock summary (whether the host
+can write the Descriptor and ME regions). Handy before touching a modern
+Intel board, where writing the ME region can brick it.
+
 Global flags:
 
 - `-v, --verbose` — log every SPI or I²C transaction to stderr.
@@ -382,6 +419,8 @@ src/
 ├── i2c_ops.rs    high-level I²C scan / read / write / verify / blank / erase
 ├── chipdb.rs     TOML chip DB loader (SPI + I²C, embedded at build)
 ├── inspect.rs    parse-pattern / extract-strings / find-pattern shared by CLI + GUI
+├── ifd.rs        Intel Flash Descriptor parser (region map + master access)
+├── uefi/         UEFI BIOS Setup explorer: FV walk, IFR/HII decode, NVRAM stores
 ├── prefs.rs      ~/.config/etch341/prefs.toml load/save (GUI settings)
 └── gui/          GPUI frontend; behind the `gui` cargo feature (default-on)
 
