@@ -186,13 +186,14 @@ priority order.
       *legacy options inside a UEFI BIOS* (CSM, Legacy USB, OpROM
       policy, BBS order) are already covered — they're ordinary IFR
       questions.
-- [ ] **Insyde form-section decompression** — the FV walker skips
-      Insyde's compressed form sections ("compression type 2
-      (unsupported)"), so Setup labels/options don't resolve on Insyde
-      images even though the volumes are read. Identify the codec
-      (likely an Insyde/EDK2 variant) and decode it, mirroring the
-      LZMA/Tiano handling. Needed for Insyde/Phoenix settings coverage;
-      testable on the Acer V5WE2217 image already on hand.
+- [x] **Insyde form-section decompression** — DONE. Insyde tags a
+      plain LZMA1 (.lzma) stream as compression type 2 ("customized")
+      instead of using a GUID-defined LZMA section; the codec is the
+      same `lzma_rs` path. Wired type 2 → `lzma_decompress` in
+      `fv.rs`, with a unit test. Verified on two Acer Insyde images
+      (V5WE2217, Q5WV1221): Setup labels/forms now resolve (values
+      still `<not set>` on these — they're update images with blank
+      NVRAM; a live chip dump is needed for real values).
 - [ ] **Vendor the EFI/Tiano decompressor** — `mu_uefi_decompress`
       (Microsoft `mu_rust_helpers`) is deprecated; the umbrella repo
       recommends the Patina SDK (issue #107). Do **not** switch to

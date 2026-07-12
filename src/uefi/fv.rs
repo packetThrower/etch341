@@ -247,6 +247,17 @@ fn parse_sections(
                                 .skipped
                                 .push("EFI-compressed section failed to decode".into()),
                         },
+                        // Insyde tags a plain LZMA1 (.lzma) stream as
+                        // "customized compression" (type 2) instead of using
+                        // a GUID-defined LZMA section. Same codec.
+                        2 => match lzma_decompress(&body[5..]) {
+                            Ok(dec) => {
+                                parse_sections(&dec, depth + 1, w, out, file_guid, file_type)
+                            }
+                            Err(e) => w
+                                .skipped
+                                .push(format!("customized(LZMA) section failed: {e}")),
+                        },
                         t => w
                             .skipped
                             .push(format!("compression type {t} (unsupported)")),
@@ -490,6 +501,29 @@ mod tests {
             TEST_GUID,
             0x07,
             &section_stream(&[section(SECTION_GUID_DEFINED, &body)]),
+        )]);
+
+        let w = walk_image(&image);
+        assert!(w.skipped.is_empty(), "skipped: {:?}", w.skipped);
+        assert_eq!(w.leaves.len(), 1);
+        assert_eq!(w.leaves[0].data, payload);
+    }
+
+    #[test]
+    fn decompresses_type2_customized_lzma_section() {
+        // Insyde ships LZMA1 in a compression section tagged type 2.
+        let payload = vec![0xCD; 300];
+        let inner = section_stream(&[section(SECTION_RAW, &payload)]);
+        let mut compressed = Vec::new();
+        lzma_rs::lzma_compress(&mut std::io::Cursor::new(&inner), &mut compressed).unwrap();
+
+        let mut body = (inner.len() as u32).to_le_bytes().to_vec();
+        body.push(2); // customized (LZMA) compression
+        body.extend_from_slice(&compressed);
+        let image = fv(&[ffs_file(
+            TEST_GUID,
+            0x07,
+            &section_stream(&[section(SECTION_COMPRESSION, &body)]),
         )]);
 
         let w = walk_image(&image);
