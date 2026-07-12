@@ -933,8 +933,9 @@ fn print_bios_settings(settings: &[crate::uefi::Setting]) {
 
         let value = match (&s.value_label, s.value) {
             (Some(label), Some(v)) => format!("{label} ({v:#x})"),
+            (Some(label), None) => label.clone(), // string / ordered list
             (None, Some(v)) => format!("{v:#x}"),
-            _ => "<not set>".to_string(),
+            (None, None) => "<not set>".to_string(),
         };
         let choices: Vec<&str> = s
             .options

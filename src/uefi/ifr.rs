@@ -19,6 +19,8 @@ const OP_ONE_OF: u8 = 0x05;
 const OP_CHECKBOX: u8 = 0x06;
 const OP_NUMERIC: u8 = 0x07;
 const OP_ONE_OF_OPTION: u8 = 0x09;
+const OP_STRING: u8 = 0x1C;
+const OP_ORDERED_LIST: u8 = 0x23;
 const OP_VARSTORE: u8 = 0x24;
 const OP_VARSTORE_EFI: u8 = 0x26;
 const OP_DEFAULT: u8 = 0x5B;
@@ -41,6 +43,11 @@ pub enum QKind {
     OneOf,
     CheckBox,
     Numeric,
+    /// Free-text field; `width` holds the max character count.
+    String,
+    /// Reorderable list (e.g. boot priority); `width` holds the max
+    /// container count. Its choices arrive as one-of options.
+    OrderedList,
 }
 
 #[derive(Debug, Clone)]
@@ -211,7 +218,7 @@ fn parse_stream(buf: &[u8], data: &mut FormData) -> usize {
                     data.varstores.insert(vs.id, vs);
                 }
             }
-            OP_ONE_OF | OP_CHECKBOX | OP_NUMERIC => {
+            OP_ONE_OF | OP_CHECKBOX | OP_NUMERIC | OP_STRING | OP_ORDERED_LIST => {
                 if let Some(mut q) = parse_question(body, opcode, cond_depth > 0) {
                     q.form_title_id = form_title;
                     q.formset_title_id = formset_title;
@@ -257,7 +264,10 @@ fn parse_stream(buf: &[u8], data: &mut FormData) -> usize {
                     cond_depth = cond_depth.saturating_sub(1);
                 }
                 // Leaving a question's own scope clears the option target.
-                if matches!(open, OP_ONE_OF | OP_CHECKBOX | OP_NUMERIC) {
+                if matches!(
+                    open,
+                    OP_ONE_OF | OP_CHECKBOX | OP_NUMERIC | OP_STRING | OP_ORDERED_LIST
+                ) {
                     cur_q = None;
                 }
                 // Leaving a form clears its title/id for the next form.
@@ -297,6 +307,12 @@ fn parse_question(body: &[u8], opcode: u8, conditional: bool) -> Option<Question
         }
         OP_ONE_OF => (QKind::OneOf, width_from_flags(*body.get(12)?), None),
         OP_NUMERIC => (QKind::Numeric, width_from_flags(*body.get(12)?), None),
+        // EFI_IFR_STRING: MinSize(u8) MaxSize(u8) after the question
+        // header — `width` carries MaxSize (chars).
+        OP_STRING => (QKind::String, *body.get(13)?, None),
+        // EFI_IFR_ORDERED_LIST: MaxContainers(u8) after the question
+        // header — `width` carries the container count.
+        OP_ORDERED_LIST => (QKind::OrderedList, *body.get(12)?, None),
         _ => return None,
     };
     Some(Question {

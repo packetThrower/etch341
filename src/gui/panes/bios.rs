@@ -595,15 +595,16 @@ fn header_row() -> impl IntoElement {
 fn setting_row(s: &crate::uefi::Setting, virtual_i: usize) -> impl IntoElement + use<> {
     let value = match (&s.value_label, s.value) {
         (Some(label), Some(v)) => format!("{label} (0x{v:x})"),
+        (Some(label), None) => label.clone(), // string / ordered list
         (None, Some(v)) => format!("0x{v:x}"),
-        _ => "—".to_string(),
+        (None, None) => "—".to_string(),
     };
     let changed = s.changed == Some(true);
     // Amber flags a value changed from default; green = a resolved
     // current value; dim = not set.
     let value_color = if changed {
         theme::warning_amber()
-    } else if s.value.is_some() {
+    } else if s.value.is_some() || s.value_label.is_some() {
         theme::success_green()
     } else {
         theme::text_tertiary()

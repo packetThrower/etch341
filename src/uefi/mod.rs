@@ -318,15 +318,34 @@ pub fn extract_model(image: &[u8]) -> Model {
                 .map(|(v, sid)| (*v, strings.get(sid).cloned().unwrap_or_default()))
                 .collect();
 
-            let value = nvram
-                .get(&varstore)
-                .and_then(|data| nvram::read_at(data, q.var_offset as usize, q.width));
-
-            let value_label = value.and_then(|v| label_for(q.kind, &options, v));
-            let default_label = q.default_value.and_then(|d| label_for(q.kind, &options, d));
-            let changed = match (value, q.default_value) {
-                (Some(v), Some(d)) => Some(v != d),
-                _ => None,
+            // String and ordered-list values aren't scalars, so they get
+            // their own decoders and no numeric value / default compare.
+            let (value, value_label, default_label, changed) = match q.kind {
+                ifr::QKind::String => {
+                    let text = nvram
+                        .get(&varstore)
+                        .and_then(|d| ucs2_at(d, q.var_offset as usize, q.width as usize));
+                    (None, text, None, None)
+                }
+                ifr::QKind::OrderedList => {
+                    let list = nvram.get(&varstore).and_then(|d| {
+                        ordered_labels(d, q.var_offset as usize, q.width as usize, &options)
+                    });
+                    (None, list, None, None)
+                }
+                _ => {
+                    let value = nvram
+                        .get(&varstore)
+                        .and_then(|d| nvram::read_at(d, q.var_offset as usize, q.width));
+                    let value_label = value.and_then(|v| label_for(q.kind, &options, v));
+                    let default_label =
+                        q.default_value.and_then(|d| label_for(q.kind, &options, d));
+                    let changed = match (value, q.default_value) {
+                        (Some(v), Some(d)) => Some(v != d),
+                        _ => None,
+                    };
+                    (value, value_label, default_label, changed)
+                }
             };
 
             settings.push(Setting {
@@ -459,6 +478,45 @@ fn build_node(
     })
 }
 
+/// Read a UCS-2 string question's value: up to `max_chars` from the
+/// variable at `offset`, NUL-terminated. `None` if blank/absent.
+fn ucs2_at(data: &[u8], offset: usize, max_chars: usize) -> Option<String> {
+    let end = (offset + max_chars * 2).min(data.len());
+    let slice = data.get(offset..end)?;
+    let units: Vec<u16> = slice
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .take_while(|&u| u != 0)
+        .collect();
+    let s = String::from_utf16_lossy(&units);
+    (!s.trim().is_empty()).then_some(s)
+}
+
+/// Decode an ordered-list value: `containers` bytes at `offset`, each a
+/// 1-byte option value (0 = empty slot), mapped to its label and joined
+/// with " > ". `None` if the list is empty.
+fn ordered_labels(
+    data: &[u8],
+    offset: usize,
+    containers: usize,
+    options: &[(u64, String)],
+) -> Option<String> {
+    let end = (offset + containers).min(data.len());
+    let slice = data.get(offset..end)?;
+    let labels: Vec<String> = slice
+        .iter()
+        .filter(|&&b| b != 0)
+        .map(|&b| {
+            options
+                .iter()
+                .find(|(v, _)| *v == b as u64)
+                .map(|(_, l)| l.clone())
+                .unwrap_or_else(|| format!("0x{b:x}"))
+        })
+        .collect();
+    (!labels.is_empty()).then(|| labels.join(" > "))
+}
+
 fn label_for(kind: ifr::QKind, options: &[(u64, String)], value: u64) -> Option<String> {
     if let Some((_, label)) = options.iter().find(|(v, _)| *v == value) {
         return Some(label.clone());
@@ -473,8 +531,9 @@ fn label_for(kind: ifr::QKind, options: &[(u64, String)], value: u64) -> Option<
 pub fn display_value(s: &Setting) -> String {
     match (&s.value_label, s.value) {
         (Some(l), Some(v)) => format!("{l} (0x{v:x})"),
+        (Some(l), None) => l.clone(), // string / ordered-list value
         (None, Some(v)) => format!("0x{v:x}"),
-        _ => "<not set>".to_string(),
+        (None, None) => "<not set>".to_string(),
     }
 }
 
@@ -524,6 +583,39 @@ pub fn diff_settings(a: &[Setting], b: &[Setting]) -> Vec<SettingDiff> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ucs2_at_reads_string_value() {
+        // "Host" as UCS-2 at offset 2, then a NUL, within a 16-char field.
+        let mut data = vec![0xFF, 0xFF];
+        for u in "Host".encode_utf16() {
+            data.extend_from_slice(&u.to_le_bytes());
+        }
+        data.extend_from_slice(&[0, 0]); // terminator
+        data.extend_from_slice(&[0xAA; 8]); // trailing garbage past NUL
+        assert_eq!(ucs2_at(&data, 2, 16).as_deref(), Some("Host"));
+        // An all-zero (blank) field reads as None.
+        assert_eq!(ucs2_at(&[0u8; 16], 0, 8), None);
+    }
+
+    #[test]
+    fn ordered_labels_maps_and_skips_empty() {
+        let opts = vec![
+            (1u64, "USB".to_string()),
+            (2, "HDD".to_string()),
+            (3, "Network".to_string()),
+        ];
+        // containers [2,1,0,3] at offset 0 → HDD > USB > Network (0 skipped).
+        let data = [2u8, 1, 0, 3];
+        assert_eq!(
+            ordered_labels(&data, 0, 4, &opts).as_deref(),
+            Some("HDD > USB > Network")
+        );
+        // An unmapped byte falls back to hex.
+        assert_eq!(ordered_labels(&[9u8], 0, 1, &opts).as_deref(), Some("0x9"));
+        // Empty list → None.
+        assert_eq!(ordered_labels(&[0u8, 0], 0, 2, &opts), None);
+    }
 
     fn setting(name: &str, form: &str, label: Option<&str>, value: Option<u64>) -> Setting {
         Setting {
