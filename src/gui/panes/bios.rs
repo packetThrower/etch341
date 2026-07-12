@@ -19,6 +19,17 @@ const ROW_PX: f32 = 12.0;
 /// (a control char so it can't collide with a real form title).
 const BOOT_VIEW: &str = "\u{1}boot-order";
 
+/// Collapse a label to a single line: some HII titles (esp. Insyde)
+/// resolve to multi-line message strings, and an embedded `\n` breaks
+/// out of a fixed-height row and overlaps its neighbours.
+fn oneline(s: &str) -> String {
+    let out: String = s
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn bios_pane(
     path: Option<&Path>,
@@ -247,7 +258,7 @@ fn navigator(
                                 .min_w(px(0.0))
                                 .overflow_hidden()
                                 .whitespace_nowrap()
-                                .child(label),
+                                .child(oneline(&label)),
                         );
                         if let Some(c) = count.filter(|c| *c > 0) {
                             row = row.child(
@@ -667,7 +678,7 @@ fn setting_row(s: &crate::uefi::Setting, virtual_i: usize) -> impl IntoElement +
                 .min_w(px(0.0))
                 .overflow_hidden()
                 .text_color(theme::text_primary())
-                .child(s.name.clone()),
+                .child(oneline(&s.name)),
         )
         // Conditional marker — fixed slot, always present so it never
         // shifts the value column.
