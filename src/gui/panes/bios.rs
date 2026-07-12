@@ -158,20 +158,20 @@ fn setting_row(s: &crate::uefi::Setting, virtual_i: usize) -> impl IntoElement +
     };
 
     // Tooltip: help line (if any) plus the choices behind the byte.
-    let mut tip = s.help.clone();
-    if !s.options.is_empty() {
-        let choices: Vec<&str> = s
-            .options
-            .iter()
-            .map(|(_, l)| l.as_str())
-            .filter(|l| !l.is_empty())
-            .collect();
-        if !choices.is_empty() {
-            if !tip.is_empty() {
-                tip.push_str("\n\n");
-            }
-            tip.push_str(&format!("Choices: {}", choices.join(" / ")));
+    // Many HII help strings are blank or whitespace-only — trim so they
+    // don't leave empty leading lines above the choices.
+    let mut tip = s.help.trim().to_string();
+    let choices: Vec<&str> = s
+        .options
+        .iter()
+        .map(|(_, l)| l.as_str())
+        .filter(|l| !l.trim().is_empty())
+        .collect();
+    if !choices.is_empty() {
+        if !tip.is_empty() {
+            tip.push_str("\n\n");
         }
+        tip.push_str(&format!("Choices: {}", choices.join(" / ")));
     }
     let source = format!("{}+0x{:04x}", s.varstore, s.offset);
 
