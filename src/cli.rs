@@ -142,6 +142,9 @@ pub enum BiosAction {
     /// Decode the UEFI boot menu (BootOrder + Boot#### load options)
     /// into a readable, ordered list.
     Boot(BiosBootArgs),
+    /// Recover firmware identity (AMI $FID project code, vendor family,
+    /// platform) from the image.
+    Id(BiosBootArgs),
 }
 
 #[derive(Args)]
@@ -841,6 +844,26 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 for (i, e) in boot.iter().enumerate() {
                     let flag = if e.active { "" } else { "  (inactive)" };
                     println!("  {}. {}  [{}]{flag}", i + 1, e.description, e.slot);
+                }
+                Ok(())
+            }
+            BiosAction::Id(args) => {
+                let id = crate::uefi::bios_id(&std::fs::read(&args.input)?);
+                if id.is_empty() {
+                    eprintln!(
+                        "No firmware identity markers found in {}.",
+                        args.input.display()
+                    );
+                    return Ok(());
+                }
+                if let Some(v) = &id.vendor {
+                    println!("Vendor    : {v}");
+                }
+                if let Some(f) = &id.fid {
+                    println!("Project ID: {f}");
+                }
+                if let Some(p) = &id.platform {
+                    println!("Platform  : {p}");
                 }
                 Ok(())
             }

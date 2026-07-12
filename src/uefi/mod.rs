@@ -71,12 +71,115 @@ pub struct BootEntry {
     pub active: bool,
 }
 
+/// Firmware identity recovered from the flash image. All fields are
+/// best-effort — SMBIOS tables are assembled at boot, not stored, so
+/// this scrapes the vendor's own identity blocks and strings instead.
+#[derive(Clone, Default, Serialize)]
+pub struct BiosId {
+    /// AMI `$FID` project code (e.g. "NK21B010").
+    pub fid: Option<String>,
+    /// Firmware family: "AMI Aptio", "Insyde", "Phoenix".
+    pub vendor: Option<String>,
+    /// Intel platform codename, when a build tag reveals it.
+    pub platform: Option<String>,
+}
+
+impl BiosId {
+    /// True when nothing was recovered.
+    pub fn is_empty(&self) -> bool {
+        self.fid.is_none() && self.vendor.is_none() && self.platform.is_none()
+    }
+}
+
 /// Everything resolved from an image: the flat settings, the menu tree
-/// that organises them, and the decoded boot order.
+/// that organises them, the decoded boot order, and firmware identity.
 pub struct Model {
     pub settings: Vec<Setting>,
     pub tree: Vec<FormNode>,
     pub boot: Vec<BootEntry>,
+    pub bios_id: BiosId,
+}
+
+/// Recover firmware identity by scanning for the vendor's own markers
+/// (AMI `$FID`, family strings, platform build tags).
+pub fn bios_id(image: &[u8]) -> BiosId {
+    BiosId {
+        fid: ami_fid(image),
+        vendor: detect_vendor(image),
+        platform: detect_platform(image),
+    }
+}
+
+fn find_bytes(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    hay.windows(needle.len()).position(|w| w == needle)
+}
+
+/// The AMI `$FID` block is `"$FID"` + a few header bytes + a
+/// NUL-terminated ASCII project code. Return the first printable run of
+/// 4+ chars after the signature.
+fn ami_fid(image: &[u8]) -> Option<String> {
+    let pos = find_bytes(image, b"$FID")?;
+    let region = image.get(pos + 4..(pos + 4 + 40).min(image.len()))?;
+    let mut i = 0;
+    while i < region.len() {
+        if region[i].is_ascii_graphic() {
+            let start = i;
+            while i < region.len() && region[i].is_ascii_graphic() {
+                i += 1;
+            }
+            if i - start >= 4 {
+                return Some(String::from_utf8_lossy(&region[start..i]).into_owned());
+            }
+        } else {
+            i += 1;
+        }
+    }
+    None
+}
+
+fn detect_vendor(image: &[u8]) -> Option<String> {
+    // "AMITSE" (Aptio's Text Setup Engine) is the most reliable AMI
+    // Aptio marker; "Aptio"/"American Megatrends" as literal ASCII are
+    // often absent, and "ALASKA" (AMI's SMBIOS placeholder) is a
+    // weaker fallback.
+    for (needle, label) in [
+        (b"AMITSE".as_slice(), "AMI Aptio"),
+        (b"Aptio".as_slice(), "AMI Aptio"),
+        (b"American Megatrends".as_slice(), "AMI"),
+        (b"InsydeH2O".as_slice(), "Insyde"),
+        (b"Phoenix".as_slice(), "Phoenix"),
+        (b"ALASKA".as_slice(), "AMI"),
+    ] {
+        if find_bytes(image, needle).is_some() {
+            return Some(label.to_string());
+        }
+    }
+    None
+}
+
+fn detect_platform(image: &[u8]) -> Option<String> {
+    // Build tags AMI/Intel embed for the reference-code platform. Both
+    // common casings are listed since drivers use either.
+    const TAGS: &[(&[u8], &str)] = &[
+        (b"KabyLake", "Kaby Lake"),
+        (b"KABYLAKE", "Kaby Lake"),
+        (b"SkyLake", "Sky Lake"),
+        (b"SKYLAKE", "Sky Lake"),
+        (b"CoffeeLake", "Coffee Lake"),
+        (b"CometLake", "Comet Lake"),
+        (b"WhiskeyLake", "Whiskey Lake"),
+        (b"TigerLake", "Tiger Lake"),
+        (b"AlderLake", "Alder Lake"),
+        (b"ApolloLake", "Apollo Lake"),
+        (b"GeminiLake", "Gemini Lake"),
+        (b"Broadwell", "Broadwell"),
+        (b"Haswell", "Haswell"),
+        (b"IvyBridge", "Ivy Bridge"),
+        (b"SandyBridge", "Sandy Bridge"),
+    ];
+    TAGS.iter()
+        .find(|(needle, _)| find_bytes(image, needle).is_some())
+        .map(|(_, label)| label.to_string())
 }
 
 /// Decode the UEFI boot menu: `BootOrder` (an array of u16 option
@@ -324,6 +427,7 @@ pub fn extract_model(image: &[u8]) -> Model {
         settings,
         tree,
         boot,
+        bios_id: bios_id(image),
     }
 }
 

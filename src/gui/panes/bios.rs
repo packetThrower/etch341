@@ -25,6 +25,7 @@ pub(super) fn bios_pane(
     settings: Option<Arc<Vec<crate::uefi::Setting>>>,
     tree: Option<Arc<Vec<crate::uefi::FormNode>>>,
     boot: Option<Arc<Vec<crate::uefi::BootEntry>>>,
+    bios_id: Option<&crate::uefi::BiosId>,
     selected_form: Option<&str>,
     changed_only: bool,
     scroll: UniformListScrollHandle,
@@ -59,7 +60,10 @@ pub(super) fn bios_pane(
                 .child(bordered_file_row(path, "pick-bios", cx, |this, cx| {
                     this.pick_bios_file(cx)
                 })),
-        );
+        )
+        .when_some(bios_id.filter(|id| !id.is_empty()), |c, id| {
+            c.child(bios_id_line(id))
+        });
 
     let Some(settings) = settings else {
         // Nothing loaded yet — the file row above is the whole pane.
@@ -393,6 +397,18 @@ fn legend_dot(color: gpui::Hsla, label: &'static str) -> impl IntoElement {
         .gap_1()
         .child(div().size(px(8.0)).flex_shrink_0().rounded_full().bg(color))
         .child(label)
+}
+
+/// Compact firmware-identity line under the file box.
+fn bios_id_line(id: &crate::uefi::BiosId) -> impl IntoElement + use<> {
+    let parts: Vec<String> = [id.vendor.clone(), id.fid.clone(), id.platform.clone()]
+        .into_iter()
+        .flatten()
+        .collect();
+    div()
+        .text_size(px(12.0))
+        .text_color(theme::text_secondary())
+        .child(parts.join("   ·   "))
 }
 
 /// The "Changed only" filter pill next to the search box.
