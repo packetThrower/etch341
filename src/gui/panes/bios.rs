@@ -175,15 +175,22 @@ fn setting_row(s: &crate::uefi::Setting, virtual_i: usize) -> impl IntoElement +
     }
     let source = format!("{}+0x{:04x}", s.varstore, s.offset);
 
+    // Fixed-width columns in a full-width row so every row's value and
+    // source line up into clean vertical columns regardless of label
+    // length or whether the conditional marker is present. The marker
+    // gets its own fixed slot (empty when not conditional) so it never
+    // shifts the value column.
     let mut row = div()
         .id(("bios-row", virtual_i))
         .flex()
         .flex_row()
         .items_center()
+        .w_full()
         .gap_3()
         .h(px(ROW_H))
+        .px_2()
         .whitespace_nowrap()
-        // Label — flexes, truncates when long.
+        // Label — flexes to fill, truncates when long.
         .child(
             div()
                 .flex_1()
@@ -192,22 +199,29 @@ fn setting_row(s: &crate::uefi::Setting, virtual_i: usize) -> impl IntoElement +
                 .text_color(theme::text_primary())
                 .child(s.name.clone()),
         )
-        // Conditional marker.
-        .when(s.conditional, |r| {
-            r.child(div().text_color(theme::warning_amber()).child("✷"))
-        })
+        // Conditional marker — fixed slot, always present.
+        .child(
+            div()
+                .w(px(16.0))
+                .flex_shrink_0()
+                .text_color(theme::warning_amber())
+                .child(if s.conditional { "✷" } else { "" }),
+        )
         // Current value.
         .child(
             div()
-                .w(px(190.0))
-                .text_color(value_color)
+                .w(px(200.0))
+                .flex_shrink_0()
                 .overflow_hidden()
+                .text_color(value_color)
                 .child(value),
         )
         // Source variable + offset.
         .child(
             div()
-                .w(px(180.0))
+                .w(px(190.0))
+                .flex_shrink_0()
+                .overflow_hidden()
                 .font_family(theme::MONO_FONT)
                 .text_size(px(12.0))
                 .text_color(theme::text_tertiary())
