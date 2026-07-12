@@ -10,7 +10,7 @@ use super::*;
 const ROW_H: f32 = 30.0;
 
 /// Shared column widths so the sticky header and the data rows line up.
-const MARKER_W: f32 = 56.0;
+const MARKER_W: f32 = 20.0;
 const VALUE_W: f32 = 200.0;
 const SOURCE_W: f32 = 190.0;
 /// Horizontal inset applied identically to the header and every row.
@@ -38,8 +38,8 @@ pub(super) fn bios_pane(
             "Load a UEFI BIOS dump to browse its Setup options — the label, \
              its current value, and the choices behind each variable byte. \
              Parses firmware volumes → IFR forms → HII strings and joins them \
-             against the NVRAM store. Read-only. A “cond” tag marks options the \
-             firmware may hide or lock at runtime.",
+             against the NVRAM store. Read-only. A ✷ marks options the firmware \
+             may hide or lock at runtime.",
         ))
         .child(
             GroupBox::new()
@@ -238,25 +238,14 @@ fn setting_row(s: &crate::uefi::Setting, virtual_i: usize) -> impl IntoElement +
                 .text_color(theme::text_primary())
                 .child(s.name.clone()),
         )
-        // Conditional "cond" tag — fixed slot, always present so it
-        // never shifts the value column.
+        // Conditional marker — fixed slot, always present so it never
+        // shifts the value column.
         .child(
             div()
                 .w(px(MARKER_W))
                 .flex_shrink_0()
-                .flex()
-                .flex_row()
-                .when(s.conditional, |slot| {
-                    slot.child(
-                        div()
-                            .px_1p5()
-                            .rounded(px(4.0))
-                            .bg(theme::workshop_glass_strong())
-                            .text_size(px(10.0))
-                            .text_color(theme::warning_amber())
-                            .child("cond"),
-                    )
-                }),
+                .text_color(theme::warning_amber())
+                .child(if s.conditional { "✷" } else { "" }),
         )
         // Current value.
         .child(
