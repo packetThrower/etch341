@@ -16,7 +16,7 @@ pub mod hii;
 pub mod ifr;
 pub mod nvram;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// One resolved Setup setting: a human label joined to the variable
 /// byte that backs it and, when found, its current value.
@@ -43,13 +43,42 @@ pub struct Setting {
     pub conditional: bool,
 }
 
+/// A node in the Setup menu tree (form → sub-forms via IFR REF links).
+pub struct FormNode {
+    pub title: String,
+    /// Settings that live directly on this form (not its children).
+    pub setting_count: usize,
+    pub children: Vec<FormNode>,
+}
+
+/// Everything resolved from an image: the flat settings plus the menu
+/// tree that organises them.
+pub struct Model {
+    pub settings: Vec<Setting>,
+    pub tree: Vec<FormNode>,
+}
+
 /// Parse an image and return every Setup setting we can resolve.
 /// `filter`, when set, keeps only settings whose label contains it
 /// (case-insensitive).
 pub fn extract_settings(image: &[u8], filter: Option<&str>) -> Vec<Setting> {
+    let settings = extract_model(image).settings;
+    match filter {
+        None => settings,
+        Some(f) => {
+            let f = f.to_lowercase();
+            settings
+                .into_iter()
+                .filter(|s| s.name.to_lowercase().contains(&f))
+                .collect()
+        }
+    }
+}
+
+/// Parse an image into resolved settings and the menu tree.
+pub fn extract_model(image: &[u8]) -> Model {
     let walk = fv::walk_image(image);
     let nvram = nvram::parse(image);
-    let filter = filter.map(|f| f.to_lowercase());
 
     // A driver (one file GUID) owns one HII package list, so its forms
     // and strings share a string-ID space. Group leaves by file GUID
@@ -60,6 +89,14 @@ pub fn extract_settings(image: &[u8], filter: Option<&str>) -> Vec<Setting> {
     }
 
     let mut settings = Vec::new();
+    // Menu tree spans drivers: the top menu REFs to forms defined in
+    // other form sets, so form-id→title must be resolved globally, not
+    // per group. Drivers use distinct form-id ranges in practice, so a
+    // global map links up cleanly; on the rare collision, last wins.
+    let mut id_title: HashMap<u16, String> = HashMap::new();
+    let mut all_links: Vec<(u16, u16)> = Vec::new();
+    let mut all_forms: HashSet<String> = HashSet::new();
+
     for leaves in by_file.values() {
         let mut forms = ifr::FormData::default();
         let mut string_pkgs = Vec::new();
@@ -67,22 +104,31 @@ pub fn extract_settings(image: &[u8], filter: Option<&str>) -> Vec<Setting> {
             let f = ifr::parse(&leaf.data);
             forms.varstores.extend(f.varstores);
             forms.questions.extend(f.questions);
+            forms.forms.extend(f.forms);
+            forms.links.extend(f.links);
             string_pkgs.extend(hii::parse(&leaf.data));
         }
-        if forms.questions.is_empty() {
+        if forms.questions.is_empty() && forms.forms.is_empty() {
             continue;
         }
         let strings = hii::english_strings(&string_pkgs);
+
+        for f in &forms.forms {
+            let title = strings
+                .get(&f.title_id)
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
+            if !title.is_empty() {
+                id_title.insert(f.id, title.clone());
+                all_forms.insert(title);
+            }
+        }
+        all_links.extend(forms.links.iter().copied());
 
         for q in &forms.questions {
             let name = strings.get(&q.prompt_id).cloned().unwrap_or_default();
             if name.is_empty() {
                 continue; // unresolved label — nothing useful to show
-            }
-            if let Some(f) = &filter
-                && !name.to_lowercase().contains(f.as_str())
-            {
-                continue;
             }
             let varstore = forms
                 .varstores
@@ -146,7 +192,81 @@ pub fn extract_settings(image: &[u8], filter: Option<&str>) -> Vec<Setting> {
             && a.offset == b.offset
             && a.width == b.width
     });
-    settings
+
+    // Translate the global REF links (id→id) into title→title menu
+    // edges now that every driver's forms are in `id_title`.
+    let mut child_of: HashMap<String, Vec<String>> = HashMap::new();
+    let mut is_child: HashSet<String> = HashSet::new();
+    for (pid, cid) in &all_links {
+        if let (Some(p), Some(c)) = (id_title.get(pid), id_title.get(cid))
+            && p != c
+        {
+            let kids = child_of.entry(p.clone()).or_default();
+            if !kids.contains(c) {
+                kids.push(c.clone());
+            }
+            is_child.insert(c.clone());
+        }
+    }
+
+    // Settings-per-form, for the navigator's counts.
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for s in &settings {
+        if !s.form.is_empty() {
+            *counts.entry(s.form.clone()).or_default() += 1;
+        }
+    }
+
+    // Roots are forms nothing links to; build down from them. A second
+    // pass adopts any form unreachable from a root (orphan / link cycle)
+    // so every form still shows up somewhere.
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut roots: Vec<&String> = all_forms
+        .iter()
+        .filter(|t| !is_child.contains(*t))
+        .collect();
+    roots.sort();
+    let mut tree: Vec<FormNode> = roots
+        .iter()
+        .filter_map(|r| build_node(r, &child_of, &counts, &mut visited))
+        .collect();
+    let mut orphans: Vec<&String> = all_forms.iter().filter(|t| !visited.contains(*t)).collect();
+    orphans.sort();
+    for o in orphans {
+        if let Some(n) = build_node(o, &child_of, &counts, &mut visited) {
+            tree.push(n);
+        }
+    }
+
+    Model { settings, tree }
+}
+
+/// Build a menu node and its descendants, guarding against cycles and
+/// a form appearing under two parents (first wins).
+fn build_node(
+    title: &str,
+    child_of: &HashMap<String, Vec<String>>,
+    counts: &HashMap<String, usize>,
+    visited: &mut HashSet<String>,
+) -> Option<FormNode> {
+    if !visited.insert(title.to_string()) {
+        return None;
+    }
+    let mut children = Vec::new();
+    if let Some(kids) = child_of.get(title) {
+        let mut kids = kids.clone();
+        kids.sort();
+        for c in &kids {
+            if let Some(n) = build_node(c, child_of, counts, visited) {
+                children.push(n);
+            }
+        }
+    }
+    Some(FormNode {
+        title: title.to_string(),
+        setting_count: counts.get(title).copied().unwrap_or(0),
+        children,
+    })
 }
 
 fn label_for(kind: ifr::QKind, options: &[(u64, String)], value: u64) -> Option<String> {
