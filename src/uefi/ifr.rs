@@ -36,7 +36,7 @@ const OP_DISABLE_IF: u8 = 0x1E;
 /// Cross-form link (a "goto"); how the menu tree is nested.
 const OP_REF: u8 = 0x0F;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum QKind {
     OneOf,
     CheckBox,

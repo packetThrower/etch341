@@ -110,7 +110,8 @@ pub(super) fn bios_pane(
                 .items_center()
                 .gap_3()
                 .child(div().flex_1().child(Input::new(search_state)))
-                .child(changed_toggle(changed_only, cx)),
+                .child(changed_toggle(changed_only, cx))
+                .child(export_button(cx)),
         )
         .child(
             div()
@@ -309,6 +310,23 @@ fn changed_toggle(active: bool, cx: &mut Context<AppView>) -> impl IntoElement {
         .child(if active { "☑" } else { "☐" })
         .child("Changed only")
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_bios_changed_only(cx)))
+}
+
+/// The "Export JSON…" button — saves the loaded settings to a file.
+fn export_button(cx: &mut Context<AppView>) -> impl IntoElement {
+    div()
+        .id("bios-export")
+        .flex_shrink_0()
+        .px_3()
+        .py_1p5()
+        .rounded(px(6.0))
+        .cursor_pointer()
+        .bg(theme::workshop_glass())
+        .text_color(theme::text_secondary())
+        .text_size(px(12.0))
+        .hover(|d| d.bg(theme::workshop_glass_strong()))
+        .child("Export JSON…")
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.export_bios_json(cx)))
 }
 
 /// A rendered list entry: either a form section header or a setting.

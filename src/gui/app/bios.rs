@@ -85,4 +85,46 @@ impl AppView {
             .scroll_to_item(0, gpui::ScrollStrategy::Top);
         cx.notify();
     }
+
+    /// Save the loaded Setup settings as JSON via a file dialog. The
+    /// dialog is deferred (cx.spawn) for the same RefCell-borrow reason
+    /// as the open picker.
+    pub fn export_bios_json(&mut self, cx: &mut Context<Self>) {
+        let Some(settings) = self.bios_settings.clone() else {
+            return;
+        };
+        let default_name = self
+            .bios_input_path
+            .as_ref()
+            .and_then(|p| p.file_stem())
+            .map(|s| format!("{}-settings.json", s.to_string_lossy()))
+            .unwrap_or_else(|| "bios-settings.json".to_string());
+        let start_dir = self.prefs.last_hex_dir.clone();
+        cx.spawn(async move |weak, cx| {
+            let mut dialog = rfd::AsyncFileDialog::new().set_file_name(default_name);
+            if let Some(dir) = start_dir {
+                dialog = dialog.set_directory(dir);
+            }
+            let Some(handle) = dialog.save_file().await else {
+                return;
+            };
+            let path = handle.path().to_path_buf();
+            let result = serde_json::to_string_pretty(&*settings)
+                .map_err(|e| e.to_string())
+                .and_then(|json| std::fs::write(&path, json).map_err(|e| e.to_string()));
+            weak.update(cx, |this, cx| {
+                match result {
+                    Ok(()) => this.push_log(format!(
+                        "Exported {} settings → {}",
+                        settings.len(),
+                        path.display()
+                    )),
+                    Err(e) => this.push_log(format!("BIOS export failed: {e}")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
 }

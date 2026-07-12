@@ -136,6 +136,9 @@ pub enum BiosAction {
     /// byte. Parses firmware volumes → IFR forms → HII strings and
     /// joins them against the NVRAM store. Read-only.
     Settings(BiosSettingsArgs),
+    /// Compare the Setup settings of two BIOS dumps, printing only the
+    /// options whose current value differs (or exist in just one).
+    Diff(BiosDiffArgs),
 }
 
 #[derive(Args)]
@@ -150,6 +153,20 @@ pub struct BiosSettingsArgs {
     /// firmware's standard default.
     #[arg(long)]
     pub changed: bool,
+    /// Emit the settings as JSON instead of the table (for archival,
+    /// scripting, or external diffing).
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct BiosDiffArgs {
+    /// First BIOS image ("A" side).
+    #[arg(short = 'a', long)]
+    pub a: std::path::PathBuf,
+    /// Second BIOS image ("B" side).
+    #[arg(short = 'b', long)]
+    pub b: std::path::PathBuf,
 }
 
 #[derive(Args)]
@@ -780,11 +797,59 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                     );
                     return Ok(());
                 }
-                print_bios_settings(&settings);
+                if args.json {
+                    println!("{}", serde_json::to_string_pretty(&settings)?);
+                } else {
+                    print_bios_settings(&settings);
+                }
                 Ok(())
+            }
+            BiosAction::Diff(args) => {
+                let a = crate::uefi::extract_settings(&std::fs::read(&args.a)?, None);
+                let b = crate::uefi::extract_settings(&std::fs::read(&args.b)?, None);
+                let diffs = crate::uefi::diff_settings(&a, &b);
+                if diffs.is_empty() {
+                    println!("No Setup differences ({} settings each side).", a.len());
+                    return Ok(());
+                }
+                print_bios_diff(&diffs, &args.a, &args.b);
+                use std::io::Write;
+                std::io::stdout().flush().ok();
+                std::process::exit(1); // differ → exit 1, like diff(1)
             }
         },
     }
+}
+
+/// Print a settings diff grouped by menu page.
+fn print_bios_diff(diffs: &[crate::uefi::SettingDiff], a: &std::path::Path, b: &std::path::Path) {
+    println!("A: {}", a.display());
+    println!("B: {}", b.display());
+    let name_w = diffs
+        .iter()
+        .map(|d| d.name.len())
+        .max()
+        .unwrap_or(0)
+        .min(44);
+    let mut last_form: Option<&str> = None;
+    for d in diffs {
+        let form = if d.form.is_empty() {
+            "(uncategorised)"
+        } else {
+            d.form.as_str()
+        };
+        if last_form != Some(form) {
+            println!("\n── {form} ──");
+            last_form = Some(form);
+        }
+        println!(
+            "  {:<name_w$}  {}  →  {}",
+            truncate(&d.name, name_w),
+            d.a.as_deref().unwrap_or("(absent)"),
+            d.b.as_deref().unwrap_or("(absent)"),
+        );
+    }
+    println!("\n{} setting(s) differ.", diffs.len());
 }
 
 /// Render resolved Setup settings as an aligned table.

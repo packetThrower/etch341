@@ -16,11 +16,12 @@ pub mod hii;
 pub mod ifr;
 pub mod nvram;
 
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
 /// One resolved Setup setting: a human label joined to the variable
 /// byte that backs it and, when found, its current value.
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct Setting {
     pub name: String,
     pub help: String,
@@ -291,5 +292,103 @@ fn label_for(kind: ifr::QKind, options: &[(u64, String)], value: u64) -> Option<
     match kind {
         ifr::QKind::CheckBox => Some(if value != 0 { "Enabled" } else { "Disabled" }.into()),
         _ => None,
+    }
+}
+
+/// Human display of a setting's current value.
+pub fn display_value(s: &Setting) -> String {
+    match (&s.value_label, s.value) {
+        (Some(l), Some(v)) => format!("{l} (0x{v:x})"),
+        (None, Some(v)) => format!("0x{v:x}"),
+        _ => "<not set>".to_string(),
+    }
+}
+
+/// One difference between two dumps' settings.
+pub struct SettingDiff {
+    pub form: String,
+    pub name: String,
+    pub varstore: String,
+    pub offset: u16,
+    /// Displayed value in each image; `None` when absent from that side.
+    pub a: Option<String>,
+    pub b: Option<String>,
+}
+
+/// Compare two settings lists, returning every setting whose displayed
+/// value differs (or that exists in only one). Keyed by
+/// `(form, name, varstore, offset)` so a setting is tracked across the
+/// two images even as list order shifts.
+pub fn diff_settings(a: &[Setting], b: &[Setting]) -> Vec<SettingDiff> {
+    type Key = (String, String, String, u16);
+    let key = |s: &Setting| (s.form.clone(), s.name.clone(), s.varstore.clone(), s.offset);
+    let ma: HashMap<Key, &Setting> = a.iter().map(|s| (key(s), s)).collect();
+    let mb: HashMap<Key, &Setting> = b.iter().map(|s| (key(s), s)).collect();
+
+    let mut keys: Vec<Key> = ma.keys().chain(mb.keys()).cloned().collect();
+    keys.sort();
+    keys.dedup();
+
+    let mut out = Vec::new();
+    for k in keys {
+        let av = ma.get(&k).map(|s| display_value(s));
+        let bv = mb.get(&k).map(|s| display_value(s));
+        if av != bv {
+            out.push(SettingDiff {
+                form: k.0,
+                name: k.1,
+                varstore: k.2,
+                offset: k.3,
+                a: av,
+                b: bv,
+            });
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn setting(name: &str, form: &str, label: Option<&str>, value: Option<u64>) -> Setting {
+        Setting {
+            name: name.into(),
+            help: String::new(),
+            form: form.into(),
+            formset: String::new(),
+            varstore: "Setup".into(),
+            offset: 0,
+            width: 1,
+            kind: ifr::QKind::OneOf,
+            options: vec![],
+            value,
+            value_label: label.map(|s| s.into()),
+            default_value: None,
+            default_label: None,
+            changed: None,
+            conditional: false,
+        }
+    }
+
+    #[test]
+    fn diff_reports_changed_and_one_sided() {
+        let a = vec![
+            setting("VT-d", "Advanced", Some("Enabled"), Some(1)),
+            setting("SATA", "Advanced", Some("AHCI"), Some(0)),
+            setting("OnlyA", "Boot", Some("X"), Some(9)),
+        ];
+        let b = vec![
+            setting("VT-d", "Advanced", Some("Disabled"), Some(0)), // changed
+            setting("SATA", "Advanced", Some("AHCI"), Some(0)),     // unchanged
+            setting("OnlyB", "Boot", Some("Y"), Some(9)),           // only in B
+        ];
+        let d = diff_settings(&a, &b);
+        assert_eq!(d.len(), 3); // VT-d changed, OnlyA gone, OnlyB new
+        let vtd = d.iter().find(|x| x.name == "VT-d").unwrap();
+        assert_eq!(vtd.a.as_deref(), Some("Enabled (0x1)"));
+        assert_eq!(vtd.b.as_deref(), Some("Disabled (0x0)"));
+        assert!(d.iter().any(|x| x.name == "OnlyA" && x.b.is_none()));
+        assert!(d.iter().any(|x| x.name == "OnlyB" && x.a.is_none()));
     }
 }
