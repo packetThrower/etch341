@@ -64,7 +64,7 @@ jobs:
       contents: read
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -82,7 +82,7 @@ jobs:
       # so the single cache covers both. CI uses the default (no
       # shared-key) so its debug-mode cache stays separate.
       - name: Cache cargo registry + target
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: release
           cache-on-failure: true
@@ -91,7 +91,7 @@ jobs:
         run: brew install pkg-config
 
       - name: Install cargo-packager
-        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
+        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
         with:
           tool: cargo-packager
 
@@ -197,7 +197,7 @@ jobs:
             rpm_arch: aarch64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -207,7 +207,7 @@ jobs:
           toolchain: stable
 
       - name: Cache cargo registry + target
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: release-${{ matrix.arch }}
           cache-on-failure: true
@@ -236,7 +236,7 @@ jobs:
             ruby-dev libarchive-tools
 
       - name: Install cargo-packager
-        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
+        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
         with:
           tool: cargo-packager
 
@@ -455,7 +455,7 @@ jobs:
             triple: aarch64-pc-windows-msvc
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -465,13 +465,13 @@ jobs:
           toolchain: stable
 
       - name: Cache cargo registry + target
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: release-${{ matrix.arch }}
           cache-on-failure: true
 
       - name: Install cargo-packager
-        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
+        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
         with:
           tool: cargo-packager
 
@@ -484,7 +484,7 @@ jobs:
       # alphanumeric prerelease identifiers like `0.3.0-beta.1`.
       - name: Install cargo-wix
         if: ${{ !contains(env.EFFECTIVE_VERSION, '-') }}
-        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
+        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
         with:
           tool: cargo-wix
 
@@ -624,7 +624,7 @@ jobs:
       # current tag. `persist-credentials: false` — the release job
       # only reads git locally; the GitHub Release is created through
       # the API token, not `git push`.
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -694,7 +694,7 @@ jobs:
           cat release-notes.md
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           files: |
             artifacts/macos-package/*
