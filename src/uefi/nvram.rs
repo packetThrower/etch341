@@ -115,8 +115,10 @@ fn parse_vss_vars(image: &[u8], mut p: usize, end: usize, vars: &mut HashMap<Str
 /// Decode a NUL-terminated little-endian UCS-2 name.
 fn ucs2z(b: &[u8]) -> String {
     let units: Vec<u16> = b
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
         .take_while(|&u| u != 0)
         .collect();
     String::from_utf16_lossy(&units)
