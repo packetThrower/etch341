@@ -197,8 +197,8 @@ fn boot_from_nvram(nvram: &HashMap<String, Vec<u8>>) -> Vec<BootEntry> {
         return Vec::new();
     };
     let mut out = Vec::new();
-    for chunk in order.chunks_exact(2) {
-        let num = u16::from_le_bytes([chunk[0], chunk[1]]);
+    for chunk in order.as_chunks::<2>().0 {
+        let num = u16::from_le_bytes(*chunk);
         let slot = format!("Boot{num:04X}");
         if let Some(data) = nvram.get(&slot)
             && let Some(entry) = parse_load_option(&slot, data)
@@ -230,8 +230,10 @@ fn parse_load_option(slot: &str, data: &[u8]) -> Option<BootEntry> {
 /// Decode a NUL-terminated little-endian UCS-2 string.
 fn ucs2_z(b: &[u8]) -> String {
     let units: Vec<u16> = b
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
         .take_while(|&u| u != 0)
         .collect();
     String::from_utf16_lossy(&units)
@@ -488,8 +490,10 @@ fn ucs2_at(data: &[u8], offset: usize, max_chars: usize) -> Option<String> {
     let end = (offset + max_chars * 2).min(data.len());
     let slice = data.get(offset..end)?;
     let units: Vec<u16> = slice
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
         .take_while(|&u| u != 0)
         .collect();
     let s = String::from_utf16_lossy(&units);

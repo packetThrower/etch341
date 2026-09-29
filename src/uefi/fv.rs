@@ -107,8 +107,10 @@ fn scan_fv_offsets(buf: &[u8]) -> Vec<usize> {
             continue;
         };
         let sum: u16 = full_header
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_le_bytes(*c))
             .fold(0u16, |a, v| a.wrapping_add(v));
         if sum == 0 {
             out.push(start);
@@ -352,8 +354,10 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 /// Decode a NUL-terminated little-endian UCS-2 string.
 fn ucs2_to_string(data: &[u8]) -> String {
     let units: Vec<u16> = data
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
         .take_while(|&u| u != 0)
         .collect();
     String::from_utf16_lossy(&units)
@@ -451,8 +455,10 @@ mod tests {
         h[55] = 2; // revision
         // Fix up the header checksum so the u16 sum is zero.
         let sum: u16 = h
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_le_bytes(*c))
             .fold(0u16, |a, v| a.wrapping_add(v));
         h[50..52].copy_from_slice(&(0u16.wrapping_sub(sum)).to_le_bytes());
 
