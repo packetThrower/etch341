@@ -29,8 +29,9 @@ The window is split into three regions:
 - **Activity log** (bottom) — chronological log of operations,
   results, and errors. Resizable: drag the splitter to give it more
   or less vertical space. The height is persisted across launches.
-  Two icon buttons in its top-right corner: **Pop out** (↗) moves the
-  log into its own window, and **Clear** (⌫) clears it (see [Activity log](#activity-log)).
+  Icon buttons in its top-right corner: **Pop out** (↗) moves the
+  log into its own window, **Save** (💾) writes it to a text file,
+  and **Clear** (⌫) clears it (see [Activity log](#activity-log)).
 
 The window's own size + position is also persisted, so it opens
 where you left it.
@@ -344,10 +345,14 @@ most recent at the bottom. Long lines wrap. Drag the splitter above
 the log to resize it; the height persists. Timestamps render in UTC
 by default — switch to local time in Settings → Appearance.
 
-Two icon buttons sit in the log's top-right corner:
+Icon buttons sit in the log's top-right corner:
 
 - **Pop out** (↗) detaches the log into its own window. It stays live
   — new lines stream into it and it follows the tail (unless you've
   scrolled up to read history). Closing the window re-docks the log;
   while it's popped out, the active pane takes the full height.
+- **Save** (💾) writes the log to a text file you pick (default name
+  `etch341-log-<date>_<time>.txt` in the Read save location), one
+  `HH:MM:SS  message` line per entry in the timestamp zone you're
+  displaying. Also in the popped-out window.
 - **Clear** (⌫) clears the log.

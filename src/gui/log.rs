@@ -12,7 +12,7 @@ use gpui_kit::component::scroll::ScrollableElement;
 
 /// Inline activity-log panel rendered at the bottom of the main
 /// window's pane / log split. The top-right chips pop the log out
-/// into its own window and clear it.
+/// into its own window, save it to a file, and clear it.
 pub fn render(
     lines: &[LogLine],
     local_tz: bool,
@@ -35,6 +35,13 @@ pub fn render(
         )
         .when(!lines.is_empty(), |row| {
             row.child(
+                chip("log-save", IconName::Save, "Save log…").on_click(cx.listener(
+                    |this: &mut AppView, _: &ClickEvent, _, cx| {
+                        this.save_log(cx);
+                    },
+                )),
+            )
+            .child(
                 chip("log-clear", IconName::Delete, "Clear log").on_click(cx.listener(
                     |this: &mut AppView, _: &ClickEvent, _, cx| {
                         this.clear_log(cx);
@@ -105,7 +112,15 @@ impl Render for LogWindow {
             .flex_row()
             .gap_1()
             .when(!lines.is_empty(), move |row| {
+                let save_app = app.clone();
                 row.child(
+                    chip("log-save-popout", IconName::Save, "Save log…").on_click(
+                        move |_: &ClickEvent, _, cx| {
+                            let _ = save_app.update(cx, |this, cx| this.save_log(cx));
+                        },
+                    ),
+                )
+                .child(
                     chip("log-clear-popout", IconName::Delete, "Clear log").on_click(
                         move |_: &ClickEvent, _, cx| {
                             let _ = app.update(cx, |this, cx| this.clear_log(cx));
