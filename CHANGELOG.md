@@ -11,7 +11,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 - **Save the activity log**: a Save button in the log's corner (inline
   and popped out) writes it to a text file, defaulting to a timestamped
-  name in the Read save location.
+  name in the Read save location. Saved files use UTC unless the new
+  Settings → Appearance switch **Use local time in saved log files** is
+  on, independent of the on-screen choice.
 
 ### Changed
 

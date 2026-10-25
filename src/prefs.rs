@@ -46,6 +46,10 @@ pub struct Prefs {
     /// behaviour and is what shows up in any log files we'd add
     /// later.
     pub timestamp_local: bool,
+    /// Write saved log files' timestamps in local time instead of
+    /// UTC. Independent of `timestamp_local` (on-screen display), so a
+    /// file can stay UTC while the screen shows local, or vice versa.
+    pub log_file_local: bool,
     /// Accent color as a `0xRRGGBB` value, chosen from the Settings
     /// → Appearance swatches. Drives both etch341's own accent and
     /// the embedded gpui-component widgets' primary color.
@@ -93,6 +97,7 @@ impl Default for Prefs {
             hex_font_size: HEX_FONT_DEFAULT,
             strings_font_size: HEX_FONT_DEFAULT,
             timestamp_local: false,
+            log_file_local: false,
             // Apple "blue"; mirrors gui::theme::DEFAULT_ACCENT_HEX
             // (kept in sync by hand — prefs is the non-GUI layer and
             // can't reach the feature-gated theme module).

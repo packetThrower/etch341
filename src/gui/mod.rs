@@ -921,11 +921,11 @@ impl AppView {
     }
 
     /// Save the activity log to a text file the user picks, one
-    /// `HH:MM:SS message` line per entry in the current timestamp
-    /// zone (UTC or local, as displayed). Defaults to the Read save
-    /// location with a timestamped name.
+    /// `HH:MM:SS message` line per entry, in UTC unless Settings →
+    /// "Use local time in saved log files" is on. Defaults to the
+    /// Read save location with a timestamped name.
     pub fn save_log(&mut self, cx: &mut Context<Self>) {
-        let local = self.prefs.timestamp_local;
+        let local = self.prefs.log_file_local;
         let text: String = self
             .log_lines
             .iter()
