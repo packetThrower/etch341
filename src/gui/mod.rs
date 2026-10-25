@@ -1002,7 +1002,7 @@ impl AppView {
         // Defer so the window opens after the current effect cycle
         // hands the borrowed entities back to a clean &mut App.
         cx.defer(move |cx| {
-            let bounds = Bounds::centered(None, gpui::size(px(720.0), px(560.0)), cx);
+            let bounds = Bounds::centered(None, gpui::size(px(1100.0), px(640.0)), cx);
             let opened = cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
