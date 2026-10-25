@@ -52,6 +52,11 @@ pub enum Error {
     #[error("Timed out waiting for chip to become ready (WIP stayed set)")]
     Timeout,
 
+    /// The progress sink asked to stop (GUI Cancel). Raised only
+    /// between chunks / pages, never mid-transfer.
+    #[error("cancelled")]
+    Cancelled,
+
     #[error(
         "Address out of range for chip (chip 0x{chip_size:X} B): start=0x{addr:08X} len=0x{len:X}"
     )]

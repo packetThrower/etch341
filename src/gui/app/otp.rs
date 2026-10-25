@@ -40,7 +40,7 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
-                Self::release_hw(cx);
+                this.release_hw(cx);
                 match outcome {
                     Ok(regs) => {
                         let blank = regs.iter().filter(|r| r.is_blank()).count();
@@ -137,7 +137,7 @@ impl AppView {
                 })
                 .await;
             weak.update(cx, |this, cx| {
-                Self::release_hw(cx);
+                this.release_hw(cx);
                 match outcome {
                     Ok(regs) => {
                         this.otp_regs = Some(regs);
@@ -208,7 +208,7 @@ impl AppView {
                 })
                 .await;
             weak.update(cx, |this, cx| {
-                Self::release_hw(cx);
+                this.release_hw(cx);
                 match outcome {
                     Ok((len, regs)) => {
                         this.otp_regs = Some(regs);

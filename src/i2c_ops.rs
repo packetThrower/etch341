@@ -59,7 +59,7 @@ pub fn read(
         out.write_all(&data)?;
         hasher.update(&data);
         addr += n;
-        progress.update((addr - mem_addr) as u64);
+        crate::ops::tick(progress, (addr - mem_addr) as u64)?;
     }
     progress.finish();
     println!("Read OK  : {} bytes → {}", len, output.display());
@@ -95,7 +95,7 @@ pub fn read_bytes(
         let data = i2c::read(bus, chip, addr, n, pin_straps)?;
         buf.extend_from_slice(&data);
         addr += n;
-        progress.update((addr - mem_addr) as u64);
+        crate::ops::tick(progress, (addr - mem_addr) as u64)?;
     }
     progress.finish();
     Ok(buf)
@@ -161,7 +161,7 @@ pub fn verify(
         }
         addr += n as u32;
         off += n;
-        progress.update((addr - mem_addr) as u64);
+        crate::ops::tick(progress, (addr - mem_addr) as u64)?;
     }
     progress.finish();
     Ok(mismatches)
@@ -190,7 +190,7 @@ pub fn blank_check(
             }
         }
         addr += n;
-        progress.update(addr as u64);
+        crate::ops::tick(progress, addr as u64)?;
     }
     progress.finish();
     Ok(())

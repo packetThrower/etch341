@@ -9,6 +9,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ### Added
 
+- **Cancel a running operation**: reads, verifies, blank checks and SPI
+  writes get a Cancel button beside the header's progress readout. They
+  stop at the next chunk or page boundary; a cancelled read removes its
+  partial dump, a cancelled write leaves the chip partly written. SPI
+  chip erase can't be cancelled (the chip finishes it on its own).
 - **Save the activity log**: a Save button in the log's corner (inline
   and popped out) writes it to a text file, defaulting to a timestamped
   name in the Read save location. Saved files use UTC unless the new

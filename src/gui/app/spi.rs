@@ -174,11 +174,15 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
-                Self::release_hw(cx);
+                this.release_hw(cx);
                 match outcome {
                     Ok((name, n)) => {
                         this.set_op_result(true, format!("Wrote {n} bytes to {name} (verified)"))
                     }
+                    Err(err) if crate::gui::is_cancel(&err) => this.set_op_result(
+                        false,
+                        "Write cancelled; the chip is left partly written".into(),
+                    ),
                     Err(err) => this.set_op_result(false, format!("Write failed: {err}")),
                 }
                 cx.notify();
@@ -246,7 +250,7 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
-                Self::release_hw(cx);
+                this.release_hw(cx);
                 match outcome {
                     Ok((name, _chip, offs, file)) if offs.is_empty() => {
                         let n = file.len();
@@ -260,6 +264,9 @@ impl AppView {
                             offsets: offs,
                         });
                         this.set_op_result(false, format!("{m} of {n} bytes differ ({name})"));
+                    }
+                    Err(err) if crate::gui::is_cancel(&err) => {
+                        this.set_op_result(false, "Verify cancelled".into())
                     }
                     Err(err) => this.set_op_result(false, format!("Verify failed: {err}")),
                 }
@@ -388,7 +395,7 @@ impl AppView {
                 self.detect_sfdp = None;
             }
         }
-        Self::release_hw(cx);
+        self.release_hw(cx);
         cx.notify();
     }
 
@@ -451,12 +458,17 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
-                Self::release_hw(cx);
+                this.release_hw(cx);
                 match outcome {
                     Ok((name, size)) => this.set_op_result(
                         true,
                         format!("Read {size} bytes from {name} → {}", path.display()),
                     ),
+                    Err(err) if crate::gui::is_cancel(&err) => {
+                        // Don't leave a truncated dump that looks real.
+                        let _ = std::fs::remove_file(&path);
+                        this.set_op_result(false, "Read cancelled; partial dump removed".into())
+                    }
                     Err(err) => this.set_op_result(false, format!("Read failed: {err}")),
                 }
                 cx.notify();
@@ -538,7 +550,7 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
-                Self::release_hw(cx);
+                this.release_hw(cx);
                 match outcome {
                     Ok(name) => {
                         this.set_op_result(true, format!("Erased {name} — chip is now blank"))
@@ -593,7 +605,7 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
-                Self::release_hw(cx);
+                this.release_hw(cx);
                 match outcome {
                     Ok(regs) => {
                         this.status_regs = Some(regs);
@@ -663,12 +675,15 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
-                Self::release_hw(cx);
+                this.release_hw(cx);
                 match outcome {
                     Ok((name, size)) => this.set_op_result(
                         true,
                         format!("{name} is blank — all {size} bytes are 0xFF"),
                     ),
+                    Err(err) if crate::gui::is_cancel(&err) => {
+                        this.set_op_result(false, "Blank check cancelled".into())
+                    }
                     Err(err) => this.set_op_result(false, format!("Blank check failed: {err}")),
                 }
                 cx.notify();

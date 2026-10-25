@@ -29,6 +29,22 @@ pub trait ProgressSink: Send {
     }
     /// Called once when work completes (success or failure path).
     fn finish(&mut self) {}
+    /// Polled between chunks / pages; `true` stops the op with
+    /// `Error::Cancelled`. Nothing in flight on the bus is interrupted.
+    fn cancelled(&self) -> bool {
+        false
+    }
+}
+
+/// Report progress, then honour a pending cancel. Call at a point where
+/// stopping leaves the bus idle (after a chunk read or a page program
+/// has fully completed).
+pub(crate) fn tick(progress: &mut dyn ProgressSink, current: u64) -> Result<()> {
+    progress.update(current);
+    if progress.cancelled() {
+        return Err(Error::Cancelled);
+    }
+    Ok(())
 }
 
 /// Default sink that swallows all events. Useful for tests and for
@@ -672,7 +688,7 @@ pub fn read(
         out.write_all(&data)?;
         hasher.update(&data);
         addr += n;
-        progress.update((addr - start) as u64);
+        tick(progress, (addr - start) as u64)?;
     }
     progress.finish();
     out.flush()?;
@@ -743,7 +759,7 @@ pub fn erase_range(
             spi::wait_until_ready(spi, SECTOR_ERASE_TIMEOUT)?;
             addr += chip.sector_size;
         }
-        progress.update((addr - start) as u64);
+        tick(progress, (addr - start) as u64)?;
     }
     progress.finish();
     println!("Erase OK : {} bytes (rounded from {})", aligned_len, len);
@@ -789,7 +805,7 @@ pub fn write(
         )?;
         spi::wait_until_ready(spi, PAGE_PROGRAM_TIMEOUT)?;
         written += chunk_len;
-        progress.update(written as u64);
+        tick(progress, written as u64)?;
     }
     progress.finish();
     println!("Write OK : {} bytes at 0x{:08X}", data.len(), start);
@@ -836,7 +852,7 @@ pub fn read_bytes(
         let data = spi::read_data(spi, addressing, addr, n as usize)?;
         buf.extend_from_slice(&data);
         addr += n;
-        progress.update((addr - start) as u64);
+        tick(progress, (addr - start) as u64)?;
     }
     progress.finish();
     Ok(buf)
@@ -876,7 +892,7 @@ pub fn verify(
             }
         }
         off += n;
-        progress.update(off as u64);
+        tick(progress, off as u64)?;
     }
     progress.finish();
 
@@ -914,7 +930,7 @@ pub fn blank_check(
             }
         }
         addr += n;
-        progress.update(addr as u64);
+        tick(progress, addr as u64)?;
     }
     progress.finish();
     println!("Blank OK : all {} bytes are 0xFF", len);
@@ -959,6 +975,24 @@ mod tests {
         read(&mut mock, &chip, 0, 16, &tmp, &mut NullSink).unwrap();
         let got = std::fs::read(&tmp).unwrap();
         assert_eq!(got, body);
+        mock.assert_drained();
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn read_stops_with_cancelled_after_the_current_chunk() {
+        struct CancelSink;
+        impl ProgressSink for CancelSink {
+            fn cancelled(&self) -> bool {
+                true
+            }
+        }
+        // One chunk completes on the bus, then the cancel is honoured
+        // (MockSpi would panic on any further transfer).
+        let mut mock = MockSpi::new([read_step(0, 16, vec![0xAA; 16])]);
+        let tmp = std::env::temp_dir().join("etch341_read_cancel_test.bin");
+        let err = read(&mut mock, &fake_chip(1), 0, 16, &tmp, &mut CancelSink).unwrap_err();
+        assert!(matches!(err, Error::Cancelled));
         mock.assert_drained();
         let _ = std::fs::remove_file(&tmp);
     }

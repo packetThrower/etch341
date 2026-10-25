@@ -189,6 +189,12 @@ impl gpui::AssetSource for AppAssets {
 pub struct HwBusy(pub bool);
 impl gpui::Global for HwBusy {}
 
+/// Whether an op's error string is a user cancel (`Error::Cancelled`,
+/// possibly behind a "read: " style prefix).
+pub fn is_cancel(err: &str) -> bool {
+    err.ends_with("cancelled")
+}
+
 pub fn hw_busy(cx: &App) -> bool {
     cx.global::<HwBusy>().0
 }
@@ -572,6 +578,9 @@ pub struct SharedProgress {
     pub total: AtomicU64,
     pub label: Mutex<String>,
     pub active: AtomicBool,
+    /// Set by the header's Cancel button; read by `GuiSink::cancelled`
+    /// and reset when the next op claims the programmer.
+    pub cancel: AtomicBool,
 }
 
 /// `ProgressSink` impl that writes into a `SharedProgress`. The
@@ -597,6 +606,9 @@ impl ProgressSink for GuiSink {
     }
     fn update(&mut self, current: u64) {
         self.shared.current.store(current, Ordering::Relaxed);
+    }
+    fn cancelled(&self) -> bool {
+        self.shared.cancel.load(Ordering::Relaxed)
     }
     fn finish(&mut self) {
         self.shared.active.store(false, Ordering::Relaxed);
@@ -939,12 +951,16 @@ impl AppView {
             cx.notify();
             return false;
         }
+        self.progress.cancel.store(false, Ordering::Relaxed);
         cx.set_global(HwBusy(true));
         cx.notify(); // grey out the op buttons right away
         true
     }
 
-    pub(super) fn release_hw(cx: &mut Context<Self>) {
+    /// Also clears the header's progress readout: an op that ends on
+    /// an error (or a cancel) never reaches its sink's `finish()`.
+    pub(super) fn release_hw(&self, cx: &mut Context<Self>) {
+        self.progress.active.store(false, Ordering::Relaxed);
         cx.set_global(HwBusy(false));
     }
 
@@ -1515,7 +1531,7 @@ impl Render for AppView {
                             .min_w(px(0.0))
                             .flex()
                             .flex_col()
-                            .child(header::render(&self.connection, &self.progress))
+                            .child(header::render(&self.connection, &self.progress, cx))
                             .child({
                                 // Settings is a configuration pane, not an
                                 // op — there's no progress / pass / fail
