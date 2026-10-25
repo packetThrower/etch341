@@ -30,7 +30,7 @@ The window is split into three regions:
   results, and errors. Resizable: drag the splitter to give it more
   or less vertical space. The height is persisted across launches.
   Two icon buttons in its top-right corner: **Pop out** (↗) moves the
-  log into its own window, and **Clear** (trash can) clears it (see [Activity log](#activity-log)).
+  log into its own window, and **Clear** (⌫) clears it (see [Activity log](#activity-log)).
 
 The window's own size + position is also persisted, so it opens
 where you left it.
@@ -340,4 +340,4 @@ Two icon buttons sit in the log's top-right corner:
   — new lines stream into it and it follows the tail (unless you've
   scrolled up to read history). Closing the window re-docks the log;
   while it's popped out, the active pane takes the full height.
-- **Clear** (trash can) clears the log.
+- **Clear** (⌫) clears the log.

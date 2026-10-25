@@ -35,7 +35,7 @@ pub fn render(
         )
         .when(!lines.is_empty(), |row| {
             row.child(
-                chip("log-clear", IconName::Trash, "Clear log").on_click(cx.listener(
+                chip("log-clear", IconName::Delete, "Clear log").on_click(cx.listener(
                     |this: &mut AppView, _: &ClickEvent, _, cx| {
                         this.clear_log(cx);
                     },
@@ -106,7 +106,7 @@ impl Render for LogWindow {
             .gap_1()
             .when(!lines.is_empty(), move |row| {
                 row.child(
-                    chip("log-clear-popout", IconName::Trash, "Clear log").on_click(
+                    chip("log-clear-popout", IconName::Delete, "Clear log").on_click(
                         move |_: &ClickEvent, _, cx| {
                             let _ = app.update(cx, |this, cx| this.clear_log(cx));
                         },
