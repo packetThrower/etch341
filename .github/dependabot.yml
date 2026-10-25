@@ -1,20 +1,46 @@
-# Dependabot keeps the SHA-pinned GitHub Actions in
-# .github/workflows/*.yml current. It opens a PR for each action
-# that has a newer release, with the SHA bumped and the `# vX.Y.Z`
-# comment refreshed. Without this, the pinned SHAs go stale and
-# we miss action security fixes.
-#
-# Cargo deps stay out of dependabot's scope on purpose — the gpui /
-# gpui-component git pins need coordinated manual bumps (see the
-# Cargo.toml comments about why rev pins matter), and crates.io
-# bumps are cheap enough to do during normal development.
 version: 2
+
+# Dependency-update schedule for etch341's three ecosystems: the Rust
+# crate at the repo root, the Astro docs site under docs/, and the
+# SHA-pinned GitHub Actions in the workflows.
+
 updates:
-  - package-ecosystem: github-actions
-    directory: /
+  - package-ecosystem: "cargo"
+    directory: "/"
     schedule:
-      interval: weekly
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the routine patch/minor sweep; majors still come
+      # through individually so they get a proper look.
+      cargo-minor:
+        update-types: ["minor", "patch"]
+    # GPUI moves deliberately, in one pass across all four packetThrower
+    # apps (Baudrun, PortFinder, etch341, Zorite): a lone bump of any of
+    # these splits the graph or lands an untested combo.
+    ignore:
+      - dependency-name: "gpui"
+      - dependency-name: "gpui_platform"
+      - dependency-name: "gpui-component"
+      - dependency-name: "gpui-component-assets"
+      - dependency-name: "gpui-kit"
+      - dependency-name: "gpui-base"
+      - dependency-name: "gpui-kit-assets"
+      - dependency-name: "gpui-pre*"
+
+  - package-ecosystem: "npm"
+    directory: "/docs"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      docs-minor:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
     groups:
       actions:
-        patterns:
-          - "*"
+        patterns: ["*"]

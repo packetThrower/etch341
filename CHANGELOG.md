@@ -7,6 +7,22 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+### Security
+
+- **rustls patched** (0.23.40 → 0.23.46, rustls-webpki 0.103.16):
+  clears the open TLS advisories, including a ServerHello downgrade to
+  classical key exchange and certificate verification accepting
+  distrusted intermediates. Used by the GUI's update checker.
+- **webpki-roots refreshed** (1.0.11): drops trust in the distrusted
+  emSign intermediates.
+- **Other crate advisories cleared**: tokio, h2, quinn-proto and
+  crossbeam-epoch patched; rust-i18n 4.2.4 drops the unmaintained
+  serde_yaml / unsafe-libyaml.
+- **Docs toolchain refreshed** (astro 7.4.2, starlight 0.42.7, sharp
+  0.35.5 and their transitive dependencies), clearing every open
+  advisory against the static docs site's build tooling, including a
+  critical astro XSS. None affected the etch341 app.
+
 ## [0.7.0] — 2026-07-12
 
 ### Added
