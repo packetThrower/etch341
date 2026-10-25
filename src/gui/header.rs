@@ -9,10 +9,11 @@ pub const HEIGHT: f32 = 52.0;
 pub fn render(conn: &Connection, progress: &SharedProgress) -> impl IntoElement {
     let (dot, label) = match conn {
         Connection::Disconnected => (theme::caution_red(), "no CH341A".to_string()),
+        Connection::Present => (theme::success_green(), "CH341A".to_string()),
         Connection::NoChip => (theme::warning_amber(), "CH341A · no chip".to_string()),
-        Connection::Ready { chip_name, size_kb } => (
+        Connection::Ready { chip_name, size } => (
             theme::success_green(),
-            format!("CH341A · {chip_name} · {} KB", size_kb),
+            format!("CH341A · {chip_name} · {size}"),
         ),
     };
 

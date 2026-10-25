@@ -104,10 +104,13 @@ impl AppView {
                 .await;
             weak.update(cx, |this, cx| {
                 match outcome {
-                    Ok((name, size)) => this.set_op_result(
-                        true,
-                        format!("Read {size} bytes from {name} → {}", path.display()),
-                    ),
+                    Ok((name, size)) => {
+                        this.note_i2c_chip(&name);
+                        this.set_op_result(
+                            true,
+                            format!("Read {size} bytes from {name} → {}", path.display()),
+                        )
+                    }
                     Err(err) => this.set_op_result(false, format!("Read failed: {err}")),
                 }
                 cx.notify();
@@ -246,12 +249,16 @@ impl AppView {
             weak.update(cx, |this, cx| {
                 match outcome {
                     Ok((name, n, 0)) => {
+                        this.note_i2c_chip(&name);
                         this.set_op_result(true, format!("Wrote {n} bytes to {name} (verified)"))
                     }
-                    Ok((name, n, m)) => this.set_op_result(
-                        false,
-                        format!("Wrote {n} bytes to {name} but verify found {m} mismatch(es)"),
-                    ),
+                    Ok((name, n, m)) => {
+                        this.note_i2c_chip(&name);
+                        this.set_op_result(
+                            false,
+                            format!("Wrote {n} bytes to {name} but verify found {m} mismatch(es)"),
+                        )
+                    }
                     Err(err) => this.set_op_result(false, format!("Write failed: {err}")),
                 }
                 cx.notify();
@@ -300,10 +307,12 @@ impl AppView {
             weak.update(cx, |this, cx| {
                 match outcome {
                     Ok((name, _chip, offs, file)) if offs.is_empty() => {
+                        this.note_i2c_chip(&name);
                         let n = file.len();
                         this.set_op_result(true, format!("All {n} bytes match {name}"));
                     }
                     Ok((name, chip, offs, file)) => {
+                        this.note_i2c_chip(&name);
                         let (n, m) = (file.len(), offs.len());
                         this.verify_diff = Some(VerifyDiff {
                             file_bytes: Arc::new(file),
@@ -370,6 +379,7 @@ impl AppView {
             weak.update(cx, |this, cx| {
                 match outcome {
                     Ok((name, size)) => {
+                        this.note_i2c_chip(&name);
                         this.set_op_result(true, format!("Erased {name} to 0xFF ({size} bytes)"))
                     }
                     Err(err) => this.set_op_result(false, format!("Erase failed: {err}")),
@@ -410,8 +420,13 @@ impl AppView {
                 .await;
             weak.update(cx, |this, cx| {
                 match outcome {
-                    Ok((name, size)) => this
-                        .set_op_result(true, format!("{name} is blank — all 0xFF ({size} bytes)")),
+                    Ok((name, size)) => {
+                        this.note_i2c_chip(&name);
+                        this.set_op_result(
+                            true,
+                            format!("{name} is blank — all 0xFF ({size} bytes)"),
+                        )
+                    }
                     Err(err) => this.set_op_result(false, format!("Blank check: {err}")),
                 }
                 cx.notify();
