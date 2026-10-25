@@ -75,7 +75,7 @@ gpui-kit = { version = "=0.8.0", optional = true }
 mu_uefi_decompress = "4.1.0"
 
 [dev-dependencies]
-mockall = "0.12"
+mockall = "0.15"
 
 # Build-script-only dep. Embeds resources/icons/icon.ico into the
 # Windows .exe PE resource section so Explorer / taskbar / Alt-Tab
