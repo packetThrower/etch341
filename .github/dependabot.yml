@@ -19,10 +19,7 @@ updates:
     # apps (Baudrun, PortFinder, etch341, Zorite): a lone bump of any of
     # these splits the graph or lands an untested combo.
     ignore:
-      - dependency-name: "gpui"
-      - dependency-name: "gpui_platform"
       - dependency-name: "gpui-component"
-      - dependency-name: "gpui-component-assets"
       - dependency-name: "gpui-kit"
       - dependency-name: "gpui-base"
       - dependency-name: "gpui-kit-assets"

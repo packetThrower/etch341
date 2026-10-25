@@ -14,10 +14,10 @@ use gpui::{
     ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, WeakEntity,
     Window, div, px,
 };
-use gpui_component::TitleBar;
-use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::scroll::ScrollableElement;
-use gpui_component::select::{Select, SelectState};
+use gpui_kit::component::TitleBar;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::scroll::ScrollableElement;
+use gpui_kit::component::select::{Select, SelectState};
 
 /// Pseudo-vendor labels that aren't real JEDEC manufacturers. `ALL`
 /// is the default (everything); `I2C` is the catch-all for the 24Cxx

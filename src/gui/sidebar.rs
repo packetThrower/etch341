@@ -3,8 +3,8 @@ use gpui::{
     ClickEvent, Context, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled as _, div, prelude::FluentBuilder as _, px,
 };
-use gpui_component::stepper::{Stepper, StepperItem};
-use gpui_component::{Sizable as _, Size};
+use gpui_kit::component::stepper::{Stepper, StepperItem};
+use gpui_kit::component::{Sizable as _, Size};
 
 /// SPI workflow steps, in order. The slice position is the Stepper
 /// step index. Blank check / Status / Security / Hex are tools, not

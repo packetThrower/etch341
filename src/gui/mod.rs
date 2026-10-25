@@ -6,7 +6,7 @@ use gpui::{
     Styled, Subscription, TitlebarOptions, UniformListScrollHandle, Window, WindowBounds,
     WindowDecorations, WindowHandle, WindowOptions, actions, div, px,
 };
-use gpui_component::{
+use gpui_kit::component::{
     Root, Theme, ThemeMode, TitleBar,
     input::{InputEvent, InputState},
     menu::AppMenuBar,
@@ -86,15 +86,18 @@ fn uniform_list_top_index(handle: &UniformListScrollHandle, row_height_px: f32) 
 /// its widgets (RadioGroup dots, Input focus rings) track our accent
 /// instead of staying on the library's default blue. Reads
 /// `theme::accent*`, so call after `theme::set_accent_hex`.
+/// `Theme::update` (not `global_mut`) so GPUI Kit re-derives the color
+/// tokens its components paint with.
 fn apply_accent_to_component_theme(cx: &mut App) {
-    let t = Theme::global_mut(cx);
-    t.primary = theme::accent();
-    t.primary_hover = theme::accent_hover();
-    t.primary_active = theme::accent_active();
-    // The on-primary color (e.g. the RadioGroup checkmark) follows
-    // the same luma-based dark/light pick so it stays legible on a
-    // light accent.
-    t.primary_foreground = theme::accent_foreground();
+    Theme::update(cx, |t| {
+        t.primary = theme::accent();
+        t.primary_hover = theme::accent_hover();
+        t.primary_active = theme::accent_active();
+        // The on-primary color (e.g. the RadioGroup checkmark) follows
+        // the same luma-based dark/light pick so it stays legible on a
+        // light accent.
+        t.primary_foreground = theme::accent_foreground();
+    });
 }
 
 // The search-pattern parsing, string extraction, and byte-level
@@ -115,9 +118,9 @@ mod theme;
 pub mod updater;
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let app = gpui_platform::application().with_assets(gpui_component_assets::Assets);
+    let app = gpui_kit::application().with_assets(gpui_kit::assets::Assets);
     app.run(|cx: &mut App| {
-        gpui_component::init(cx);
+        gpui_kit::component::init(cx);
         // Force gpui-component into dark mode regardless of the OS
         // appearance — etch341's chrome (sidebar, panes, log, hex)
         // is dark-only by design. Without this the gpui-component
