@@ -64,7 +64,7 @@ semver = { version = "1", optional = true }
 # panes to choose a binary file. Stays in the default deps because
 # the CLI build skips the GUI feature, and rfd is light enough
 # that even a CLI-only binary linking it has negligible cost.
-rfd = "0.14"
+rfd = "0.17"
 
 # GUI stack — feature-gated. GPUI Kit: gpui (crates.io `gpui-pre`
 # snapshot), its platform backends (Linux wayland + x11, macOS
