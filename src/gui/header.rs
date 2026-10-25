@@ -95,12 +95,12 @@ pub fn render(
 }
 
 /// Ghost "Cancel" beside the progress pill. The op stops at its next
-/// chunk / page boundary; a write is left partly done, hence the
-/// tooltip.
+/// chunk / erase-block / page boundary; a write is left partly done
+/// (erased, or partly programmed), hence the tooltip.
 fn cancel_button(progress: &Arc<SharedProgress>, cx: &mut Context<AppView>) -> impl IntoElement {
     let progress = progress.clone();
     let tip = if *progress.label.lock().unwrap() == "write" {
-        "Stops after the current page — the chip is left partly written"
+        "Stops after the current erase block or page — the chip is left partly erased / written"
     } else {
         "Stops after the current chunk"
     };

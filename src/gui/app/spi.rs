@@ -181,7 +181,7 @@ impl AppView {
                     }
                     Err(err) if crate::gui::is_cancel(&err) => this.set_op_result(
                         false,
-                        "Write cancelled; the chip is left partly written".into(),
+                        "Write cancelled; the chip is left partly erased / written".into(),
                     ),
                     Err(err) => this.set_op_result(false, format!("Write failed: {err}")),
                 }

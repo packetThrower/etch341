@@ -84,9 +84,11 @@ or change Settings.
 
 Reads, verifies, blank checks and SPI writes show a **Cancel** button
 next to the progress readout. The operation stops after the chunk (or,
-for a write, the page) that's in flight, so the bus is always left
-idle. A cancelled read deletes its partial dump; a cancelled write leaves
-the chip partly written. SPI erase has no Cancel: it's a single
+for a write, the erase block or page) that's in flight, so the bus is
+always left idle. A cancelled read deletes its partial dump; a cancelled
+write leaves the chip partly erased or written. A write erases before it
+programs, so a cancel early on can leave the old contents partly erased
+with nothing new written yet. SPI erase has no Cancel: it's a single
 chip-erase command that the chip finishes on its own. I²C writes and
 erases go out in one quick call.
 
