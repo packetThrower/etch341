@@ -22,6 +22,9 @@ impl AppView {
         self.push_log("→ i2c scan (0x08..0x77)".into());
         cx.notify();
         let speed = self.i2c_speed();
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -32,6 +35,7 @@ impl AppView {
                 })
                 .await;
             weak.update(cx, |this, cx| {
+                Self::release_hw(cx);
                 match outcome {
                     Ok(hits) => {
                         if hits.is_empty() {
@@ -80,6 +84,9 @@ impl AppView {
         let path_for_task = path.clone();
         let progress = self.progress.clone();
         let speed = self.i2c_speed();
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -103,6 +110,7 @@ impl AppView {
                 })
                 .await;
             weak.update(cx, |this, cx| {
+                Self::release_hw(cx);
                 match outcome {
                     Ok((name, size)) => {
                         this.note_i2c_chip(&name);
@@ -218,6 +226,9 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.i2c_speed();
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -247,6 +258,7 @@ impl AppView {
                 })
                 .await;
             weak.update(cx, |this, cx| {
+                Self::release_hw(cx);
                 match outcome {
                     Ok((name, n, 0)) => {
                         this.note_i2c_chip(&name);
@@ -283,6 +295,9 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.i2c_speed();
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -305,6 +320,7 @@ impl AppView {
                 })
                 .await;
             weak.update(cx, |this, cx| {
+                Self::release_hw(cx);
                 match outcome {
                     Ok((name, _chip, offs, file)) if offs.is_empty() => {
                         this.note_i2c_chip(&name);
@@ -362,6 +378,9 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.i2c_speed();
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -377,6 +396,7 @@ impl AppView {
                 })
                 .await;
             weak.update(cx, |this, cx| {
+                Self::release_hw(cx);
                 match outcome {
                     Ok((name, size)) => {
                         this.note_i2c_chip(&name);
@@ -404,6 +424,9 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.i2c_speed();
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -419,6 +442,7 @@ impl AppView {
                 })
                 .await;
             weak.update(cx, |this, cx| {
+                Self::release_hw(cx);
                 match outcome {
                     Ok((name, size)) => {
                         this.note_i2c_chip(&name);

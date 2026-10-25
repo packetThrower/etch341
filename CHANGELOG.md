@@ -40,6 +40,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ### Fixed
 
+- **One chip operation at a time**: nothing stopped you from starting a
+  second operation (say, Detect or Erase) while a read was still
+  running, and both would open the CH341A at once. The operation
+  buttons and the SPI / I²C toggle are now disabled until the current
+  operation finishes, and menu items and shortcuts are refused with a
+  log line.
 - **Header tracks the CH341A**: it showed "no CH341A" until an SPI
   Detect ran, even with the programmer plugged in, and never updated
   in I²C mode. It now checks USB every second (plug / unplug updates

@@ -128,6 +128,9 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.prefs.spi_speed_khz;
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -171,6 +174,7 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
+                Self::release_hw(cx);
                 match outcome {
                     Ok((name, n)) => {
                         this.set_op_result(true, format!("Wrote {n} bytes to {name} (verified)"))
@@ -198,6 +202,9 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.prefs.spi_speed_khz;
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -239,6 +246,7 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
+                Self::release_hw(cx);
                 match outcome {
                     Ok((name, _chip, offs, file)) if offs.is_empty() => {
                         let n = file.len();
@@ -271,6 +279,11 @@ impl AppView {
     /// `self.detect_sfdp` lets the Detect pane render the rich
     /// JESD216 view without a separate "Read SFDP" button.
     pub fn refresh_detect(&mut self, cx: &mut Context<Self>) {
+        // Synchronous (blocks the UI thread): it can't overlap itself,
+        // only a background op that still holds the CH341A.
+        if !self.claim_hw(cx) {
+            return;
+        }
         self.push_log("→ detect".to_string());
         self.op_result = None;
         // `outcome` carries the resolved chip-info plus the SFDP
@@ -375,6 +388,7 @@ impl AppView {
                 self.detect_sfdp = None;
             }
         }
+        Self::release_hw(cx);
         cx.notify();
     }
 
@@ -391,6 +405,9 @@ impl AppView {
         let path_for_task = path.clone();
         let progress = self.progress.clone();
         let speed = self.prefs.spi_speed_khz;
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -434,6 +451,7 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
+                Self::release_hw(cx);
                 match outcome {
                     Ok((name, size)) => this.set_op_result(
                         true,
@@ -475,6 +493,9 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.prefs.spi_speed_khz;
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -517,6 +538,7 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
+                Self::release_hw(cx);
                 match outcome {
                     Ok(name) => {
                         this.set_op_result(true, format!("Erased {name} — chip is now blank"))
@@ -544,6 +566,9 @@ impl AppView {
         self.op_result = None;
         cx.notify();
         let speed = self.prefs.spi_speed_khz;
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -568,6 +593,7 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
+                Self::release_hw(cx);
                 match outcome {
                     Ok(regs) => {
                         this.status_regs = Some(regs);
@@ -592,6 +618,9 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.prefs.spi_speed_khz;
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -634,6 +663,7 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
+                Self::release_hw(cx);
                 match outcome {
                     Ok((name, size)) => this.set_op_result(
                         true,

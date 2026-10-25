@@ -73,6 +73,15 @@ progress (when one is running):
   successful I²C operation (showing the 24Cxx you picked, since I²C
   has no chip ID). Run Detect again after swapping SPI chips.
 
+## One operation at a time
+
+While a read, write, erase or other chip operation is running, the
+operation buttons and the SPI / I²C toggle are greyed out, and menu items
+or shortcuts that would start another one log "Busy: wait for the
+current operation to finish" instead. Everything else stays live: switch
+panes, open the Hex viewer or BIOS explorer, browse the chip database,
+or change Settings.
+
 ## Operation results
 
 Every operation reports its outcome two ways: a line in the

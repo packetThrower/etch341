@@ -4,7 +4,6 @@ use gpui::{
     MouseDownEvent, MouseMoveEvent, ParentElement, SharedString, StatefulInteractiveElement,
     Styled, UniformListScrollHandle, WeakEntity, div, prelude::FluentBuilder, px, uniform_list,
 };
-use gpui_kit::component::Sizable as _;
 use gpui_kit::component::alert::Alert;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::clipboard::Clipboard;
@@ -13,6 +12,7 @@ use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::radio::RadioGroup;
 use gpui_kit::component::select::{Select, SelectState};
 use gpui_kit::component::tooltip::Tooltip;
+use gpui_kit::component::{Disableable as _, Sizable as _};
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
@@ -320,7 +320,7 @@ where
                 .font_family(theme::MONO_FONT)
                 .child(display),
         )
-        .child(action_button_for("Browse…", button_id, cx, on_click))
+        .child(plain_button_for("Browse…", button_id, cx, on_click))
 }
 
 /// Mono-styled flex column used for fixed-width text blocks inside
@@ -473,12 +473,30 @@ fn action_button(label: &'static str, cx: &mut Context<AppView>) -> impl IntoEle
     action_button_for(label, label, cx, |this, cx| this.refresh_detect(cx))
 }
 
+/// Primary button for a hardware op; disabled while another op holds
+/// the CH341A (see `HwBusy`). Non-hardware actions use
+/// `plain_button_for`.
 fn action_button_for<F>(
     label: &'static str,
     id: &'static str,
     cx: &mut Context<AppView>,
     on_click: F,
 ) -> impl IntoElement
+where
+    F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
+{
+    let busy = super::hw_busy(cx);
+    plain_button_for(label, id, cx, on_click).disabled(busy)
+}
+
+/// Primary button for an action that doesn't touch the programmer
+/// (file pickers, view switches), so it stays live during an op.
+fn plain_button_for<F>(
+    label: &'static str,
+    id: &'static str,
+    cx: &mut Context<AppView>,
+    on_click: F,
+) -> Button
 where
     F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
 {
@@ -511,11 +529,11 @@ where
     } else {
         op_button(id, idle_label).primary()
     };
-    button.on_click(
-        cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+    button.disabled(super::hw_busy(cx)).on_click(cx.listener(
+        move |this: &mut AppView, _: &ClickEvent, _, cx| {
             on_click(this, cx);
-        }),
-    )
+        },
+    ))
 }
 
 /// Shared op-pane button: GPUI Kit `Button`, small, with a minimum

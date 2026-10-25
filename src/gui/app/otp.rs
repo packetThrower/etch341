@@ -16,6 +16,9 @@ impl AppView {
         self.op_result = None;
         cx.notify();
         let speed = self.prefs.spi_speed_khz;
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -37,6 +40,7 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
+                Self::release_hw(cx);
                 match outcome {
                     Ok(regs) => {
                         let blank = regs.iter().filter(|r| r.is_blank()).count();
@@ -117,6 +121,9 @@ impl AppView {
         self.push_log(format!("→ erase security register {register}"));
         cx.notify();
         let speed = self.prefs.spi_speed_khz;
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -130,6 +137,7 @@ impl AppView {
                 })
                 .await;
             weak.update(cx, |this, cx| {
+                Self::release_hw(cx);
                 match outcome {
                     Ok(regs) => {
                         this.otp_regs = Some(regs);
@@ -182,6 +190,9 @@ impl AppView {
         ));
         cx.notify();
         let speed = self.prefs.spi_speed_khz;
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -197,6 +208,7 @@ impl AppView {
                 })
                 .await;
             weak.update(cx, |this, cx| {
+                Self::release_hw(cx);
                 match outcome {
                     Ok((len, regs)) => {
                         this.otp_regs = Some(regs);

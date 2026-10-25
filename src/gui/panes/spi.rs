@@ -117,7 +117,7 @@ pub(super) fn verify_pane(
     .child(group)
     .children(result_block(result))
     .when(has_diff, |this| {
-        this.child(action_button_for(
+        this.child(plain_button_for(
             "View diff in Hex",
             "view-diff",
             cx,

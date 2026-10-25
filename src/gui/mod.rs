@@ -181,6 +181,18 @@ impl gpui::AssetSource for AppAssets {
     }
 }
 
+/// True while a hardware op holds the CH341A. Each op opens the
+/// programmer itself, so two at once could interleave USB traffic (or
+/// start an erase mid-read); `AppView::claim_hw` refuses a second one,
+/// and the op buttons + bus toggle render disabled meanwhile. A global
+/// (not an AppView field) so button helpers can read it mid-render.
+pub struct HwBusy(pub bool);
+impl gpui::Global for HwBusy {}
+
+pub fn hw_busy(cx: &App) -> bool {
+    cx.global::<HwBusy>().0
+}
+
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let app = gpui_kit::application().with_assets(AppAssets);
     app.run(|cx: &mut App| {
@@ -195,6 +207,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         // just pin the mode because there's no light variant to
         // switch into.
         Theme::change(ThemeMode::Dark, None, cx);
+        cx.set_global(HwBusy(false));
 
         // Standard hex-editor shortcuts. GPUI treats `cmd-` and
         // `ctrl-` as distinct chords — `cmd-` only fires for the
@@ -915,6 +928,26 @@ impl AppView {
     /// Wipe the activity log. Bound to the log pane's clear button.
     /// Not undoable on purpose — the log is a running narrative,
     /// not a document. Cheap to re-fill: just run an op.
+    /// Claim the CH341A for a hardware op. Returns false (and logs)
+    /// if another op still holds it; the op's completion handler
+    /// releases it with `release_hw`.
+    // ponytail: a panic in the background op leaves the claim held until
+    // restart; add a drop guard if ops ever start panicking.
+    pub(super) fn claim_hw(&mut self, cx: &mut Context<Self>) -> bool {
+        if hw_busy(cx) {
+            self.push_log("Busy: wait for the current operation to finish".into());
+            cx.notify();
+            return false;
+        }
+        cx.set_global(HwBusy(true));
+        cx.notify(); // grey out the op buttons right away
+        true
+    }
+
+    pub(super) fn release_hw(cx: &mut Context<Self>) {
+        cx.set_global(HwBusy(false));
+    }
+
     pub fn clear_log(&mut self, cx: &mut Context<Self>) {
         self.log_lines.clear();
         cx.notify();
