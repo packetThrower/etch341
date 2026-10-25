@@ -72,7 +72,7 @@ rfd = "0.14"
 # dependency. Exact pin: gpui-kit pins one gpui-pre snapshot, and all four
 # packetThrower apps move to the same Kit version in one pass.
 gpui-kit = { version = "=0.8.0", optional = true }
-mu_uefi_decompress = "4.1.0"
+mu_uefi_decompress = "5.0.0"
 
 [dev-dependencies]
 mockall = "0.12"

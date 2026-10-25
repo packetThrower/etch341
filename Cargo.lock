@@ -3930,9 +3930,9 @@ dependencies = [
 
 [[package]]
 name = "mu_uefi_decompress"
-version = "4.1.0"
+version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9da042c7e29a7e6284f60c0ba9bc32591e2e826f2b5d556e613477fcd0f699b"
+checksum = "6dae0c6bdd3c71fe60eb47af7219b47786516db0dedce733f1b770383f7604e4"
 dependencies = [
  "bitvec",
  "log",
