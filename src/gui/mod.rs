@@ -82,14 +82,19 @@ fn uniform_list_top_index(handle: &UniformListScrollHandle, row_height_px: f32) 
     ((-offset_y / row_height_px).max(0.0)) as usize
 }
 
-/// Push the current accent into the embedded gpui-component theme so
-/// its widgets (RadioGroup dots, Input focus rings) track our accent
-/// instead of staying on the library's default blue. Reads
-/// `theme::accent*`, so call after `theme::set_accent_hex`.
-/// `Theme::update` (not `global_mut`) so GPUI Kit re-derives the color
-/// tokens its components paint with.
-fn apply_accent_to_component_theme(cx: &mut App) {
+/// Map etch341's palette (accent + traffic-light + glass) onto the
+/// GPUI Kit theme so its components — buttons, alerts, list rows,
+/// switches, radio dots, focus rings — paint in our colors instead of
+/// Kit's stock dark theme. Reads `theme::accent*`, so call after
+/// `theme::set_accent_hex`. `Theme::update` (not `global_mut`) so Kit
+/// re-derives the color tokens its components paint with.
+fn apply_component_theme(cx: &mut App) {
     Theme::update(cx, |t| {
+        let glass_hover = {
+            let mut h = theme::workshop_glass_strong();
+            h.a += 0.06;
+            h
+        };
         t.primary = theme::accent();
         t.primary_hover = theme::accent_hover();
         t.primary_active = theme::accent_active();
@@ -97,6 +102,44 @@ fn apply_accent_to_component_theme(cx: &mut App) {
         // the same luma-based dark/light pick so it stays legible on a
         // light accent.
         t.primary_foreground = theme::accent_foreground();
+        t.button_primary = t.primary;
+        t.button_primary_hover = t.primary_hover;
+        t.button_primary_active = t.primary_active;
+        t.button_primary_foreground = t.primary_foreground;
+
+        t.danger = theme::caution_red();
+        t.danger_foreground = theme::text_primary();
+        t.button_danger = t.danger;
+        t.button_danger_foreground = t.danger_foreground;
+        t.warning = theme::warning_amber();
+        t.warning_foreground = theme::bench_black();
+        t.button_warning = t.warning;
+        t.button_warning_foreground = t.warning_foreground;
+        t.success = theme::success_green();
+        t.button_success = t.success;
+
+        // Default (unstyled) Kit buttons: the quiet glass treatment
+        // the secondary op-pane buttons always had.
+        t.button = theme::workshop_glass();
+        t.button_hover = theme::workshop_glass_strong();
+        t.button_active = glass_hover;
+        t.button_foreground = theme::text_primary();
+
+        t.secondary = theme::workshop_glass_strong();
+        t.secondary_hover = glass_hover;
+        t.secondary_foreground = theme::text_primary();
+        t.button_secondary = t.secondary;
+        t.button_secondary_hover = t.secondary_hover;
+        t.button_secondary_foreground = t.secondary_foreground;
+
+        t.list_active = theme::accent_tint();
+        t.list_active_border = theme::accent_tint();
+        t.list_hover = theme::workshop_glass_strong();
+        t.group_box = theme::workshop_glass();
+        t.border = theme::workshop_glass_strong();
+        t.foreground = theme::text_primary();
+        t.muted_foreground = theme::text_secondary();
+        t.switch = theme::workshop_glass_strong();
     });
 }
 
@@ -194,7 +237,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         // primary so its widgets (radio dots, focus rings) match.
         // Must run after `Theme::change` above (which resets colors).
         theme::set_accent_hex(prefs_at_open.accent_color);
-        apply_accent_to_component_theme(cx);
+        apply_component_theme(cx);
 
         // Boot-time update check — fire-and-forget, detection only.
         // Respects the Settings → Updates opt-out. The blocking HTTP

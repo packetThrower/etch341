@@ -167,17 +167,11 @@ pub(super) fn detect_pane(
             .gap_2()
             .child(action_button("Detect chip", cx))
             .child(
-                styled_button("browse-chipdb")
-                    .bg(theme::workshop_glass())
-                    .text_color(theme::text_secondary())
-                    .hover(|d| {
-                        d.bg(theme::workshop_glass_strong())
-                            .text_color(theme::text_primary())
-                    })
-                    .child("Browse chip database")
-                    .on_click(cx.listener(|this: &mut AppView, _: &ClickEvent, _, cx| {
+                op_button("browse-chipdb", "Browse chip database").on_click(cx.listener(
+                    |this: &mut AppView, _: &ClickEvent, _, cx| {
                         this.open_chip_db(cx);
-                    })),
+                    },
+                )),
             ),
     );
 

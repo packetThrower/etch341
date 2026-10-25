@@ -4,6 +4,9 @@ use gpui::{
     MouseDownEvent, MouseMoveEvent, ParentElement, SharedString, StatefulInteractiveElement,
     Styled, UniformListScrollHandle, WeakEntity, div, prelude::FluentBuilder, px, uniform_list,
 };
+use gpui_kit::component::alert::Alert;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::clipboard::Clipboard;
 use gpui_kit::component::group_box::{GroupBox, GroupBoxVariants as _};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::radio::{Radio, RadioGroup};
@@ -275,35 +278,17 @@ pub fn render(
 /// `.children(...)` it unconditionally. The result is cleared on
 /// navigation, so it only shows in the pane that produced it rather
 /// than lingering in the log.
-fn result_block(result: Option<&(bool, String)>) -> Option<gpui::Div> {
+fn result_block(result: Option<&(bool, String)>) -> Option<Alert> {
     let (ok, text) = result?;
-    let color = if *ok {
-        theme::success_green()
+    let alert = if *ok {
+        Alert::success("op-result", text.clone())
     } else {
-        theme::caution_red()
+        Alert::error("op-result", text.clone())
     };
-    Some(
-        div()
-            // `self_start` opts the box out of the op-pane column's
-            // cross-axis stretch so it hugs the message width instead
-            // of filling the pane. `max_w` + `min_w(0)` on the text
-            // child let an over-long path wrap rather than overflow.
-            .self_start()
-            .mt_2()
-            .max_w(px(680.0))
-            .flex()
-            .items_start()
-            .gap_2()
-            .px_4()
-            .py_3()
-            .rounded(px(8.0))
-            .bg(theme::workshop_glass())
-            .border_l_4()
-            .border_color(color)
-            .text_color(color)
-            .child(if *ok { "✓" } else { "✗" })
-            .child(div().min_w(px(0.0)).whitespace_normal().child(text.clone())),
-    )
+    // `self_start` opts the alert out of the op-pane column's
+    // cross-axis stretch so it hugs the message width instead of
+    // filling the pane.
+    Some(alert.self_start().mt_2().max_w(px(680.0)))
 }
 
 /// Small-caps section header inside the settings pane. Matches the
@@ -450,7 +435,7 @@ fn card() -> gpui::Div {
         .border_color(theme::workshop_glass_strong())
 }
 
-/// `card()` with a small "Copy" pill button anchored to the top
+/// `card()` with GPUI Kit's copy button anchored to the top
 /// right. Clicking the button writes `copy_text` to the system
 /// clipboard. Used by output panes (Status registers, SFDP) so
 /// users can share / paste the decoded output without retyping —
@@ -473,28 +458,19 @@ fn card_with_copy(
     )
 }
 
-/// Small inline "Copy" pill button. Click writes `text` to the
-/// clipboard and pushes a brief confirmation to the activity log.
+/// GPUI Kit copy button. Click writes `text` to the clipboard and
+/// pushes a brief confirmation to the activity log.
 fn copy_button(text: String, id: &'static str, cx: &mut Context<AppView>) -> impl IntoElement {
-    div()
-        .id(id)
-        .px_2()
-        .py_0p5()
-        .rounded(px(4.0))
-        .text_size(px(11.0))
-        .text_color(theme::text_secondary())
-        .bg(theme::workshop_glass_strong())
-        .cursor_pointer()
-        .hover(|d| d.text_color(theme::text_primary()))
-        .child("Copy")
-        .on_click(
-            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
-                let payload = text.clone();
-                let len = payload.len();
-                cx.write_to_clipboard(gpui::ClipboardItem::new_string(payload));
+    let weak = cx.entity().downgrade();
+    Clipboard::new(id)
+        .value(text)
+        .tooltip("Copy")
+        .on_copied(move |payload, _, cx| {
+            let len = payload.len();
+            let _ = weak.update(cx, |this: &mut AppView, _| {
                 this.push_log(format!("Copied {len} chars to clipboard"));
-            }),
-        )
+            });
+        })
 }
 
 fn heading(text: &'static str) -> impl IntoElement {
@@ -518,16 +494,7 @@ fn body(text: &'static str) -> impl IntoElement {
 /// two-stage destructive panes (Erase, Write) between the body and
 /// the action button when the user has primed the operation.
 fn armed_warning(text: &'static str) -> impl IntoElement {
-    div()
-        .self_start()
-        .px_3()
-        .py_2()
-        .rounded(px(6.0))
-        .bg(theme::warning_amber())
-        .text_color(theme::bench_black())
-        .text_size(px(13.0))
-        .whitespace_normal()
-        .child(text)
+    Alert::warning("armed-warning", text).self_start()
 }
 
 fn action_button(label: &'static str, cx: &mut Context<AppView>) -> impl IntoElement {
@@ -544,22 +511,17 @@ fn action_button_for<F>(
 where
     F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
 {
-    styled_button(id)
-        .bg(theme::accent())
-        .text_color(theme::accent_foreground())
-        .hover(|d| d.bg(theme::accent_hover()))
-        .child(label)
-        .on_click(
-            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
-                on_click(this, cx);
-            }),
-        )
+    op_button(id, label).primary().on_click(cx.listener(
+        move |this: &mut AppView, _: &ClickEvent, _, cx| {
+            on_click(this, cx);
+        },
+    ))
 }
 
 /// Two-stage destructive button used by Erase and Write. First click
 /// arms (the parent sets `armed = true` and re-renders); second
-/// click fires. Background flips amber → red as a "you're about to
-/// do something irreversible" cue. The handler closure runs on
+/// click fires. The button flips accent → danger red as a "you're
+/// about to do something irreversible" cue. The handler closure runs on
 /// every click — the AppView decides whether this is an arm or a
 /// fire based on its own `*_armed` flag.
 fn armable_button<F>(
@@ -573,48 +535,26 @@ fn armable_button<F>(
 where
     F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
 {
-    // Armed uses the (dark) caution red, where white reads best;
-    // idle uses the accent, where the foreground follows the
-    // accent's luma.
-    let (label, bg, fg) = if armed {
-        (armed_label, theme::caution_red(), theme::text_primary())
+    let button = if armed {
+        op_button(id, armed_label).danger()
     } else {
-        (idle_label, theme::accent(), theme::accent_foreground())
+        op_button(id, idle_label).primary()
     };
-    styled_button(id)
-        .bg(bg)
-        .text_color(fg)
-        .child(label)
-        .on_click(
-            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
-                on_click(this, cx);
-            }),
-        )
+    button.on_click(
+        cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+            on_click(this, cx);
+        }),
+    )
 }
 
-/// Shared button skeleton (sizing, rounding, text color, layout).
-/// Callers add `.bg(...)`, `.hover(...)`, `.child(label)`, and
-/// `.on_click(...)`. Tweaks to "what an op-pane button looks like"
-/// (padding, font size, min width) belong here.
-fn styled_button(id: &'static str) -> gpui::Stateful<gpui::Div> {
-    // `min_w` keeps short buttons (Refresh, Start read) the same size
-    // for visual consistency, while longer labels (Run blank check)
-    // grow to fit. `self_start` opts the button out of the parent
-    // `flex_col` cross-axis stretch so it hugs its intrinsic width +
-    // padding rather than filling the pane. Sized down a notch from
-    // the previous `py_1p5` + 13px + 96px floor — the CTAs read a
-    // touch big against the rest of the chrome.
-    div()
-        .id(id)
-        .self_start()
-        .flex()
-        .items_center()
-        .justify_center()
+/// Shared op-pane button: GPUI Kit `Button`, small, with a minimum
+/// width so short labels (Refresh, Start read) match while longer
+/// ones grow. `self_start` opts it out of the parent `flex_col`
+/// cross-axis stretch. Callers pick the variant and add `on_click`.
+fn op_button(id: &'static str, label: &'static str) -> Button {
+    Button::new(id)
+        .label(label)
+        .small()
         .min_w(px(84.0))
-        .px_3()
-        .py_1()
-        .rounded(px(6.0))
-        .text_size(px(12.0))
-        .text_color(theme::text_primary())
-        .cursor_pointer()
+        .self_start()
 }
