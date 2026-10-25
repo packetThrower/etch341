@@ -1,6 +1,6 @@
 //! Application menus. On macOS these become the native menu bar; on
 //! Windows/Linux the same definitions drive an in-window menu bar
-//! (`gpui_component::menu::AppMenuBar`) rendered in the title bar,
+//! (`gpui_kit::component::menu::AppMenuBar`) rendered in the title bar,
 //! mirroring how Zed surfaces menus on those platforms.
 //!
 //! The menus are *bus-aware*: the Actions menu lists the current bus's
@@ -18,10 +18,10 @@ use super::{
     OpenBios, Pane, Quit, SetBus,
 };
 use gpui::{App, KeyBinding, Menu, MenuItem};
-use gpui_component::GlobalState;
+use gpui_kit::component::GlobalState;
 
 /// Bind menu shortcuts, register the global Quit handler, and publish
-/// the initial menu. Call once, after `gpui_component::init` and after
+/// the initial menu. Call once, after `gpui_kit::component::init` and after
 /// the other key bindings so every item shows its accelerator.
 pub fn install(cx: &mut App) {
     #[cfg(target_os = "macos")]

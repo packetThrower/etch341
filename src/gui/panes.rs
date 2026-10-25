@@ -4,12 +4,12 @@ use gpui::{
     MouseDownEvent, MouseMoveEvent, ParentElement, SharedString, StatefulInteractiveElement,
     Styled, UniformListScrollHandle, WeakEntity, div, prelude::FluentBuilder, px, uniform_list,
 };
-use gpui_component::group_box::{GroupBox, GroupBoxVariants as _};
-use gpui_component::input::{Input, InputState};
-use gpui_component::radio::{Radio, RadioGroup};
-use gpui_component::select::{Select, SelectState};
-use gpui_component::tooltip::Tooltip;
-use gpui_component::{Sizable as _, Size};
+use gpui_kit::component::group_box::{GroupBox, GroupBoxVariants as _};
+use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::radio::{Radio, RadioGroup};
+use gpui_kit::component::select::{Select, SelectState};
+use gpui_kit::component::tooltip::Tooltip;
+use gpui_kit::component::{Sizable as _, Size};
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;

@@ -56,6 +56,11 @@ mod sfdp;
 mod spi;
 mod uefi;
 
+// GPUI Kit re-exports gpui (its crates.io `gpui-pre` snapshot); the alias
+// keeps `gpui::` paths and gpui's derive-macro output resolving through it.
+#[cfg(feature = "gui")]
+extern crate gpui_kit as gpui;
+
 #[cfg(feature = "gui")]
 mod gui;
 

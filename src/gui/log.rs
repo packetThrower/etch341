@@ -4,9 +4,9 @@ use gpui::{
     ScrollHandle, Stateful, StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
     div, prelude::FluentBuilder, px,
 };
-use gpui_component::TitleBar;
-use gpui_component::scroll::ScrollableElement;
-use gpui_component::tooltip::Tooltip;
+use gpui_kit::component::TitleBar;
+use gpui_kit::component::scroll::ScrollableElement;
+use gpui_kit::component::tooltip::Tooltip;
 
 /// Inline activity-log panel rendered at the bottom of the main
 /// window's pane / log split. The top-right chips pop the log out

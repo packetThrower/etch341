@@ -9,8 +9,8 @@ use gpui::{
     Context, InteractiveElement, IntoElement, ParentElement, Render, ScrollHandle,
     StatefulInteractiveElement, Styled, WeakEntity, Window, div, px,
 };
-use gpui_component::TitleBar;
-use gpui_component::scroll::ScrollableElement;
+use gpui_kit::component::TitleBar;
+use gpui_kit::component::scroll::ScrollableElement;
 use std::sync::Arc;
 
 pub struct BiosDiffView {
