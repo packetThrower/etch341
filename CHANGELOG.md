@@ -9,6 +9,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ### Changed
 
+- **Chip database browser is a GPUI Kit table**: SPI and I²C parts in
+  one list with a Vendor column, sortable and resizable columns, and a
+  wider window so every column fits.
 - **Settings rebuilt on GPUI Kit's Settings layout**: Programmer,
   Appearance and General pages with a search box, each setting in its
   own box, a dropdown for the SPI clock, switches for the on/off

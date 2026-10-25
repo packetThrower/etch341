@@ -105,8 +105,11 @@ own window — every bundled SPI flash and I²C EEPROM chip, with a
 vendor dropdown, a live name/JEDEC search, and a colour-coded
 **Voltage** column. It's read-only and offline (the database is
 compiled into the binary), so you can keep it open beside the Detect
-result as a reference. In the "All vendors" view, SPI rows are grouped
-under per-vendor dividers.
+result as a reference. SPI and I²C parts share one table with a
+**Vendor** column; click a column's sort arrows to sort by it (again to
+reverse, a third time to restore catalogue order), and drag a header
+edge to resize the column. Columns that don't apply to a bus (JEDEC and
+Sector for I²C, Addr for SPI) show "—".
 
 Voltage is colour-coded so the parts that need care stand out:
 
