@@ -38,15 +38,18 @@ pub fn render(selected: Pane, bus: Bus, cx: &mut Context<AppView>) -> impl IntoE
         .w(px(180.0))
         .h_full()
         .bg(theme::workshop_glass())
-        // Just enough to clear the macOS traffic lights that float over
-        // the sidebar's top-left — the full-width toggle can't sit any
-        // higher without colliding with them.
-        .pt(px(30.0))
         .pb_3()
         .px_5()
         .gap_2()
-        // SPI / I²C bus toggle — flips the whole workflow below it.
-        .child(bus_toggle(bus, cx))
+        // SPI / I²C bus toggle — flips the whole workflow below it. Its
+        // row matches the header strip's height so the two line up.
+        .child(
+            div()
+                .h(px(super::header::HEIGHT))
+                .flex()
+                .items_center()
+                .child(bus_toggle(bus, cx)),
+        )
         .child(match bus {
             Bus::Spi => spi_workflow(selected, cx).into_any_element(),
             Bus::I2c => i2c_workflow(selected, cx).into_any_element(),
@@ -70,9 +73,6 @@ fn bus_toggle(bus: Bus, cx: &mut Context<AppView>) -> impl IntoElement {
     ButtonGroup::new("bus-toggle")
         .small()
         .w_full()
-        // Breathing room below the toggle, above the workflow (on top
-        // of the sidebar's `gap_2`).
-        .mb_3()
         .children(BUSES.iter().map(|&(target, label)| {
             let b = Button::new(label).label(label).flex_1();
             if target == bus { b.primary() } else { b }
