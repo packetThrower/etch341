@@ -328,7 +328,7 @@ fn lzma_decompress(data: &[u8]) -> Result<Vec<u8>, String> {
 /// stream format apart from one bit-width. Returns None if neither
 /// decodes.
 fn efi_decompress(src: &[u8], orig_len: usize) -> Option<Vec<u8>> {
-    use uefi_decompress::{DecompressionAlgorithm as Algo, decompress_into_with_algo};
+    use patina::uefi::decompress::{DecompressionAlgorithm as Algo, decompress_into_with_algo};
     for algo in [Algo::TianoDecompress, Algo::UefiDecompress] {
         let mut dst = vec![0u8; orig_len];
         if decompress_into_with_algo(src, &mut dst, algo).is_ok() {
