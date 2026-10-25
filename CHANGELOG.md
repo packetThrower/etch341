@@ -17,6 +17,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ### Changed
 
+- **UEFI decompression now uses `patina`**: Microsoft archived
+  `mu_uefi_decompress` and moved its decoder into `patina`. Same code
+  and API; output is byte-identical on its UEFI and Tiano test vectors.
 - **Chip database browser is a GPUI Kit table**: SPI and I²C parts in
   one list with a Vendor column, sortable and resizable columns, and a
   wider window so every column fits.

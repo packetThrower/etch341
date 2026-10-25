@@ -46,13 +46,6 @@ allow = [
 
 # Per-crate exceptions for license expressions that are valid for
 # the specific dep but not worth blessing globally.
-[[licenses.exceptions]]
-# mu_uefi_decompress (direct dep: UEFI-compressed section decoding)
-# is BSD-2-Clause-Patent — OSI-approved and GPL-compatible (BSD-2 plus
-# an explicit patent grant). Scoped to this crate.
-crate = "mu_uefi_decompress"
-allow = ["BSD-2-Clause-Patent"]
-
 # `unescaper` ships with the deprecated `GPL-3.0/MIT` SPDX
 # expression in its Cargo.toml. The slash form means "user picks
 # either"; the modern equivalent is `GPL-3.0-or-later OR MIT`.

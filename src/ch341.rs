@@ -81,7 +81,8 @@ pub struct Ch341 {
 
 /// Whether a CH341A is plugged in. Enumerates USB devices only —
 /// never opens or claims one — so it's safe to call while an op holds
-/// the device.
+/// the device. GUI-only (the header's presence poller).
+#[cfg(feature = "gui")]
 pub fn is_present() -> bool {
     let Ok(devices) = rusb::devices() else {
         return false;

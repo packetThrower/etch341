@@ -42,6 +42,11 @@ sha2 = "0.10"
 # Pure-Rust LZMA for UEFI compressed firmware-volume sections
 # (src/uefi/). Compression side is only used by tests.
 lzma-rs = "0.3"
+# UEFI / Tiano decompression of compressed firmware-volume sections
+# (`patina::uefi::decompress`, Microsoft's successor to the archived
+# mu_uefi_decompress — same code and API). Heavier than we need (it's a
+# whole firmware framework), but it's the maintained home of the decoder.
+patina = { version = "24", default-features = false }
 
 # Local-time formatting for the GUI activity log. The original
 # `now_hms()` did HH:MM:SS in UTC by dividing `SystemTime::now()`
@@ -72,7 +77,6 @@ rfd = "0.17"
 # dependency. Exact pin: gpui-kit pins one gpui-pre snapshot, and all four
 # packetThrower apps move to the same Kit version in one pass.
 gpui-kit = { version = "=0.8.0", optional = true }
-mu_uefi_decompress = "4.1.0"
 
 [dev-dependencies]
 mockall = "0.15"
