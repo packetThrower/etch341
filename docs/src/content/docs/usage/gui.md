@@ -60,10 +60,17 @@ in the title bar (those platforms have no OS-level menu bar).
 
 ## Header
 
-The top header always shows the connection state and the active
-operation's progress bar (when one is running). Click the chip name
-to re-run JEDEC detection — useful after swapping chips without
-restarting.
+The top header shows the connection state and the active operation's
+progress (when one is running):
+
+- **no CH341A** (red) — no programmer plugged in. etch341 checks USB
+  every second, so this changes as you plug or unplug it.
+- **CH341A** (green) — programmer connected, no chip identified yet.
+  Switching between SPI and I²C returns to this state.
+- **CH341A · no chip** (amber) — SPI Detect found nothing on the bus.
+- **CH341A · chip · size** (green) — after an SPI Detect, or after any
+  successful I²C operation (showing the 24Cxx you picked, since I²C
+  has no chip ID). Run Detect again after swapping SPI chips.
 
 ## Operation results
 

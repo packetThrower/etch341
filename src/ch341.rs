@@ -79,6 +79,19 @@ pub struct Ch341 {
     verbose: bool,
 }
 
+/// Whether a CH341A is plugged in. Enumerates USB devices only —
+/// never opens or claims one — so it's safe to call while an op holds
+/// the device.
+pub fn is_present() -> bool {
+    let Ok(devices) = rusb::devices() else {
+        return false;
+    };
+    devices.iter().any(|d| {
+        d.device_descriptor()
+            .is_ok_and(|dd| dd.vendor_id() == VID && dd.product_id() == PID)
+    })
+}
+
 impl Ch341 {
     pub fn open(verbose: bool) -> Result<Self> {
         let mut ch = Self::open_raw(verbose)?;

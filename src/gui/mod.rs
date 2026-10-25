@@ -506,8 +506,14 @@ fn read_sfdp_best_effort(ch: &mut Programmer) -> Option<crate::sfdp::Sfdp> {
 #[derive(Clone, Debug)]
 pub enum Connection {
     Disconnected,
+    /// CH341A plugged in, no chip identified yet (or the bus changed).
+    Present,
     NoChip,
-    Ready { chip_name: String, size_kb: u32 },
+    /// `size` is display-ready ("16384 KB", "128 B").
+    Ready {
+        chip_name: String,
+        size: String,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -811,6 +817,7 @@ impl AppView {
             .map(|c| SharedString::from(c.name.clone()))
             .collect();
         let i2c_chip_select = cx.new(|cx| SelectState::new(i2c_chips, None, window, cx));
+        Self::spawn_presence_poller(cx);
         Self {
             selected: Pane::Detect,
             bus: Bus::Spi,
@@ -1124,6 +1131,10 @@ impl AppView {
         }
         self.bus = bus;
         self.selected = Pane::default_for(bus);
+        // The identified chip belonged to the other bus.
+        if !matches!(self.connection, Connection::Disconnected) {
+            self.connection = Connection::Present;
+        }
         self.disarm_all();
         // Drop any stored verify diff so the other bus's Verify pane
         // doesn't surface a stale "View diff in Hex" button.
@@ -1175,6 +1186,53 @@ impl AppView {
     fn set_op_result(&mut self, ok: bool, text: String) {
         self.push_log(text.clone());
         self.op_result = Some((ok, text));
+    }
+
+    /// Poll USB once a second for the CH341A so the header tracks
+    /// plug / unplug without the user running Detect. Enumeration runs
+    /// on the background executor; only state changes re-render.
+    // ponytail: 1s polling, libusb hotplug callbacks if this ever matters
+    // (they aren't supported on Windows anyway).
+    fn spawn_presence_poller(cx: &mut Context<Self>) {
+        cx.spawn(async move |weak, cx| {
+            loop {
+                let present = cx
+                    .background_executor()
+                    .spawn(async { crate::ch341::is_present() })
+                    .await;
+                let alive = weak.update(cx, |this, cx| {
+                    let next = match (&this.connection, present) {
+                        (Connection::Disconnected, true) => Connection::Present,
+                        (Connection::Disconnected, false) | (_, true) => return,
+                        (_, false) => Connection::Disconnected,
+                    };
+                    this.connection = next;
+                    cx.notify();
+                });
+                if alive.is_err() {
+                    break; // view has gone away
+                }
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+            }
+        })
+        .detach();
+    }
+
+    /// After a successful I²C op: show the CH341A plus the chip the
+    /// user picked (I²C has no ID, so this is the selection the op
+    /// just worked against).
+    pub(super) fn note_i2c_chip(&mut self, chip_name: &str) {
+        if let Ok(chip) = crate::i2c_ops::resolve_chip(chip_name) {
+            let size = if chip.size_bytes < 1024 {
+                format!("{} B", chip.size_bytes)
+            } else {
+                format!("{} KB", chip.size_bytes / 1024)
+            };
+            self.connection = Connection::Ready {
+                chip_name: chip.name,
+                size,
+            };
+        }
     }
 
     /// Spawn a foreground task that calls `cx.notify()` every 100ms

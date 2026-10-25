@@ -361,7 +361,7 @@ impl AppView {
                 self.connection = match conn {
                     ConnState::Ready { name, size_kb } => Connection::Ready {
                         chip_name: name,
-                        size_kb,
+                        size: format!("{size_kb} KB"),
                     },
                     ConnState::NoChip => Connection::NoChip,
                 };

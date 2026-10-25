@@ -24,6 +24,14 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
   gpui-component git pins. The build is now crates.io-only, in step
   with the other packetThrower apps.
 
+### Fixed
+
+- **Header tracks the CH341A**: it showed "no CH341A" until an SPI
+  Detect ran, even with the programmer plugged in, and never updated
+  in I²C mode. It now checks USB every second (plug / unplug updates
+  it), shows the 24Cxx after a successful I²C operation, and drops
+  back to "CH341A" when you switch buses.
+
 ### Security
 
 - **rustls patched** (0.23.40 → 0.23.46, rustls-webpki 0.103.16):
