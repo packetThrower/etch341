@@ -133,6 +133,19 @@ impl AppView {
         cx.notify();
     }
 
+    /// Settings → "Use local time in saved log files". Saves
+    /// immediately, like the display toggle above.
+    pub fn set_log_file_local(&mut self, local: bool, cx: &mut Context<Self>) {
+        if self.prefs.log_file_local == local {
+            return;
+        }
+        self.prefs.log_file_local = local;
+        if let Err(e) = self.prefs.save() {
+            self.push_log(format!("log file timezone save failed: {e}"));
+        }
+        cx.notify();
+    }
+
     /// Open the directory containing `prefs.toml` in the OS file
     /// manager. Best-effort — if `$HOME` isn't set (no prefs path),
     /// or the platform helper can't be spawned, we log the failure

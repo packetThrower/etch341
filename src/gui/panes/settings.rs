@@ -147,7 +147,8 @@ fn programmer_page(view: &Entity<AppView>) -> SettingPage {
 
 fn appearance_page(view: &Entity<AppView>) -> SettingPage {
     let swatch_view = view.clone();
-    let (hex_set, strings_set, ts_set) = (view.clone(), view.clone(), view.clone());
+    let (hex_set, strings_set, ts_set, file_ts_set) =
+        (view.clone(), view.clone(), view.clone(), view.clone());
     let font_opts = NumberFieldOptions {
         min: crate::prefs::HEX_FONT_MIN as f64,
         max: crate::prefs::HEX_FONT_MAX as f64,
@@ -210,19 +211,38 @@ fn appearance_page(view: &Entity<AppView>) -> SettingPage {
                 )),
         )
         .group(
-            SettingGroup::new().item(
-                SettingItem::new(
-                    "Show local time in the activity log",
-                    SettingField::switch(read(view, |a| a.prefs.timestamp_local), move |on, cx| {
-                        ts_set.update(cx, |this, cx| this.set_timestamp_local(on, cx))
-                    })
-                    .default_value(false),
-                )
+            SettingGroup::new()
+                .title("Log timestamps")
                 .description(
-                    "Log entries always store UTC; this only changes how they're \
-                     displayed. Both existing and new lines re-format on flip.",
+                    "Log entries always store UTC; these only change how they're \
+                     shown on screen and written to saved log files.",
+                )
+                .item(
+                    SettingItem::new(
+                        "Show local time in the activity log",
+                        SettingField::switch(
+                            read(view, |a| a.prefs.timestamp_local),
+                            move |on, cx| {
+                                ts_set.update(cx, |this, cx| this.set_timestamp_local(on, cx))
+                            },
+                        )
+                        .default_value(false),
+                    )
+                    .description("Existing and new lines re-format on flip."),
+                )
+                .item(
+                    SettingItem::new(
+                        "Use local time in saved log files",
+                        SettingField::switch(
+                            read(view, |a| a.prefs.log_file_local),
+                            move |on, cx| {
+                                file_ts_set.update(cx, |this, cx| this.set_log_file_local(on, cx))
+                            },
+                        )
+                        .default_value(false),
+                    )
+                    .description("Off writes UTC, whatever the activity log shows."),
                 ),
-            ),
         )
 }
 

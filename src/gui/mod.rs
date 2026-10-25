@@ -160,8 +160,29 @@ mod sidebar;
 mod theme;
 pub mod updater;
 
+// Lucide icons beyond GPUI Kit's default bundle, embedded at build
+// time (`gpui_kit::assets::IconName::*`): the log's Save button.
+gpui_kit::assets::icon_assets!(ExtraIcons, [Save]);
+
+struct AppAssets;
+
+impl gpui::AssetSource for AppAssets {
+    fn load(&self, path: &str) -> gpui::Result<Option<std::borrow::Cow<'static, [u8]>>> {
+        match ExtraIcons.load(path)? {
+            Some(bytes) => Ok(Some(bytes)),
+            None => gpui_kit::assets::Assets.load(path),
+        }
+    }
+
+    fn list(&self, path: &str) -> gpui::Result<Vec<gpui::SharedString>> {
+        let mut paths = gpui_kit::assets::Assets.list(path)?;
+        paths.extend(ExtraIcons.list(path)?);
+        Ok(paths)
+    }
+}
+
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let app = gpui_kit::application().with_assets(gpui_kit::assets::Assets);
+    let app = gpui_kit::application().with_assets(AppAssets);
     app.run(|cx: &mut App| {
         gpui_kit::component::init(cx);
         // Force gpui-component into dark mode regardless of the OS
@@ -899,6 +920,41 @@ impl AppView {
         cx.notify();
     }
 
+    /// Save the activity log to a text file the user picks, one
+    /// `HH:MM:SS message` line per entry, in UTC unless Settings →
+    /// "Use local time in saved log files" is on. Defaults to the
+    /// Read save location with a timestamped name.
+    pub fn save_log(&mut self, cx: &mut Context<Self>) {
+        let local = self.prefs.log_file_local;
+        let text: String = self
+            .log_lines
+            .iter()
+            .map(|l| format!("{}  {}\n", format_log_time(l.timestamp_secs, local), l.text))
+            .collect();
+        let start_dir = self.prefs.read_output_dir.clone();
+        let name = format!("etch341-log-{}.txt", file_stamp());
+        cx.spawn(async move |weak, cx| {
+            let mut dialog = rfd::AsyncFileDialog::new().set_file_name(name);
+            if let Some(dir) = start_dir {
+                dialog = dialog.set_directory(dir);
+            }
+            let Some(handle) = dialog.save_file().await else {
+                return;
+            };
+            let path = handle.path().to_path_buf();
+            let result = std::fs::write(&path, text);
+            weak.update(cx, |this, cx| {
+                match result {
+                    Ok(()) => this.push_log(format!("Saved log → {}", path.display())),
+                    Err(e) => this.push_log(format!("Log save failed: {e}")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Detach the activity log into its own window. A second click
     /// while it's already open just activates the existing window.
     /// The pop-out renders the same buffer live (it observes this
@@ -1284,10 +1340,15 @@ fn read_output_path(prefs: &Prefs) -> std::path::PathBuf {
     let dir = prefs.read_output_dir.clone().unwrap_or_else(|| {
         std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()))
     });
-    // Local wall-clock; fall back to UTC if the offset can't be
-    // determined (the `time` crate's documented thread edge case).
+    dir.join(format!("etch341-read-{}.bin", file_stamp()))
+}
+
+/// `YYYY-MM-DD_HH-MM-SS` in local wall-clock time for output file
+/// names; falls back to UTC if the offset can't be determined (the
+/// `time` crate's documented thread edge case).
+fn file_stamp() -> String {
     let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
-    let stamp = format!(
+    format!(
         "{:04}-{:02}-{:02}_{:02}-{:02}-{:02}",
         now.year(),
         now.month() as u8,
@@ -1295,8 +1356,7 @@ fn read_output_path(prefs: &Prefs) -> std::path::PathBuf {
         now.hour(),
         now.minute(),
         now.second(),
-    );
-    dir.join(format!("etch341-read-{stamp}.bin"))
+    )
 }
 
 impl Render for AppView {
