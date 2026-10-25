@@ -33,7 +33,7 @@ rusb = { version = "0.9", features = ["vendored"] }
 clap = { version = "4", features = ["derive"] }
 thiserror = "1"
 indicatif = "0.18"
-toml = "0.8"
+toml = "1.1"
 serde = { version = "1", features = ["derive"] }
 # JSON export for `bios settings --json`.
 serde_json = "1"
@@ -64,7 +64,7 @@ semver = { version = "1", optional = true }
 # panes to choose a binary file. Stays in the default deps because
 # the CLI build skips the GUI feature, and rfd is light enough
 # that even a CLI-only binary linking it has negligible cost.
-rfd = "0.14"
+rfd = "0.17"
 
 # GUI stack — feature-gated. GPUI Kit: gpui (crates.io `gpui-pre`
 # snapshot), its platform backends (Linux wayland + x11, macOS
@@ -75,7 +75,7 @@ gpui-kit = { version = "=0.8.0", optional = true }
 mu_uefi_decompress = "4.1.0"
 
 [dev-dependencies]
-mockall = "0.12"
+mockall = "0.15"
 
 # Build-script-only dep. Embeds resources/icons/icon.ico into the
 # Windows .exe PE resource section so Explorer / taskbar / Alt-Tab
