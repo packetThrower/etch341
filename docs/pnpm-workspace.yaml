@@ -2,16 +2,17 @@ allowBuilds:
   esbuild: true
   sharp: true
 
+# Transitive-dep overrides for CVE remediation. pnpm 11 moved
+# the `overrides` field out of package.json into here. Each entry
+# pins a transitive dep above the vulnerable version range; the
+# direct dep chain (astro, @astrojs/starlight, etc.) doesn't
+# have to release a bump first.
 overrides:
-  # devalue <= 5.8.0 has a DoS via sparse-array deserialization
-  # (GHSA-77vg-94rm-hx3p); 5.8.1 is the fix. devalue is a transitive
-  # dep of astro, which allows ^5.6.3 — so we floor it here. Safe to
-  # drop once astro's own dependency range moves past 5.8.0.
-  devalue: '>=5.8.1'
-  # js-yaml <= 4.1.1 has a quadratic-complexity DoS in merge-key alias
-  # handling (GHSA-h67p-54hq-rp68); 4.2.0 is the fix. js-yaml is a
-  # transitive dep of astro / starlight, part of whose tree still
-  # resolves 4.1.1 — so we floor it here (4.2.0 is a same-major minor
-  # bump already present elsewhere in the tree). Safe to drop once
-  # astro's own dependency range moves past 4.1.1.
-  js-yaml: '>=4.2.0'
+  # js-yaml <4.3.1 has quadratic-complexity DoS in merge-key and
+  # !!omap handling. Capped below 5 — js-yaml 5 drops the default
+  # export astro imports. GHSA advisories against 4.2.0.
+  js-yaml: ">=4.3.1 <5"
+  # esbuild >=0.27.3 <0.28.1 allows arbitrary file read when its
+  # dev server is running on Windows (`pnpm dev`). Transitive via
+  # `astro` -> `vite`. GHSA-g7r4-m6w7-qqqr.
+  esbuild: ">=0.28.1"
