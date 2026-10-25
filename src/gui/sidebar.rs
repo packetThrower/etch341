@@ -1,8 +1,12 @@
 use super::{AppView, Bus, Pane, theme};
 use gpui::{
-    ClickEvent, Context, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled as _, div, prelude::FluentBuilder as _, px,
+    ClickEvent, Context, IntoElement, ParentElement, Styled as _, div, prelude::FluentBuilder as _,
+    px,
 };
+use gpui_kit::component::badge::Badge;
+use gpui_kit::component::button::{Button, ButtonGroup, ButtonVariants as _};
+use gpui_kit::component::list::ListItem;
+use gpui_kit::component::separator::Separator;
 use gpui_kit::component::stepper::{Stepper, StepperItem};
 use gpui_kit::component::{Sizable as _, Size};
 
@@ -34,15 +38,18 @@ pub fn render(selected: Pane, bus: Bus, cx: &mut Context<AppView>) -> impl IntoE
         .w(px(180.0))
         .h_full()
         .bg(theme::workshop_glass())
-        // Just enough to clear the macOS traffic lights that float over
-        // the sidebar's top-left — the full-width toggle can't sit any
-        // higher without colliding with them.
-        .pt(px(30.0))
         .pb_3()
         .px_5()
         .gap_2()
-        // SPI / I²C bus toggle — flips the whole workflow below it.
-        .child(bus_toggle(bus, cx))
+        // SPI / I²C bus toggle — flips the whole workflow below it. Its
+        // row matches the header strip's height so the two line up.
+        .child(
+            div()
+                .h(px(super::header::HEIGHT))
+                .flex()
+                .items_center()
+                .child(bus_toggle(bus, cx)),
+        )
         .child(match bus {
             Bus::Spi => spi_workflow(selected, cx).into_any_element(),
             Bus::I2c => i2c_workflow(selected, cx).into_any_element(),
@@ -57,67 +64,30 @@ pub fn render(selected: Pane, bus: Bus, cx: &mut Context<AppView>) -> impl IntoE
         ))
 }
 
-/// Two-segment SPI / I²C toggle. The active segment wears the accent;
-/// clicking the other flips the bus via `AppView::set_bus`.
+/// Two-segment SPI / I²C toggle (GPUI Kit `ButtonGroup`). The active
+/// segment wears the accent; clicking the other flips the bus via
+/// `AppView::set_bus`.
 fn bus_toggle(bus: Bus, cx: &mut Context<AppView>) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_row()
-        .gap_1()
-        .p(px(2.0))
-        // Breathing room below the toggle, above the workflow (on top
-        // of the sidebar's `gap_2`).
-        .mb_3()
-        .rounded(px(8.0))
-        .bg(theme::workshop_glass_strong())
-        .child(bus_seg("SPI", Bus::Spi, bus, cx))
-        .child(bus_seg("I²C", Bus::I2c, bus, cx))
-}
-
-fn bus_seg(
-    label: &'static str,
-    target: Bus,
-    current: Bus,
-    cx: &mut Context<AppView>,
-) -> impl IntoElement {
-    let active = target == current;
-    div()
-        .id(label)
-        .flex_1()
-        .flex()
-        .items_center()
-        .justify_center()
-        .py_1()
-        .rounded(px(6.0))
-        .text_size(px(12.0))
-        .cursor_pointer()
-        .text_color(if active {
-            theme::accent_foreground()
-        } else {
-            theme::text_secondary()
+    const BUSES: [(Bus, &str); 2] = [(Bus::Spi, "SPI"), (Bus::I2c, "I²C")];
+    let weak = cx.entity().downgrade();
+    ButtonGroup::new("bus-toggle")
+        .small()
+        .w_full()
+        .children(BUSES.iter().map(|&(target, label)| {
+            let b = Button::new(label).label(label).flex_1();
+            if target == bus { b.primary() } else { b }
+        }))
+        .on_click(move |clicked, _, cx| {
+            let Some(&(target, _)) = clicked.first().and_then(|&i| BUSES.get(i)) else {
+                return;
+            };
+            let _ = weak.update(cx, |this: &mut AppView, cx| this.set_bus(target, cx));
         })
-        .when(active, |d| d.bg(theme::accent()))
-        .when(!active, |d| {
-            d.hover(|h| {
-                h.bg(theme::workshop_glass())
-                    .text_color(theme::text_primary())
-            })
-        })
-        .child(label)
-        .on_click(
-            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
-                this.set_bus(target, cx);
-            }),
-        )
 }
 
 /// A thin horizontal rule separating sidebar groups.
 fn divider() -> impl IntoElement {
-    div()
-        .h(px(1.0))
-        .mt_2()
-        .mb_1()
-        .bg(theme::workshop_glass_strong())
+    Separator::horizontal().mt_2().mb_1()
 }
 
 /// The vertical Stepper rail for a workflow. Highlights the active
@@ -196,9 +166,9 @@ fn i2c_workflow(selected: Pane, cx: &mut Context<AppView>) -> impl IntoElement {
         .child(item(Pane::Hex, "Hex viewer", selected, false, cx))
 }
 
-/// Flat sidebar row used for tool entries below the rail. `dot` rides
-/// a small amber indicator on the right edge (the "newer release
-/// available" signal on Settings).
+/// Flat sidebar row (GPUI Kit `ListItem`) used for tool entries below
+/// the rail. `dot` rides a small amber badge on the label (the "newer
+/// release available" signal on Settings).
 fn item(
     pane: Pane,
     label: &str,
@@ -206,33 +176,21 @@ fn item(
     dot: bool,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
-    let active = pane == selected;
-    let mut row = div()
-        .id(gpui::SharedString::from(label.to_string()))
-        .flex()
-        .flex_row()
-        .items_center()
-        .justify_between()
+    let label = label.to_string();
+    ListItem::new(gpui::SharedString::from(label.clone()))
+        .selected(pane == selected)
         .px_3()
         .py_2()
         .rounded(px(6.0))
-        .cursor_pointer()
-        .text_color(if active {
-            theme::text_primary()
+        .child(if dot {
+            Badge::new()
+                .dot()
+                .color(theme::warning_amber())
+                .child(label)
+                .into_any_element()
         } else {
-            theme::text_secondary()
+            label.into_any_element()
         })
-        .child(label.to_string())
-        .when(dot, |row| {
-            row.child(
-                div()
-                    .w(px(8.0))
-                    .h(px(8.0))
-                    .rounded_full()
-                    .bg(theme::warning_amber()),
-            )
-        })
-        .hover(|d| d.bg(theme::workshop_glass_strong()))
         .on_click(
             cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
                 if this.selected != pane {
@@ -241,9 +199,5 @@ fn item(
                 this.selected = pane;
                 cx.notify();
             }),
-        );
-    if active {
-        row = row.bg(theme::accent_tint());
-    }
-    row
+        )
 }

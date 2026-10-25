@@ -1,353 +1,337 @@
-//! Settings pane: clock, appearance, fonts, update check, window.
+//! Settings pane on GPUI Kit's `Settings` layout: a searchable page
+//! sidebar, one box per setting. Fields read and write `AppView`
+//! through its entity handle, so the pane takes no prefs arguments.
 
 // The parent module is this submodule's prelude (see panes.rs):
 // `use super::*` pulls its imports + shared widget helpers in.
 use super::*;
+use gpui::App;
+use gpui_kit::assets::IconName;
+use gpui_kit::component::group_box::GroupBoxVariant;
+use gpui_kit::component::setting::{
+    NumberFieldOptions, SettingField, SettingGroup, SettingItem, SettingPage, Settings,
+};
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn settings_pane(
-    current_khz: u32,
-    restore_window_bounds: bool,
-    read_output_dir: Option<&Path>,
     prefs_path: Option<&Path>,
-    hex_font_size: f32,
-    strings_font_size: f32,
-    timestamp_local: bool,
-    update_check_enabled: bool,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
+    let view = cx.entity();
+    Settings::new("etch-settings")
+        .with_group_variant(GroupBoxVariant::Outline)
+        .pages([
+            programmer_page(&view),
+            appearance_page(&view),
+            general_page(&view, prefs_path.map(Path::to_path_buf)),
+        ])
+}
+
+/// Read a value off `AppView` for a field getter.
+fn read<T>(
+    view: &Entity<AppView>,
+    f: impl Fn(&AppView) -> T + 'static,
+) -> impl Fn(&App) -> T + 'static {
+    let view = view.clone();
+    move |cx| f(view.read(cx))
+}
+
+/// `(id, label, action)` for `path_row`'s button.
+type PathButton = (
+    &'static str,
+    &'static str,
+    fn(&mut AppView, &mut Context<AppView>),
+);
+
+/// Mono path text + a button, for the folder / file rows.
+fn path_row(text: String, button: Option<PathButton>, view: Entity<AppView>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .w_full()
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .text_size(px(12.0))
+                .font_family(theme::MONO_FONT)
+                .text_color(theme::text_secondary())
+                .whitespace_normal()
+                .child(text),
+        )
+        .when_some(button, move |row, (id, label, action)| {
+            row.child(
+                Button::new(id)
+                    .label(label)
+                    .small()
+                    .on_click(move |_, _, cx| {
+                        view.update(cx, action);
+                    }),
+            )
+        })
+}
+
+fn programmer_page(view: &Entity<AppView>) -> SettingPage {
     // Matches `ch341::SUPPORTED_SPEEDS_KHZ` — the set the CH341A
     // accepts via the standard I²C-stream set-speed command.
-    let speeds: &[(u32, &str)] = &[
-        (20, "20 kHz, slowest, most signal-tolerant"),
-        (100, "100 kHz, conservative default"),
+    let speeds: Vec<(SharedString, SharedString)> = [
+        (20, "20 kHz"),
+        (100, "100 kHz"),
         (400, "400 kHz"),
-        (750, "750 kHz, fastest reliable rate (recommended)"),
-    ];
+        (750, "750 kHz (recommended)"),
+    ]
+    .into_iter()
+    .map(|(k, label)| (k.to_string().into(), label.into()))
+    .collect();
+    let set_view = view.clone();
+    let dir_view = view.clone();
 
-    // SPI clock speed section: RadioGroup + descriptive body.
-    let selected = speeds.iter().position(|&(k, _)| k == current_khz);
-    let speed_values: Vec<u32> = speeds.iter().map(|&(k, _)| k).collect();
-    let mut radio_group = RadioGroup::vertical("spi-speed")
-        .selected_index(selected)
-        .on_click(cx.listener(move |this, ix: &usize, _, cx| {
-            if let Some(&khz) = speed_values.get(*ix) {
-                this.set_spi_speed(khz, cx);
-            }
-        }));
-    for &(_, label) in speeds {
-        radio_group = radio_group.child(Radio::new(label).label(label).with_size(Size::Small));
-    }
-    let speed_box = GroupBox::new()
-        .id("settings-speed")
-        .outline()
-        .title("SPI clock speed")
-        .child(body(
-            "Clock rate for every SPI op (Detect / Read / Erase / Write / \
-             Verify / Blank-check). Saved immediately; the next op picks \
-             up the new value when it opens the CH341A.",
-        ))
-        .child(radio_group);
-
-    // Read save location section.
-    let read_dir_text = read_output_dir
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| {
-            std::env::var("HOME")
-                .map(|h| format!("{h} (default)"))
-                .unwrap_or_else(|_| "(default: $HOME, not set)".to_string())
-        });
-    let read_box = GroupBox::new()
-        .id("settings-read")
-        .outline()
-        .title("Read save location")
-        .child(body(
-            "Where the Read pane saves chip dumps. Defaults to your home \
-             directory; pick a folder to override.",
-        ))
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_3()
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .text_size(px(12.0))
-                        .font_family(theme::MONO_FONT)
-                        .text_color(theme::text_secondary())
-                        .whitespace_normal()
-                        .child(read_dir_text),
+    SettingPage::new("Programmer")
+        .icon(IconName::Cpu)
+        .default_open(true)
+        .group(
+            SettingGroup::new().item(
+                SettingItem::new(
+                    "SPI clock speed",
+                    SettingField::dropdown(
+                        speeds,
+                        read(view, |a| a.prefs.spi_speed_khz.to_string().into()),
+                        move |v: SharedString, cx| {
+                            if let Ok(khz) = v.parse() {
+                                set_view.update(cx, |this, cx| this.set_spi_speed(khz, cx));
+                            }
+                        },
+                    ),
                 )
-                .child(action_button_for(
-                    "Browse…",
-                    "pick-read-output",
-                    cx,
-                    |this, cx| this.pick_read_output_dir(cx),
-                )),
-        );
-
-    // Window section.
-    let window_box = GroupBox::new()
-        .id("settings-window")
-        .outline()
-        .title("Window")
-        .child(body(
-            "When enabled, the window's last position and size are saved \
-             on close and restored the next time you launch etch341. Off by \
-             default; the window opens centered at 1200 × 800.",
-        ))
-        .child(toggle_row(
-            "Restore window position on startup",
-            "toggle-restore-bounds",
-            restore_window_bounds,
-            cx,
-            |this, cx| this.toggle_restore_window_bounds(cx),
-        ));
-
-    // Appearance section: accent-color swatches. The selected
-    // swatch is read straight from the theme global (set_accent
-    // updates it before the re-render), so it needn't be threaded
-    // through PaneInputs.
-    let current_accent = theme::accent_hex();
-    let mut swatches = div().flex().flex_row().flex_wrap().gap_3();
-    for &(name, hex, _) in theme::ACCENT_PRESETS {
-        swatches = swatches.child(accent_swatch(name, hex, hex == current_accent, cx));
-    }
-    let appearance_box = GroupBox::new()
-        .id("settings-appearance")
-        .outline()
-        .title("Appearance")
-        .child(body(
-            "Accent color used across buttons, selections, toggles, and \
-             controls. Click a swatch.",
-        ))
-        .child(swatches);
-
-    // Hex viewer section: two font-size rows (hex grid + strings
-    // list). Mirrors the Cmd/Ctrl + / - / 0 keybindings — both
-    // surfaces mutate the same prefs values, so changes round-trip
-    // either way.
-    let hex_box = GroupBox::new()
-        .id("settings-hex")
-        .outline()
-        .title("Hex viewer")
-        .child(body(
-            "Font size for the hex+ASCII view and the strings list \
-             inside the Hex pane. Adjustable on the fly with Cmd \
-             +/- and Cmd 0 on macOS, or Ctrl on Windows / Linux — \
-             the active sub-view changes when you toggle between \
-             Hex and Strings.",
-        ))
-        .child(font_size_row(
-            "Hex view",
-            hex_font_size,
-            "hex-font-minus",
-            "hex-font-plus",
-            cx,
-            |this, cx| this.nudge_hex_font(-1.0, cx),
-            |this, cx| this.nudge_hex_font(1.0, cx),
-        ))
-        .child(font_size_row(
-            "Strings view",
-            strings_font_size,
-            "strings-font-minus",
-            "strings-font-plus",
-            cx,
-            |this, cx| this.nudge_strings_font(-1.0, cx),
-            |this, cx| this.nudge_strings_font(1.0, cx),
-        ))
-        .child(
-            // Right-aligned reset chip. Sized to match the +/- chips
-            // (24px tall, padded for the longer label) so the
-            // GroupBox doesn't get a chunky CTA at the bottom.
-            div().flex().flex_row().justify_end().child(
-                div()
-                    .id("hex-font-reset")
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .h(px(24.0))
-                    .px_3()
-                    .rounded(px(4.0))
-                    .text_size(px(12.0))
-                    .text_color(theme::text_primary())
-                    .bg(theme::workshop_glass_strong())
-                    .hover(|d| d.bg(theme::workshop_glass()))
-                    .cursor_pointer()
-                    .child("Reset to defaults")
-                    .on_click(cx.listener(|this: &mut AppView, _: &ClickEvent, _, cx| {
-                        this.reset_hex_fonts(cx);
-                    })),
+                .description(
+                    "Clock rate for every SPI op (Detect / Read / Erase / Write / \
+                     Verify / Blank-check). 750 kHz is the fastest reliable rate; \
+                     20 kHz is the most signal-tolerant. Saved immediately; the \
+                     next op picks up the new value when it opens the CH341A.",
+                ),
             ),
-        );
-
-    // Log timestamps section: UTC (default) vs system local time.
-    // Storage is always raw UTC seconds; this toggle only changes
-    // how the activity log renders — both past and new lines
-    // re-format on flip.
-    let log_box = GroupBox::new()
-        .id("settings-log")
-        .outline()
-        .title("Log timestamps")
-        .child(body(
-            "Activity log entries always store UTC under the hood — \
-             this only changes how they're displayed. Enable to render \
-             both existing and new lines in the system's local time \
-             zone; disable to show UTC like an old-school server log.",
-        ))
-        .child(toggle_row(
-            "Show local time in the activity log",
-            "toggle-timestamp-local",
-            timestamp_local,
-            cx,
-            |this, cx| this.set_timestamp_local(!this.prefs.timestamp_local, cx),
-        ));
-
-    // Updates section: the on/off toggle, a version status line, and
-    // View-release / Check-now buttons. The available update (if any)
-    // is read straight from the updater global.
-    let available = crate::gui::updater::available(cx);
-    let mut updates_box = GroupBox::new()
-        .id("settings-updates")
-        .outline()
-        .title("Updates")
-        .child(body(
-            "Checks the project's GitHub releases for a newer version when \
-             etch341 launches, and marks the Settings sidebar item with a \
-             dot if one exists. Detection only — it never downloads or \
-             installs anything.",
-        ))
-        .child(toggle_row(
-            "Check for updates on launch",
-            "toggle-update-check",
-            update_check_enabled,
-            cx,
-            // Flip: new enabled = !current = the current
-            // `disable_update_check` value.
-            |this, cx| this.set_update_check_enabled(this.prefs.disable_update_check, cx),
-        ));
-    updates_box = updates_box.child(match &available {
-        Some(up) => div()
-            .text_color(theme::text_primary())
-            .whitespace_normal()
-            .child(format!(
-                "Version {} is available — you have v{}.",
-                up.version,
-                env!("CARGO_PKG_VERSION")
-            )),
-        None => div()
-            .text_size(px(12.0))
-            .text_color(theme::text_tertiary())
-            .child(format!("Installed: v{}", env!("CARGO_PKG_VERSION"))),
-    });
-    let mut update_buttons = div().flex().flex_row().gap_3();
-    if available.is_some() {
-        update_buttons = update_buttons.child(action_button_for(
-            "View release",
-            "open-release",
-            cx,
-            |this, cx| this.open_release_page(cx),
-        ));
-    }
-    update_buttons = update_buttons.child(action_button_for(
-        "Check now",
-        "check-updates",
-        cx,
-        |this, cx| this.check_for_updates_now(cx),
-    ));
-    updates_box = updates_box.child(update_buttons);
-
-    // Preferences file section. Button hidden when there's no real
-    // path — nothing useful to open if $HOME wasn't set.
-    let path_text = prefs_path
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "(unable to determine; $HOME not set)".to_string());
-    let prefs_box = GroupBox::new()
-        .id("settings-prefs")
-        .outline()
-        .title("Preferences file")
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_3()
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .text_size(px(12.0))
-                        .font_family(theme::MONO_FONT)
-                        .text_color(theme::text_secondary())
-                        .whitespace_normal()
-                        .child(path_text),
+        )
+        .group(
+            SettingGroup::new().item(
+                SettingItem::new(
+                    "Read save location",
+                    SettingField::render(move |_, _, cx| {
+                        let text = dir_view
+                            .read(cx)
+                            .prefs
+                            .read_output_dir
+                            .as_ref()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_else(|| {
+                                std::env::var("HOME")
+                                    .map(|h| format!("{h} (default)"))
+                                    .unwrap_or_else(|_| "(default: $HOME, not set)".to_string())
+                            });
+                        path_row(
+                            text,
+                            Some(("pick-read-output", "Browse…", AppView::pick_read_output_dir)),
+                            dir_view.clone(),
+                        )
+                    }),
                 )
-                .when_some(prefs_path, |row, _| {
-                    row.child(action_button_for(
-                        "Open folder",
-                        "open-prefs-folder",
-                        cx,
-                        |this, cx| this.open_prefs_folder(cx),
-                    ))
-                }),
-        );
+                .description(
+                    "Where the Read pane saves chip dumps. Defaults to your home \
+                     directory; pick a folder to override.",
+                )
+                .layout(gpui::Axis::Vertical)
+                .keywords(["read", "save", "folder", "dump", "location"]),
+            ),
+        )
+}
 
-    // Two-level structure: a flex-row centering wrapper, then a
-    // flex-col content column with `flex_1 + max_w(680)`. flex_1
-    // makes the column grow on the main (horizontal) axis up to
-    // its max-width, and `justify_center` on the wrapper centers
-    // the column when there's slack. This gives the column a
-    // *definite* width on wide windows, which is what the body
-    // text needs to actually wrap at the right point instead of
-    // expanding the column.
-    div()
-        .id("settings-scroll")
-        .size_full()
-        .min_h(px(0.0))
-        .overflow_y_scroll()
-        .child(
-            div().w_full().flex().flex_row().justify_center().child(
-                div()
-                    .flex_1()
-                    .max_w(px(680.0))
-                    .min_w(px(0.0))
-                    .flex()
-                    .flex_col()
-                    .gap_4()
-                    .px_5()
-                    .py_5()
-                    .child(
-                        // Heading + version chip on one baseline-
-                        // aligned row. Build version is patched into
-                        // `CARGO_PKG_VERSION` by the release workflow
-                        // before each tagged build; local dev builds
-                        // show whatever Cargo.toml carries (0.1.0
-                        // until next release), which is itself a
-                        // useful "this isn't a published binary" cue.
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_baseline()
-                            .gap_2()
-                            .child(heading("Settings"))
-                            .child(
-                                div()
-                                    .text_size(px(12.0))
-                                    .text_color(theme::text_tertiary())
-                                    .child(format!("v{}", env!("CARGO_PKG_VERSION"))),
-                            ),
+fn appearance_page(view: &Entity<AppView>) -> SettingPage {
+    let swatch_view = view.clone();
+    let (hex_set, strings_set, ts_set) = (view.clone(), view.clone(), view.clone());
+    let font_opts = NumberFieldOptions {
+        min: crate::prefs::HEX_FONT_MIN as f64,
+        max: crate::prefs::HEX_FONT_MAX as f64,
+        step: 1.0,
+    };
+
+    SettingPage::new("Appearance")
+        .icon(IconName::Palette)
+        .resettable(true)
+        .group(
+            SettingGroup::new().item(
+                SettingItem::new(
+                    "Accent color",
+                    SettingField::render(move |_, _, _| {
+                        let current = theme::accent_hex();
+                        let view = swatch_view.clone();
+                        div().flex().flex_row().flex_wrap().gap_3().children(
+                            theme::ACCENT_PRESETS.iter().map(move |&(name, hex, _)| {
+                                accent_swatch(name, hex, hex == current, view.clone())
+                            }),
+                        )
+                    }),
+                )
+                .description("Used across buttons, selections, toggles, and controls.")
+                .layout(gpui::Axis::Vertical),
+            ),
+        )
+        .group(
+            SettingGroup::new()
+                .title("Hex viewer")
+                .description(
+                    "Font sizes inside the Hex pane. Also adjustable on the fly \
+                     with Cmd +/- and Cmd 0 on macOS, or Ctrl on Windows / Linux.",
+                )
+                .item(SettingItem::new(
+                    "Hex view font size",
+                    SettingField::number_input(
+                        font_opts.clone(),
+                        read(view, |a| a.prefs.hex_font_size as f64),
+                        move |v, cx| {
+                            hex_set.update(cx, |this, cx| {
+                                this.nudge_hex_font(v as f32 - this.prefs.hex_font_size, cx)
+                            })
+                        },
                     )
-                    .child(speed_box)
-                    .child(read_box)
-                    .child(window_box)
-                    .child(appearance_box)
-                    .child(hex_box)
-                    .child(log_box)
-                    .child(updates_box)
-                    .child(prefs_box),
+                    .default_value(crate::prefs::HEX_FONT_DEFAULT as f64),
+                ))
+                .item(SettingItem::new(
+                    "Strings view font size",
+                    SettingField::number_input(
+                        font_opts,
+                        read(view, |a| a.prefs.strings_font_size as f64),
+                        move |v, cx| {
+                            strings_set.update(cx, |this, cx| {
+                                this.nudge_strings_font(v as f32 - this.prefs.strings_font_size, cx)
+                            })
+                        },
+                    )
+                    .default_value(crate::prefs::HEX_FONT_DEFAULT as f64),
+                )),
+        )
+        .group(
+            SettingGroup::new().item(
+                SettingItem::new(
+                    "Show local time in the activity log",
+                    SettingField::switch(read(view, |a| a.prefs.timestamp_local), move |on, cx| {
+                        ts_set.update(cx, |this, cx| this.set_timestamp_local(on, cx))
+                    })
+                    .default_value(false),
+                )
+                .description(
+                    "Log entries always store UTC; this only changes how they're \
+                     displayed. Both existing and new lines re-format on flip.",
+                ),
+            ),
+        )
+}
+
+fn general_page(view: &Entity<AppView>, prefs_path: Option<std::path::PathBuf>) -> SettingPage {
+    let (bounds_set, update_set, status_view, prefs_view) =
+        (view.clone(), view.clone(), view.clone(), view.clone());
+
+    SettingPage::new("General")
+        .icon(IconName::Settings)
+        .group(
+            SettingGroup::new().title("Window").item(
+                SettingItem::new(
+                    "Restore window position on startup",
+                    SettingField::switch(
+                        read(view, |a| a.prefs.restore_window_bounds),
+                        move |on, cx| {
+                            bounds_set.update(cx, |this, cx| {
+                                if this.prefs.restore_window_bounds != on {
+                                    this.toggle_restore_window_bounds(cx)
+                                }
+                            })
+                        },
+                    ),
+                )
+                .description(
+                    "Saves the window's position and size on close and restores \
+                     them on the next launch. Off: the window opens centered at \
+                     1200 × 800.",
+                ),
+            ),
+        )
+        .group(
+            SettingGroup::new()
+                .title("Updates")
+                .item(
+                    SettingItem::new(
+                        "Check for updates on launch",
+                        SettingField::switch(
+                            read(view, |a| !a.prefs.disable_update_check),
+                            move |on, cx| {
+                                update_set
+                                    .update(cx, |this, cx| this.set_update_check_enabled(on, cx))
+                            },
+                        ),
+                    )
+                    .description(
+                        "Checks the project's GitHub releases for a newer version \
+                         when etch341 launches, and marks the Settings sidebar item \
+                         with a dot if one exists. Detection only — it never \
+                         downloads or installs anything.",
+                    ),
+                )
+                .item(SettingItem::render(move |_, _, cx| {
+                    let available = crate::gui::updater::available(cx);
+                    let status = match &available {
+                        Some(up) => format!(
+                            "Version {} is available — you have v{}.",
+                            up.version,
+                            env!("CARGO_PKG_VERSION")
+                        ),
+                        None => format!("Installed: v{}", env!("CARGO_PKG_VERSION")),
+                    };
+                    let (release_view, check_view) = (status_view.clone(), status_view.clone());
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_3()
+                        .w_full()
+                        .child(div().flex_1().whitespace_normal().child(status))
+                        .when(available.is_some(), |row| {
+                            row.child(
+                                Button::new("open-release")
+                                    .label("View release")
+                                    .small()
+                                    .primary()
+                                    .on_click(move |_, _, cx| {
+                                        release_view
+                                            .update(cx, |this, cx| this.open_release_page(cx))
+                                    }),
+                            )
+                        })
+                        .child(
+                            Button::new("check-updates")
+                                .label("Check now")
+                                .small()
+                                .on_click(move |_, _, cx| {
+                                    check_view.update(cx, |this, cx| this.check_for_updates_now(cx))
+                                }),
+                        )
+                })),
+        )
+        .group(
+            SettingGroup::new().title("Preferences file").item(
+                SettingItem::render(move |_, _, _| {
+                    let text = prefs_path
+                        .as_ref()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|| "(unable to determine; $HOME not set)".to_string());
+                    // Button hidden when there's no real path — nothing
+                    // useful to open if $HOME wasn't set.
+                    let button = prefs_path.is_some().then_some((
+                        "open-prefs-folder",
+                        "Open folder",
+                        AppView::open_prefs_folder as fn(&mut AppView, &mut Context<AppView>),
+                    ));
+                    path_row(text, button, prefs_view.clone())
+                })
+                .keywords(["preferences", "prefs", "file", "toml"]),
             ),
         )
 }
@@ -355,11 +339,11 @@ pub(super) fn settings_pane(
 /// One accent-color swatch in Settings → Appearance: a filled circle
 /// that gains a white halo ring (a 2px gap + 2px border) when it's
 /// the active accent. `name` is the tooltip and the element id.
-pub(super) fn accent_swatch(
+fn accent_swatch(
     name: &'static str,
     hex: u32,
     selected: bool,
-    cx: &mut Context<AppView>,
+    view: Entity<AppView>,
 ) -> impl IntoElement {
     div()
         .id(name)
@@ -380,148 +364,5 @@ pub(super) fn accent_swatch(
                 .bg(theme::swatch_color(hex)),
         )
         .tooltip(move |window, cx| Tooltip::new(name).build(window, cx))
-        .on_click(
-            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
-                this.set_accent(hex, cx);
-            }),
-        )
-}
-
-/// Switch-style row: label on the left, a small pill on the right
-/// that fills when `active`. Mirrors `speed_row`'s shape (clickable
-/// the whole way across, hover tint, accent-blue when on) so the
-/// settings pane looks consistent. Used for boolean prefs.
-pub(super) fn toggle_row<F>(
-    label: &'static str,
-    id: &'static str,
-    active: bool,
-    cx: &mut Context<AppView>,
-    on_click: F,
-) -> impl IntoElement
-where
-    F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
-{
-    let knob_x = if active { px(18.0) } else { px(2.0) };
-    let track_bg = if active {
-        theme::accent()
-    } else {
-        theme::workshop_glass_strong()
-    };
-    div()
-        .id(id)
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap_3()
-        .px_3()
-        .py_2()
-        .rounded(px(6.0))
-        .cursor_pointer()
-        .hover(|d| d.bg(theme::workshop_glass()))
-        .child(
-            div()
-                .flex_1()
-                .text_color(theme::text_primary())
-                .child(label),
-        )
-        .child(
-            // Track + thumb. Fixed pixel sizes so the switch reads
-            // crisp at any window scale; absolute-positioned thumb
-            // slides with `left` between the on/off positions.
-            div()
-                .relative()
-                .w(px(36.0))
-                .h(px(20.0))
-                .rounded(px(10.0))
-                .bg(track_bg)
-                .child(
-                    div()
-                        .absolute()
-                        .top(px(2.0))
-                        .left(knob_x)
-                        .w(px(16.0))
-                        .h(px(16.0))
-                        .rounded(px(8.0))
-                        .bg(theme::text_primary()),
-                ),
-        )
-        .on_click(
-            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
-                on_click(this, cx);
-            }),
-        )
-}
-
-/// Row used by Settings → Hex viewer: label on the left, a `[-] N px
-/// [+]` stepper on the right. Uses tight 24×24 chips instead of the
-/// full `action_button_for` shape — the standard CTA button reads
-/// out of scale next to a 12px label, and stacking two of them in
-/// one row eats half the viewport.
-pub(super) fn font_size_row<FMinus, FPlus>(
-    label: &'static str,
-    current: f32,
-    id_minus: &'static str,
-    id_plus: &'static str,
-    cx: &mut Context<AppView>,
-    on_minus: FMinus,
-    on_plus: FPlus,
-) -> impl IntoElement
-where
-    FMinus: Fn(&mut AppView, &mut Context<AppView>) + 'static,
-    FPlus: Fn(&mut AppView, &mut Context<AppView>) + 'static,
-{
-    div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap_2()
-        .child(
-            div()
-                .flex_1()
-                .text_color(theme::text_primary())
-                .child(label),
-        )
-        .child(stepper_button("\u{2212}", id_minus, cx, on_minus))
-        .child(
-            div()
-                .min_w(px(44.0))
-                .text_size(px(12.0))
-                .font_family(theme::MONO_FONT)
-                .text_color(theme::text_primary())
-                .child(format!("{current:.0} px")),
-        )
-        .child(stepper_button("+", id_plus, cx, on_plus))
-}
-
-/// Compact 24×24 chip used by `font_size_row` for the inline +/-
-/// stepper. Same colour as `action_button_for` for visual lineage,
-/// just sized to a glyph instead of a CTA label.
-pub(super) fn stepper_button<F>(
-    label: &'static str,
-    id: &'static str,
-    cx: &mut Context<AppView>,
-    on_click: F,
-) -> impl IntoElement
-where
-    F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
-{
-    div()
-        .id(id)
-        .flex()
-        .items_center()
-        .justify_center()
-        .w(px(24.0))
-        .h(px(24.0))
-        .rounded(px(4.0))
-        .text_size(px(13.0))
-        .text_color(theme::accent_foreground())
-        .bg(theme::accent())
-        .hover(|d| d.bg(theme::accent_hover()))
-        .cursor_pointer()
-        .child(label)
-        .on_click(
-            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
-                on_click(this, cx);
-            }),
-        )
+        .on_click(move |_, _, cx| view.update(cx, |this, cx| this.set_accent(hex, cx)))
 }

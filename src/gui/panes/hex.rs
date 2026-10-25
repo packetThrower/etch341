@@ -55,17 +55,9 @@ pub(super) fn hex_pane(
                 .gap_3()
                 .child(heading("Hex viewer"))
                 .child(
-                    styled_button("hex-compare")
-                        .bg(theme::workshop_glass())
-                        .text_color(theme::text_secondary())
-                        .hover(|d| {
-                            d.bg(theme::workshop_glass_strong())
-                                .text_color(theme::text_primary())
-                        })
-                        .child("Compare two files…")
-                        .on_click(cx.listener(|this: &mut AppView, _: &ClickEvent, _, cx| {
-                            this.pick_compare_files(cx)
-                        })),
+                    op_button("hex-compare", "Compare two files…").on_click(cx.listener(
+                        |this: &mut AppView, _: &ClickEvent, _, cx| this.pick_compare_files(cx),
+                    )),
                 ),
         )
         .child(body(

@@ -94,17 +94,6 @@ impl AppView {
         self.persist_font_size(cx);
     }
 
-    /// Settings → Hex viewer → "Reset to defaults" button. Resets
-    /// *both* font sizes — Cmd+0 only resets the active sub-view,
-    /// but a settings-level reset is the natural "put it all back"
-    /// affordance. No scroll-preserve since the user is on the
-    /// Settings pane, not Hex.
-    pub fn reset_hex_fonts(&mut self, cx: &mut Context<Self>) {
-        self.prefs.hex_font_size = crate::prefs::HEX_FONT_DEFAULT;
-        self.prefs.strings_font_size = crate::prefs::HEX_FONT_DEFAULT;
-        self.persist_font_size(cx);
-    }
-
     /// Shared save-and-redraw path for font-size changes. Failures
     /// only surface in the activity log (silent on success — these
     /// happen on every keystroke during a zoom session).

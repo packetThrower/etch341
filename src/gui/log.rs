@@ -1,12 +1,14 @@
 use super::{AppView, LogLine, format_log_time, theme};
 use gpui::{
     ClickEvent, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
-    ScrollHandle, Stateful, StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
-    div, prelude::FluentBuilder, px,
+    ScrollHandle, StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, div,
+    prelude::FluentBuilder, px,
 };
+use gpui_kit::assets::IconName;
+use gpui_kit::component::Sizable as _;
 use gpui_kit::component::TitleBar;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::scroll::ScrollableElement;
-use gpui_kit::component::tooltip::Tooltip;
 
 /// Inline activity-log panel rendered at the bottom of the main
 /// window's pane / log split. The top-right chips pop the log out
@@ -22,15 +24,18 @@ pub fn render(
         .flex_row()
         .gap_1()
         .child(
-            chip("log-popout", "\u{29C9}", "Pop out into a window").on_click(cx.listener(
-                |this: &mut AppView, _: &ClickEvent, _, cx| {
-                    this.pop_out_log(cx);
-                },
-            )),
+            chip(
+                "log-popout",
+                IconName::ExternalLink,
+                "Pop out into a window",
+            )
+            .on_click(cx.listener(|this: &mut AppView, _: &ClickEvent, _, cx| {
+                this.pop_out_log(cx);
+            })),
         )
         .when(!lines.is_empty(), |row| {
             row.child(
-                chip("log-clear", "\u{00D7}", "Clear log").on_click(cx.listener(
+                chip("log-clear", IconName::Delete, "Clear log").on_click(cx.listener(
                     |this: &mut AppView, _: &ClickEvent, _, cx| {
                         this.clear_log(cx);
                     },
@@ -100,11 +105,13 @@ impl Render for LogWindow {
             .flex_row()
             .gap_1()
             .when(!lines.is_empty(), move |row| {
-                row.child(chip("log-clear-popout", "\u{00D7}", "Clear log").on_click(
-                    move |_: &ClickEvent, _, cx| {
-                        let _ = app.update(cx, |this, cx| this.clear_log(cx));
-                    },
-                ))
+                row.child(
+                    chip("log-clear-popout", IconName::Delete, "Clear log").on_click(
+                        move |_: &ClickEvent, _, cx| {
+                            let _ = app.update(cx, |this, cx| this.clear_log(cx));
+                        },
+                    ),
+                )
             });
 
         div()
@@ -217,26 +224,10 @@ fn log_row(line: &LogLine, local_tz: bool) -> impl IntoElement {
         )
 }
 
-/// Small 20×20 hover-tinted glyph chip with a tooltip. The caller
+/// Small ghost icon button (GPUI Kit) with a tooltip. The caller
 /// attaches `.on_click(...)` — left off here because the inline
 /// panel dispatches on `AppView` directly while the pop-out window
 /// dispatches through a weak handle.
-fn chip(id: &'static str, glyph: &'static str, tip: &'static str) -> Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .flex()
-        .items_center()
-        .justify_center()
-        .w(px(20.0))
-        .h(px(20.0))
-        .rounded(px(4.0))
-        .text_size(px(14.0))
-        .text_color(theme::text_tertiary())
-        .cursor_pointer()
-        .hover(|d| {
-            d.bg(theme::workshop_glass_strong())
-                .text_color(theme::text_primary())
-        })
-        .child(glyph)
-        .tooltip(move |window, cx| Tooltip::new(tip).build(window, cx))
+fn chip(id: &'static str, icon: IconName, tip: &'static str) -> Button {
+    Button::new(id).icon(icon).ghost().xsmall().tooltip(tip)
 }

@@ -134,14 +134,7 @@ pub(super) fn diff_nav_button<F>(
 where
     F: Fn(&mut AppView, &mut Context<AppView>) + 'static,
 {
-    styled_button(id)
-        .bg(theme::workshop_glass())
-        .text_color(theme::text_secondary())
-        .hover(|d| {
-            d.bg(theme::workshop_glass_strong())
-                .text_color(theme::text_primary())
-        })
-        .child(label)
+    op_button(id, label)
         .on_click(cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| on_click(this, cx)))
 }
 

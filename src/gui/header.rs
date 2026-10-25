@@ -2,6 +2,10 @@ use super::{Connection, SharedProgress, theme};
 use gpui::{IntoElement, ParentElement, Styled, div, px};
 use std::sync::atomic::Ordering;
 
+/// Height of the header strip. The sidebar's bus-toggle row uses the
+/// same height so the toggle lines up with the connection status.
+pub const HEIGHT: f32 = 52.0;
+
 pub fn render(conn: &Connection, progress: &SharedProgress) -> impl IntoElement {
     let (dot, label) = match conn {
         Connection::Disconnected => (theme::caution_red(), "no CH341A".to_string()),
@@ -54,7 +58,7 @@ pub fn render(conn: &Connection, progress: &SharedProgress) -> impl IntoElement 
         .items_center()
         .gap_3()
         .px_5()
-        .py_3()
+        .h(px(HEIGHT))
         .border_b_1()
         .border_color(theme::workshop_glass_strong())
         .child(div().w(px(8.0)).h(px(8.0)).rounded_full().bg(dot))

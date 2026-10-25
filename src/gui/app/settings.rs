@@ -29,7 +29,7 @@ impl AppView {
         }
         self.prefs.accent_color = hex;
         theme::set_accent_hex(hex);
-        apply_accent_to_component_theme(cx);
+        apply_component_theme(cx);
         if let Err(e) = self.prefs.save() {
             self.push_log(format!("accent save failed: {e}"));
         }
