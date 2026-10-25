@@ -9,6 +9,16 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ### Changed
 
+- **Settings rebuilt on GPUI Kit's Settings layout**: Programmer,
+  Appearance and General pages with a search box, each setting in its
+  own box, a dropdown for the SPI clock, switches for the on/off
+  settings, number fields for the Hex viewer font sizes, and a reset
+  button on the Appearance page.
+- **Main window on GPUI Kit components**: the pane buttons (including
+  the arm-then-confirm Erase / Write pair), the result and "Armed"
+  messages, the copy buttons, the SPI / I²C toggle, the sidebar tool
+  entries and the activity log's pop-out / clear buttons now use GPUI
+  Kit and follow the accent color.
 - **Moved to [GPUI Kit](https://gpui-kit.com) 0.8.0** (gpui-pre 0.3.9),
   the crates.io home of gpui-component, replacing the Zed-git gpui and
   gpui-component git pins. The build is now crates.io-only, in step

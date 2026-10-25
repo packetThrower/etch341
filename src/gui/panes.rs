@@ -4,15 +4,15 @@ use gpui::{
     MouseDownEvent, MouseMoveEvent, ParentElement, SharedString, StatefulInteractiveElement,
     Styled, UniformListScrollHandle, WeakEntity, div, prelude::FluentBuilder, px, uniform_list,
 };
+use gpui_kit::component::Sizable as _;
 use gpui_kit::component::alert::Alert;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::clipboard::Clipboard;
 use gpui_kit::component::group_box::{GroupBox, GroupBoxVariants as _};
 use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::radio::{Radio, RadioGroup};
+use gpui_kit::component::radio::RadioGroup;
 use gpui_kit::component::select::{Select, SelectState};
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{Sizable as _, Size};
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
@@ -80,11 +80,6 @@ pub struct PaneInputs<'a> {
     pub bios_nav_scroll: UniformListScrollHandle,
     pub bios_search_term: &'a str,
     pub bios_search_state: &'a Entity<InputState>,
-    pub spi_speed_khz: u32,
-    /// Current value of the "restore window position on startup"
-    /// toggle in Settings. The actual save/restore plumbing lives
-    /// in `gui::run` / `on_window_should_close`.
-    pub restore_window_bounds: bool,
     pub prefs_path: Option<&'a Path>,
     /// Last-read SR1/SR2/SR3 bytes for the Status pane. `None`
     /// before the user clicks "Read"; populated by
@@ -99,11 +94,6 @@ pub struct PaneInputs<'a> {
     pub otp_write_path: Option<&'a Path>,
     pub otp_erase_armed: bool,
     pub otp_write_armed: bool,
-    /// Save directory for Read pane dumps. `None` means "$HOME"
-    /// (the original fallback). Settings exposes a Browse button
-    /// to set it; the Read pane body surfaces the current value
-    /// so the user knows where the next dump will land.
-    pub read_output_dir: Option<&'a Path>,
     /// Most recent Detect result for the Detect pane's chip-info
     /// card. `None` until the user clicks Detect chip.
     pub detect_result: Option<&'a crate::gui::DetectInfo>,
@@ -119,14 +109,6 @@ pub struct PaneInputs<'a> {
     pub hex_font_size: f32,
     /// Same idea for the strings list inside the Hex pane.
     pub strings_font_size: f32,
-    /// Render activity-log timestamps in the system's local time
-    /// zone (true) or UTC (false, default). Surfaces in Settings →
-    /// Log timestamps; storage stays raw UTC seconds either way.
-    pub timestamp_local: bool,
-    /// User-facing "check for updates on launch" state (the inverse
-    /// of `prefs.disable_update_check`). Drives the Settings →
-    /// Updates toggle.
-    pub update_check_enabled: bool,
     /// I²C bus-scan result (the 7-bit addresses that ACKed) for the
     /// I²C Scan pane. `None` before the first scan this session.
     pub i2c_scan_results: Option<&'a [u8]>,
@@ -225,18 +207,7 @@ pub fn render(
             cx,
         )
         .into_any_element(),
-        Pane::Settings => settings_pane(
-            inputs.spi_speed_khz,
-            inputs.restore_window_bounds,
-            inputs.read_output_dir,
-            inputs.prefs_path,
-            inputs.hex_font_size,
-            inputs.strings_font_size,
-            inputs.timestamp_local,
-            inputs.update_check_enabled,
-            cx,
-        )
-        .into_any_element(),
+        Pane::Settings => settings_pane(inputs.prefs_path, cx).into_any_element(),
         Pane::I2cScan => {
             i2c_scan_pane(inputs.i2c_scan_results, inputs.op_result, cx).into_any_element()
         }
@@ -285,10 +256,9 @@ fn result_block(result: Option<&(bool, String)>) -> Option<Alert> {
     } else {
         Alert::error("op-result", text.clone())
     };
-    // `self_start` opts the alert out of the op-pane column's
-    // cross-axis stretch so it hugs the message width instead of
-    // filling the pane.
-    Some(alert.self_start().mt_2().max_w(px(680.0)))
+    // Kit's Alert is full-width; cap it so it doesn't span a wide
+    // pane.
+    Some(alert.mt_2().max_w(px(680.0)))
 }
 
 /// Small-caps section header inside the settings pane. Matches the
@@ -494,7 +464,8 @@ fn body(text: &'static str) -> impl IntoElement {
 /// two-stage destructive panes (Erase, Write) between the body and
 /// the action button when the user has primed the operation.
 fn armed_warning(text: &'static str) -> impl IntoElement {
-    Alert::warning("armed-warning", text).self_start()
+    // Same 680px cap as `result_block` — Kit's Alert is full-width.
+    Alert::warning("armed-warning", text).max_w(px(680.0))
 }
 
 fn action_button(label: &'static str, cx: &mut Context<AppView>) -> impl IntoElement {

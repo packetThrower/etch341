@@ -29,8 +29,8 @@ The window is split into three regions:
 - **Activity log** (bottom) — chronological log of operations,
   results, and errors. Resizable: drag the splitter to give it more
   or less vertical space. The height is persisted across launches.
-  Two chips in its top-right corner: **⧉** pops the log out into its
-  own window, and **×** clears it (see [Activity log](#activity-log)).
+  Two icon buttons in its top-right corner: **Pop out** (↗) moves the
+  log into its own window, and **Clear** (trash can) clears it (see [Activity log](#activity-log)).
 
 The window's own size + position is also persisted, so it opens
 where you left it.
@@ -120,8 +120,8 @@ table.
 Picks a known chip, reads its full contents to a file. The file is
 named `etch341-read-<date>_<time>.bin` (local time, e.g.
 `etch341-read-2026-05-29_14-03-07.bin`) and lands in your home
-directory by default — change the folder in Settings → Read save
-location. The Hex pane can then open that file for inspection.
+directory by default — change the folder in Settings → Programmer → Read
+save location. The Hex pane can then open that file for inspection.
 
 ## Erase, Write, Verify
 
@@ -178,7 +178,7 @@ clipboard. Cmd+C only fires when the Hex pane is the visible pane
 
 (Ctrl on Linux/Windows for all of the above.) The Hex and Strings
 views have independent font sizes — the shortcut zooms whichever is
-visible, and the sizes also have controls in Settings → Hex viewer.
+visible, and the sizes also have controls in Settings → Appearance.
 
 ## BIOS explorer
 
@@ -274,39 +274,43 @@ on a chip. Full reference: [Usage → I²C](/etch341/usage/i2c/).
 ## Settings
 
 The pane is configuration-only — the activity log is hidden while
-Settings is the active pane so the body has room to breathe. The
-installed version is shown next to the heading, and a small amber
-dot rides the ⚙ Settings sidebar item when a newer release is
-available (see [Updates](#updates) below). Every setting saves
-immediately. The sections:
+Settings is the active pane so the body has room to breathe. It has
+its own page list with a search box (type to filter settings by
+name), and a small amber dot rides the ⚙ Settings sidebar item when
+a newer release is available (see [Updates](#updates) below). Every
+setting saves immediately. The pages:
 
-- **SPI clock speed** — 20 / 100 / 400 / 750 kHz. The bus rate
-  every CH341A op uses; the next op picks up the new value when it
-  opens the device. (I²C ops cap at 400 kHz regardless — see the
-  [I²C page](/etch341/usage/i2c/#clock-speed).)
-- **Read save location** — where the Read pane writes its dumps.
-  Defaults to your home directory; **Browse** to pick another.
-- **Window — restore window position on startup** toggle. Off by
-  default; when on, the window's last bounds are snapshotted on
-  graceful close and restored on next launch.
-- **Appearance** — accent color. Pick one of eight swatches; the
-  whole UI recolors live (buttons, selections, toggles, radio dots,
-  sidebar). Button labels switch between dark and light per accent
-  so they stay readable.
-- **Hex viewer** — independent font sizes for the Hex and Strings
-  views, with `−` / `+` steppers and a reset. Mirrors the
-  Cmd/Ctrl + `=` / `-` / `0` shortcuts.
-- **Log timestamps** — show activity-log times in your local time
-  zone or UTC. Storage is always UTC; this only changes the
-  display, and it re-formats existing lines too.
-- **Updates** — toggle the boot-time new-version check, see the
-  current status, and **View release** / **Check now**. Detection
-  only — it never downloads or installs. See [Updates](#updates).
-- **Preferences file** displays the on-disk prefs path
-  (`~/.config/etch341/prefs.toml` on Linux/macOS,
-  `%APPDATA%\etch341\prefs.toml` on Windows) with an **Open
-  folder** button that pops the containing directory in the OS
-  file manager (`open` / `explorer` / `xdg-open`).
+- **Programmer**
+  - **SPI clock speed** — 20 / 100 / 400 / 750 kHz. The bus rate
+    every CH341A op uses; the next op picks up the new value when it
+    opens the device. (I²C ops cap at 400 kHz regardless — see the
+    [I²C page](/etch341/usage/i2c/#clock-speed).)
+  - **Read save location** — where the Read pane writes its dumps.
+    Defaults to your home directory; **Browse** to pick another.
+- **Appearance** (the ↺ button in its header resets the page's
+  settings to their defaults)
+  - **Accent color** — pick one of eight swatches; the whole UI
+    recolors live (buttons, selections, switches, radio dots,
+    sidebar). Button labels switch between dark and light per accent
+    so they stay readable.
+  - **Hex viewer** — independent font sizes for the Hex and Strings
+    views. Mirrors the Cmd/Ctrl + `=` / `-` / `0` shortcuts.
+  - **Show local time in the activity log** — local time zone or
+    UTC. Storage is always UTC; this only changes the display, and
+    it re-formats existing lines too.
+- **General**
+  - **Window — restore window position on startup.** Off by default;
+    when on, the window's last bounds are snapshotted on graceful
+    close and restored on next launch.
+  - **Updates** — switch the boot-time new-version check on or off,
+    see the installed version, and **View release** / **Check now**.
+    Detection only — it never downloads or installs. See
+    [Updates](#updates).
+  - **Preferences file** displays the on-disk prefs path
+    (`~/.config/etch341/prefs.toml` on Linux/macOS,
+    `%APPDATA%\etch341\prefs.toml` on Windows) with an **Open
+    folder** button that pops the containing directory in the OS
+    file manager (`open` / `explorer` / `xdg-open`).
 
 ## Updates
 
@@ -328,12 +332,12 @@ dot.
 Every operation logs `HH:MM:SS message` lines, scrollable, with the
 most recent at the bottom. Long lines wrap. Drag the splitter above
 the log to resize it; the height persists. Timestamps render in UTC
-by default — flip Settings → Log timestamps to local time.
+by default — switch to local time in Settings → Appearance.
 
-Two chips sit in the log's top-right corner:
+Two icon buttons sit in the log's top-right corner:
 
-- **⧉ Pop out** detaches the log into its own window. It stays live
+- **Pop out** (↗) detaches the log into its own window. It stays live
   — new lines stream into it and it follows the tail (unless you've
   scrolled up to read history). Closing the window re-docks the log;
   while it's popped out, the active pane takes the full height.
-- **×** clears the log.
+- **Clear** (trash can) clears the log.
