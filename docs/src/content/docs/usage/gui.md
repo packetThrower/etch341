@@ -315,6 +315,14 @@ setting saves immediately. The pages:
     every CH341A op uses; the next op picks up the new value when it
     opens the device. (I²C ops cap at 400 kHz regardless — see the
     [I²C page](/etch341/usage/i2c/#clock-speed).)
+  - **Verify after write** — read the chip back and compare after
+    every SPI and I²C write. On by default; turning it off saves time on
+    large chips (CLI: `--no-verify`).
+  - **I²C EEPROM → I²C clock speed** — 20 / 100 / 400 kHz for every I²C
+    op (CLI: `--speed`). 100 kHz by default.
+  - **I²C EEPROM → Address pin straps (A2 A1 A0)** — how the EEPROM's
+    address pins are tied, as 0–7. Leave at 0 (all grounded) for a chip
+    in the CH341A socket (CLI: `--straps`).
   - **Read save location** — where the Read pane writes its dumps.
     Defaults to your home directory; **Browse** to pick another.
 - **Appearance** (the ↺ button in its header resets the page's

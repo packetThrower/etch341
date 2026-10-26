@@ -86,6 +86,16 @@ fn programmer_page(view: &Entity<AppView>) -> SettingPage {
     .collect();
     let set_view = view.clone();
     let dir_view = view.clone();
+    let (i2c_set, verify_set, straps_set) = (view.clone(), view.clone(), view.clone());
+    // 24Cxx parts are spec'd to 400 kHz max, so 750 isn't offered.
+    let i2c_speeds: Vec<(SharedString, SharedString)> = [
+        (20, "20 kHz"),
+        (100, "100 kHz (Standard mode)"),
+        (400, "400 kHz (Fast mode)"),
+    ]
+    .into_iter()
+    .map(|(k, label)| (k.to_string().into(), label.into()))
+    .collect();
 
     SettingPage::new("Programmer")
         .icon(IconName::Cpu)
@@ -111,6 +121,66 @@ fn programmer_page(view: &Entity<AppView>) -> SettingPage {
                      next op picks up the new value when it opens the CH341A.",
                 ),
             ),
+        )
+        .group(
+            SettingGroup::new().item(
+                SettingItem::new(
+                    "Verify after write",
+                    SettingField::switch(
+                        read(view, |a| a.prefs.verify_after_write),
+                        move |on, cx| {
+                            verify_set.update(cx, |this, cx| this.set_verify_after_write(on, cx))
+                        },
+                    )
+                    .default_value(true),
+                )
+                .description(
+                    "Read the chip back and compare it with the file after every SPI \
+                         and I²C write. Turning it off saves time on large chips \
+                         (CLI: --no-verify).",
+                ),
+            ),
+        )
+        .group(
+            SettingGroup::new()
+                .title("I²C EEPROM")
+                .item(
+                    SettingItem::new(
+                        "I²C clock speed",
+                        SettingField::dropdown(
+                            i2c_speeds,
+                            read(view, |a| a.prefs.i2c_speed_khz.to_string().into()),
+                            move |v: SharedString, cx| {
+                                if let Ok(khz) = v.parse() {
+                                    i2c_set.update(cx, |this, cx| this.set_i2c_speed(khz, cx));
+                                }
+                            },
+                        ),
+                    )
+                    .description("Clock rate for every I²C op (CLI: --speed)."),
+                )
+                .item(
+                    SettingItem::new(
+                        "Address pin straps (A2 A1 A0)",
+                        SettingField::number_input(
+                            NumberFieldOptions {
+                                min: 0.0,
+                                max: 7.0,
+                                step: 1.0,
+                            },
+                            read(view, |a| a.prefs.i2c_straps as f64),
+                            move |v, cx| {
+                                straps_set.update(cx, |this, cx| this.set_i2c_straps(v as u8, cx))
+                            },
+                        )
+                        .default_value(0.0),
+                    )
+                    .description(
+                        "How the EEPROM's A2/A1/A0 pins are tied, as a 0–7 value (0 = all \
+                         grounded, the usual case in a CH341A socket). Shifts the chip's \
+                         bus address from 0x50 (CLI: --straps).",
+                    ),
+                ),
         )
         .group(
             SettingGroup::new().item(

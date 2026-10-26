@@ -9,6 +9,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ### Added
 
+- **Settings for options the CLI already had**: Verify after write
+  (`--no-verify`), I²C clock speed (`--speed`, 20 / 100 / 400 kHz; the
+  GUI was fixed at 100 kHz) and I²C address pin straps (`--straps`), all
+  under Settings → Programmer.
 - **Cancel a running operation**: reads, verifies, blank checks and SPI
   writes get a Cancel button beside the header's progress readout. They
   stop at the next chunk or page boundary; a cancelled read removes its

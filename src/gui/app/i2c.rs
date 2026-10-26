@@ -11,7 +11,7 @@ impl AppView {
     /// every 24Cxx supports; a settings-driven I²C speed control is a
     /// follow-up. Never exceeds the 400 kHz the transport enforces.
     fn i2c_speed(&self) -> u32 {
-        100
+        self.prefs.i2c_speed_khz
     }
 
     /// I²C bus scan — probes 0x08..0x77 and records the ACKing
@@ -84,6 +84,7 @@ impl AppView {
         let path_for_task = path.clone();
         let progress = self.progress.clone();
         let speed = self.i2c_speed();
+        let straps = self.prefs.i2c_straps;
         if !self.claim_hw(cx) {
             return;
         }
@@ -101,7 +102,7 @@ impl AppView {
                         &chip,
                         0,
                         chip.size_bytes,
-                        0,
+                        straps,
                         &path_for_task,
                         &mut sink,
                     )
@@ -231,6 +232,8 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.i2c_speed();
+        let verify = self.prefs.verify_after_write;
+        let straps = self.prefs.i2c_straps;
         if !self.claim_hw(cx) {
             return;
         }
@@ -252,24 +255,37 @@ impl AppView {
                     let mut ch = Programmer::open_i2c(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let mut wsink = GuiSink::new(progress.clone(), "i2c-wr");
-                    crate::i2c_ops::write(&mut ch, &chip, 0, &data, 0, &mut wsink)
+                    crate::i2c_ops::write(&mut ch, &chip, 0, &data, straps, &mut wsink)
                         .map_err(|e| format!("write: {e}"))?;
-                    // Verify-after-write, matching the SPI Write pane.
-                    let mut vsink = GuiSink::new(progress, "i2c-vfy");
-                    let mismatches =
-                        crate::i2c_ops::verify(&mut ch, &chip, &data, 0, 0, &mut vsink)
-                            .map_err(|e| format!("verify: {e}"))?;
+                    // Verify-after-write (Settings → Verify after write),
+                    // matching the SPI Write pane. `None` = skipped.
+                    let mismatches = if verify {
+                        let mut vsink = GuiSink::new(progress, "i2c-vfy");
+                        Some(
+                            crate::i2c_ops::verify(&mut ch, &chip, &data, 0, straps, &mut vsink)
+                                .map_err(|e| format!("verify: {e}"))?,
+                        )
+                    } else {
+                        None
+                    };
                     Ok::<_, String>((chip.name, data.len(), mismatches))
                 })
                 .await;
             weak.update(cx, |this, cx| {
                 this.release_hw(cx);
                 match outcome {
-                    Ok((name, n, 0)) => {
+                    Ok((name, n, None)) => {
+                        this.note_i2c_chip(&name);
+                        this.set_op_result(
+                            true,
+                            format!("Wrote {n} bytes to {name} (not verified)"),
+                        )
+                    }
+                    Ok((name, n, Some(0))) => {
                         this.note_i2c_chip(&name);
                         this.set_op_result(true, format!("Wrote {n} bytes to {name} (verified)"))
                     }
-                    Ok((name, n, m)) => {
+                    Ok((name, n, Some(m))) => {
                         this.note_i2c_chip(&name);
                         this.set_op_result(
                             false,
@@ -304,6 +320,7 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.i2c_speed();
+        let straps = self.prefs.i2c_straps;
         if !self.claim_hw(cx) {
             return;
         }
@@ -322,7 +339,7 @@ impl AppView {
                     // view, not just report a count.
                     let len = data.len() as u32;
                     let chip_bytes =
-                        crate::i2c_ops::read_bytes(&mut ch, &chip, 0, len, 0, &mut sink)
+                        crate::i2c_ops::read_bytes(&mut ch, &chip, 0, len, straps, &mut sink)
                             .map_err(|e| format!("verify: {e}"))?;
                     let offsets = crate::diff::diff_offsets(&data, &chip_bytes);
                     Ok::<_, String>((chip.name, chip_bytes, offsets, data))
@@ -390,6 +407,7 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.i2c_speed();
+        let straps = self.prefs.i2c_straps;
         if !self.claim_hw(cx) {
             return;
         }
@@ -402,7 +420,7 @@ impl AppView {
                     let mut ch = Programmer::open_i2c(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let mut sink = GuiSink::new(progress, "i2c-erase");
-                    crate::i2c_ops::erase(&mut ch, &chip, 0, &mut sink)
+                    crate::i2c_ops::erase(&mut ch, &chip, straps, &mut sink)
                         .map_err(|e| format!("erase: {e}"))?;
                     Ok::<_, String>((chip.name, chip.size_bytes))
                 })
@@ -436,6 +454,7 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.i2c_speed();
+        let straps = self.prefs.i2c_straps;
         if !self.claim_hw(cx) {
             return;
         }
@@ -448,7 +467,7 @@ impl AppView {
                     let mut ch = Programmer::open_i2c(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
                     let mut sink = GuiSink::new(progress, "i2c-blank");
-                    crate::i2c_ops::blank_check(&mut ch, &chip, 0, &mut sink)
+                    crate::i2c_ops::blank_check(&mut ch, &chip, straps, &mut sink)
                         .map_err(|e| format!("{e}"))?;
                     Ok::<_, String>((chip.name, chip.size_bytes))
                 })

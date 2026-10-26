@@ -128,6 +128,7 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.prefs.spi_speed_khz;
+        let verify = self.prefs.verify_after_write;
         if !self.claim_hw(cx) {
             return;
         }
@@ -167,7 +168,7 @@ impl AppView {
                             return Err("MISO floats high (no chip / HOLD# grounded)".into());
                         }
                     };
-                    ops::write(&mut ch, &chip, &data, 0, true, true, &mut sink)
+                    ops::write(&mut ch, &chip, &data, 0, true, verify, &mut sink)
                         .map_err(|e| format!("write: {e}"))?;
                     Ok::<_, String>((chip.name, data.len()))
                 })
@@ -177,7 +178,8 @@ impl AppView {
                 this.release_hw(cx);
                 match outcome {
                     Ok((name, n)) => {
-                        this.set_op_result(true, format!("Wrote {n} bytes to {name} (verified)"))
+                        let how = if verify { "verified" } else { "not verified" };
+                        this.set_op_result(true, format!("Wrote {n} bytes to {name} ({how})"))
                     }
                     Err(err) if crate::gui::is_cancel(&err) => this.set_op_result(
                         false,
