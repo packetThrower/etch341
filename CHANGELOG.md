@@ -7,6 +7,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+## [0.8.0-beta.1] — 2026-10-25
+
+First beta of the 0.8.0 line: etch341 moves to GPUI Kit, with a
+rebuilt Settings window, Cancel and one-operation-at-a-time safety in
+both the GUI and the CLI, and a security refresh.
+
 ### Added
 
 - **Ctrl-C in the CLI stops safely**: the first press stops the operation
@@ -733,7 +739,8 @@ Initial release.
   VBIOS chip — full erase → write → verify cycle, byte-identical
   SHA-256 match.
 
-[Unreleased]: https://github.com/packetThrower/etch341/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/packetThrower/etch341/compare/v0.8.0-beta.1...HEAD
+[0.8.0-beta.1]: https://github.com/packetThrower/etch341/compare/v0.7.0...v0.8.0-beta.1
 [0.7.0]: https://github.com/packetThrower/etch341/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/packetThrower/etch341/compare/v0.6.0-beta.1...v0.6.0
 [0.5.0]: https://github.com/packetThrower/etch341/compare/v0.5.0-beta.2...v0.5.0
