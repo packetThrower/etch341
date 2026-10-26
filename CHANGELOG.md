@@ -7,6 +7,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+### Changed
+
+- **Hex viewer zoom is easier to find**: the pane's description now
+  mentions Cmd/Ctrl + / − / 0, and the GUI docs gain a Keyboard
+  shortcuts section covering every shortcut.
+
 ## [0.8.0-beta.1] — 2026-10-25
 
 First beta of the 0.8.0 line: etch341 moves to GPUI Kit, with a

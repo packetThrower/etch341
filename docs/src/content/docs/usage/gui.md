@@ -178,6 +178,13 @@ The Hex pane has its own internal toggle between **Hex view**
 files smoothly) and **Strings view** (extracted printable ASCII
 runs, with offset on the left).
 
+:::tip[Zoom]
+Press **Cmd+=** / **Cmd+-** (**Ctrl** on Windows / Linux) to make the
+hex or strings text bigger or smaller, and **Cmd+0** to reset it. Hex
+and Strings keep separate sizes; Settings → Appearance has the same
+controls.
+:::
+
 ### Find bar
 
 The unified Find input sits below the Browse button and applies to
@@ -202,19 +209,8 @@ selected range as space-separated upper-case hex to the system
 clipboard. Cmd+C only fires when the Hex pane is the visible pane
 — typing Cmd+C in any Input still gets normal text copy.
 
-### Keyboard shortcuts
-
-| | |
-|---|---|
-| **Cmd+F** (Ctrl+F on Linux/Windows) | Focus the Find input |
-| **Cmd+G** / **Cmd+Shift+G** | Next / previous match |
-| **Cmd+C** | Copy hex selection (Hex pane only) |
-| **Cmd+=** / **Cmd+-** | Zoom the active view's font in / out |
-| **Cmd+0** | Reset the active view's font size |
-
-(Ctrl on Linux/Windows for all of the above.) The Hex and Strings
-views have independent font sizes — the shortcut zooms whichever is
-visible, and the sizes also have controls in Settings → Appearance.
+The [Keyboard shortcuts](#keyboard-shortcuts) section lists the Hex
+viewer's find, copy and zoom keys.
 
 ## BIOS explorer
 
@@ -399,3 +395,30 @@ Icon buttons sit in the log's top-right corner:
   Appearance → **Use local time in saved log files** is on. Also in
   the popped-out window.
 - **Clear** (⌫) clears the log.
+
+## Keyboard shortcuts
+
+**Cmd** on macOS, **Ctrl** on Windows and Linux.
+
+**Anywhere**
+
+| Shortcut | Action |
+|---|---|
+| **Cmd+D** | Detect the chip (SPI) or scan the bus (I²C) |
+| **Cmd+O** | Open a BIOS image in the BIOS explorer |
+| **Cmd+,** | Open Settings |
+| **Cmd+Q** | Quit |
+
+**Hex viewer**
+
+| Shortcut | Action |
+|---|---|
+| **Cmd+F** | Jump to the Find bar |
+| **Enter** (in the Find bar) | Go to the first match, or to `0xOFFSET` |
+| **Cmd+G** / **Cmd+Shift+G** | Next / previous match |
+| **Cmd+C** | Copy the selected bytes as hex |
+| **Cmd+=** (or **Cmd++**) / **Cmd+-** | Bigger / smaller text in the visible view |
+| **Cmd+0** | Reset that view's text size |
+
+Erase and Write have no shortcut on purpose: they always go through the
+pane's arm-then-confirm buttons.

@@ -66,7 +66,8 @@ pub(super) fn hex_pane(
              both modes — typing highlights matching bytes in Hex and \
              filters the Strings list. Press Enter on `0xOFFSET` to jump \
              to that address; on a pattern, Enter jumps to the first \
-             match. Chevrons step between matches.",
+             match. Chevrons step between matches. Zoom the text with \
+             Cmd/Ctrl + and −, reset with Cmd/Ctrl 0.",
         ))
         // File picker in a titled GroupBox, matching the other panes'
         // file-selection controls (Verify / Write / I²C).
