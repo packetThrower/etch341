@@ -12,6 +12,7 @@ use gpui_kit::component::{
     menu::AppMenuBar,
     resizable::{resizable_panel, v_resizable},
     select::SelectState,
+    tree::TreeState,
 };
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -180,6 +181,10 @@ impl gpui::AssetSource for AppAssets {
         Ok(paths)
     }
 }
+
+/// Sentinel `bios_selected_form` value for the navigator's boot-order
+/// view (a control char so it can't collide with a real form title).
+pub(crate) const BIOS_BOOT_VIEW: &str = "\u{1}boot-order";
 
 /// True while a hardware op holds the CH341A. Each op opens the
 /// programmer itself, so two at once could interleave USB traffic (or
@@ -781,7 +786,12 @@ pub struct AppView {
     /// When true, the settings list shows only changed-from-default rows.
     pub bios_changed_only: bool,
     pub bios_scroll: UniformListScrollHandle,
-    pub bios_nav_scroll: UniformListScrollHandle,
+    /// GPUI Kit tree state behind the BIOS navigator. Item ids are
+    /// indexes into `bios_nav_rows`.
+    pub bios_nav: Entity<TreeState>,
+    /// Per navigator item: the `select_bios_form` target and the
+    /// setting count shown beside it.
+    pub bios_nav_rows: Arc<Vec<(Option<String>, usize)>>,
     pub bios_search_term: String,
     pub bios_search_state: Entity<InputState>,
     /// Dropdown state for picking the I²C chip (24Cxx). I²C has no
@@ -863,6 +873,22 @@ impl AppView {
             .map(|c| SharedString::from(c.name.clone()))
             .collect();
         let i2c_chip_select = cx.new(|cx| SelectState::new(i2c_chips, None, window, cx));
+        let bios_nav = cx.new(|cx| TreeState::new(cx));
+        // Clicking (or arrow-keying to) a navigator row selects it in
+        // the tree state; mirror that into the settings filter.
+        let nav_sub = cx.observe(&bios_nav, |this: &mut Self, nav, cx| {
+            let Some(ix) = nav
+                .read(cx)
+                .selected_item()
+                .and_then(|item| item.id.parse::<usize>().ok())
+            else {
+                return;
+            };
+            let target = this.bios_nav_rows.get(ix).and_then(|(t, _)| t.clone());
+            if target != this.bios_selected_form {
+                this.select_bios_form(target, cx);
+            }
+        });
         Self::spawn_presence_poller(cx);
         Self {
             selected: Pane::Detect,
@@ -923,11 +949,12 @@ impl AppView {
             bios_selected_form: None,
             bios_changed_only: false,
             bios_scroll: UniformListScrollHandle::new(),
-            bios_nav_scroll: UniformListScrollHandle::new(),
+            bios_nav,
+            bios_nav_rows: Arc::new(Vec::new()),
             bios_search_term: String::new(),
             bios_search_state,
             i2c_chip_select,
-            _subscriptions: vec![sub, bios_sub],
+            _subscriptions: vec![sub, bios_sub, nav_sub],
             progress: Arc::new(SharedProgress::default()),
             prefs: Prefs::load(),
             focus_handle: cx.focus_handle(),
@@ -1575,7 +1602,8 @@ impl Render for AppView {
                                     bios_selected_form: self.bios_selected_form.as_deref(),
                                     bios_changed_only: self.bios_changed_only,
                                     bios_scroll: self.bios_scroll.clone(),
-                                    bios_nav_scroll: self.bios_nav_scroll.clone(),
+                                    bios_nav: &self.bios_nav,
+                                    bios_nav_rows: self.bios_nav_rows.clone(),
                                     bios_search_term: self.bios_search_term.as_str(),
                                     bios_search_state: &self.bios_search_state,
                                     prefs_path: prefs_path_buf.as_deref(),

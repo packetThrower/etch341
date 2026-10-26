@@ -63,6 +63,7 @@ impl AppView {
                         this.bios_id = Some(model.bios_id);
                         this.bios_ifd = ifd;
                         this.bios_selected_form = None;
+                        this.rebuild_bios_nav(cx);
                     }
                     Err(e) => this.push_log(format!("BIOS parse failed: {e}")),
                 }
@@ -71,6 +72,45 @@ impl AppView {
             .ok();
         })
         .detach();
+    }
+
+    /// Repopulate the navigator tree from the loaded image: "Boot
+    /// order" (when there is one), "All settings", then the menu tree,
+    /// fully expanded, with "All settings" selected.
+    fn rebuild_bios_nav(&mut self, cx: &mut Context<Self>) {
+        use gpui_kit::component::tree::TreeItem;
+        fn add(
+            nodes: &[crate::uefi::FormNode],
+            rows: &mut Vec<(Option<String>, usize)>,
+        ) -> Vec<TreeItem> {
+            nodes
+                .iter()
+                .map(|n| {
+                    let id = rows.len().to_string();
+                    rows.push((Some(n.title.clone()), n.setting_count));
+                    TreeItem::new(id, n.title.clone())
+                        .expanded(true)
+                        .children(add(&n.children, rows))
+                })
+                .collect()
+        }
+        let mut rows = Vec::new();
+        let mut items = Vec::new();
+        if self.bios_boot.as_ref().is_some_and(|b| !b.is_empty()) {
+            rows.push((Some(crate::gui::BIOS_BOOT_VIEW.to_string()), 0));
+            items.push(TreeItem::new("0", "Boot order"));
+        }
+        let all_ix = rows.len();
+        items.push(TreeItem::new(all_ix.to_string(), "All settings"));
+        rows.push((None, 0));
+        if let Some(tree) = &self.bios_tree {
+            items.extend(add(tree, &mut rows));
+        }
+        self.bios_nav_rows = std::sync::Arc::new(rows);
+        self.bios_nav.update(cx, |nav, cx| {
+            nav.set_items(items, cx);
+            nav.set_selected_index(Some(all_ix), cx);
+        });
     }
 
     /// Select a form in the BIOS navigator (or `None` for "all
