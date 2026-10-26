@@ -15,9 +15,7 @@ const VALUE_W: f32 = 200.0;
 const SOURCE_W: f32 = 190.0;
 /// Horizontal inset applied identically to the header and every row.
 const ROW_PX: f32 = 12.0;
-/// Sentinel `selected_form` value for the navigator's boot-order view
-/// (a control char so it can't collide with a real form title).
-const BOOT_VIEW: &str = "\u{1}boot-order";
+use crate::gui::BIOS_BOOT_VIEW as BOOT_VIEW;
 
 /// Collapse a label to a single line: some HII titles (esp. Insyde)
 /// resolve to multi-line message strings, and an embedded `\n` breaks
@@ -41,7 +39,8 @@ pub(super) fn bios_pane(
     selected_form: Option<&str>,
     changed_only: bool,
     scroll: UniformListScrollHandle,
-    nav_scroll: UniformListScrollHandle,
+    nav: &Entity<gpui_kit::component::tree::TreeState>,
+    nav_rows: Arc<Vec<(Option<String>, usize)>>,
     search_term: &str,
     search_state: &Entity<InputState>,
     cx: &mut Context<AppView>,
@@ -118,8 +117,6 @@ pub(super) fn bios_pane(
         },
     );
     let items = build_items(&settings, &visible);
-    let has_boot = boot.as_ref().is_some_and(|b| !b.is_empty());
-    let weak = cx.entity().downgrade();
 
     col = col
         // Row wrapper so the Input's flex_1 grows horizontally; placing
@@ -170,8 +167,8 @@ pub(super) fn bios_pane(
                 .flex()
                 .flex_row()
                 .gap_3()
-                .when_some(tree.filter(|t| !t.is_empty()), |row, t| {
-                    row.child(navigator(t, has_boot, selected_form, nav_scroll, weak))
+                .when(tree.is_some_and(|t| !t.is_empty()), |row| {
+                    row.child(navigator(nav, nav_rows))
                 })
                 .child(if selected_form == Some(BOOT_VIEW) {
                     boot_panel(boot).into_any_element()
@@ -183,115 +180,76 @@ pub(super) fn bios_pane(
     col
 }
 
-/// Left navigator: the menu tree, flattened + indented, each row a
-/// click target that scopes the settings list to that form.
+/// Left navigator: GPUI Kit `Tree` over "Boot order", "All settings"
+/// and the collapsible menu tree. Selecting a row scopes the settings
+/// list (AppView observes the tree state). Each row shows the form's
+/// own setting count.
 fn navigator(
-    tree: Arc<Vec<crate::uefi::FormNode>>,
-    has_boot: bool,
-    selected: Option<&str>,
-    nav_scroll: UniformListScrollHandle,
-    weak: WeakEntity<AppView>,
+    nav: &Entity<gpui_kit::component::tree::TreeState>,
+    rows: Arc<Vec<(Option<String>, usize)>>,
 ) -> impl IntoElement {
-    // Build the flat row list: optional "Boot order", then "All
-    // settings", then the indented form tree. `target` is the value
-    // passed to select_bios_form (None = all, sentinel = boot).
-    let mut rows: Vec<(usize, String, Option<usize>, Option<String>)> = Vec::new();
-    if has_boot {
-        rows.push((0, "Boot order".into(), None, Some(BOOT_VIEW.into())));
-    }
-    rows.push((0, "All settings".into(), None, None));
-    let mut flat: Vec<(usize, String, usize)> = Vec::new();
-    flatten_tree(&tree, 0, &mut flat);
-    for (d, t, c) in flat {
-        rows.push((d + 1, t.clone(), Some(c), Some(t)));
-    }
-    let rows = Arc::new(rows);
-    let selected = selected.map(|s| s.to_string());
+    use gpui_kit::assets::IconName;
+    use gpui_kit::component::list::ListItem;
+    use gpui_kit::component::tree::Tree;
+    use gpui_kit::component::{Icon, Sizable as _};
 
     div()
         .w(px(280.0))
         .flex_shrink_0()
-        .flex()
-        .flex_col()
         .border_1()
         .border_color(theme::workshop_glass_strong())
         .rounded(px(6.0))
         .bg(theme::bench_black())
         .overflow_hidden()
-        .child(
-            uniform_list("bios-nav", rows.len(), move |range, _, _| {
-                range
-                    .map(|i| {
-                        let (depth, label, count, target) = rows[i].clone();
-                        let is_sel = match (&selected, &target) {
-                            (None, None) => true,
-                            (Some(s), Some(t)) => s == t,
-                            _ => false,
-                        };
-                        let weak = weak.clone();
-                        let mut row = div()
-                            .id(("bios-nav-row", i))
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .w_full()
-                            .h(px(26.0))
-                            .cursor_pointer()
-                            .pl(px(8.0 + depth as f32 * 14.0))
-                            .pr(px(8.0))
-                            .text_size(px(12.0))
-                            .hover(|d| d.bg(theme::workshop_glass()))
-                            .on_click(move |_: &ClickEvent, _, app| {
-                                weak.update(app, |this, cx| {
-                                    this.select_bios_form(target.clone(), cx)
-                                })
-                                .ok();
-                            });
-                        row = if is_sel {
-                            row.bg(theme::accent_tint())
-                                .text_color(theme::text_primary())
-                        } else {
-                            row.text_color(theme::text_secondary())
-                        };
-                        row = row.child(
+        .py_1()
+        .child(Tree::new(nav, move |ix, entry, _selected, _, _| {
+            let count = entry
+                .item()
+                .id
+                .parse::<usize>()
+                .ok()
+                .and_then(|i| rows.get(i))
+                .map_or(0, |(_, c)| *c);
+            let chevron = entry.is_folder().then(|| {
+                Icon::new(if entry.is_expanded() {
+                    IconName::ChevronDown
+                } else {
+                    IconName::ChevronRight
+                })
+                .xsmall()
+                .text_color(theme::text_tertiary())
+            });
+            ListItem::new(ix)
+                .pl(px(8.0 + entry.depth() as f32 * 14.0))
+                .pr(px(8.0))
+                .text_size(px(12.0))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_1()
+                        .w_full()
+                        .child(div().w(px(12.0)).flex_shrink_0().children(chevron))
+                        .child(
                             div()
                                 .flex_1()
                                 .min_w(px(0.0))
                                 .overflow_hidden()
                                 .whitespace_nowrap()
-                                .child(oneline(&label)),
-                        );
-                        if let Some(c) = count.filter(|c| *c > 0) {
-                            row = row.child(
+                                .child(oneline(&entry.item().label)),
+                        )
+                        .when(count > 0, |row| {
+                            row.child(
                                 div()
                                     .flex_shrink_0()
                                     .text_size(px(11.0))
                                     .text_color(theme::text_tertiary())
-                                    .child(c.to_string()),
-                            );
-                        }
-                        row
-                    })
-                    .collect()
-            })
-            .flex_1()
-            .min_h(px(0.0))
-            .py_1()
-            .track_scroll(&nav_scroll),
-        )
-}
-
-/// Depth-first flatten of the menu tree into `(depth, title, count)`.
-fn flatten_tree(
-    nodes: &[crate::uefi::FormNode],
-    depth: usize,
-    out: &mut Vec<(usize, String, usize)>,
-) {
-    for n in nodes {
-        out.push((depth, n.title.clone(), n.setting_count));
-        flatten_tree(&n.children, depth + 1, out);
-    }
+                                    .child(count.to_string()),
+                            )
+                        }),
+                )
+        }))
 }
 
 /// The boot-order view shown when the navigator's "Boot order" entry

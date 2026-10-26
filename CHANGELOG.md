@@ -23,6 +23,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ### Changed
 
+- **BIOS explorer page list is a GPUI Kit tree**: nested Setup pages
+  can be collapsed and expanded, and the list follows the arrow keys.
 - **UEFI decompression now uses `patina`**: Microsoft archived
   `mu_uefi_decompress` and moved its decoder into `patina`. Same code
   and API; output is byte-identical on its UEFI and Tiano test vectors.
