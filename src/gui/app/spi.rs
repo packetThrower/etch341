@@ -128,6 +128,9 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.prefs.spi_speed_khz;
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -171,10 +174,15 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
+                this.release_hw(cx);
                 match outcome {
                     Ok((name, n)) => {
                         this.set_op_result(true, format!("Wrote {n} bytes to {name} (verified)"))
                     }
+                    Err(err) if crate::gui::is_cancel(&err) => this.set_op_result(
+                        false,
+                        "Write cancelled; the chip is left partly erased / written".into(),
+                    ),
                     Err(err) => this.set_op_result(false, format!("Write failed: {err}")),
                 }
                 cx.notify();
@@ -198,6 +206,9 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.prefs.spi_speed_khz;
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -239,6 +250,7 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
+                this.release_hw(cx);
                 match outcome {
                     Ok((name, _chip, offs, file)) if offs.is_empty() => {
                         let n = file.len();
@@ -252,6 +264,9 @@ impl AppView {
                             offsets: offs,
                         });
                         this.set_op_result(false, format!("{m} of {n} bytes differ ({name})"));
+                    }
+                    Err(err) if crate::gui::is_cancel(&err) => {
+                        this.set_op_result(false, "Verify cancelled".into())
                     }
                     Err(err) => this.set_op_result(false, format!("Verify failed: {err}")),
                 }
@@ -271,6 +286,11 @@ impl AppView {
     /// `self.detect_sfdp` lets the Detect pane render the rich
     /// JESD216 view without a separate "Read SFDP" button.
     pub fn refresh_detect(&mut self, cx: &mut Context<Self>) {
+        // Synchronous (blocks the UI thread): it can't overlap itself,
+        // only a background op that still holds the CH341A.
+        if !self.claim_hw(cx) {
+            return;
+        }
         self.push_log("→ detect".to_string());
         self.op_result = None;
         // `outcome` carries the resolved chip-info plus the SFDP
@@ -375,6 +395,7 @@ impl AppView {
                 self.detect_sfdp = None;
             }
         }
+        self.release_hw(cx);
         cx.notify();
     }
 
@@ -391,6 +412,9 @@ impl AppView {
         let path_for_task = path.clone();
         let progress = self.progress.clone();
         let speed = self.prefs.spi_speed_khz;
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -434,11 +458,17 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
+                this.release_hw(cx);
                 match outcome {
                     Ok((name, size)) => this.set_op_result(
                         true,
                         format!("Read {size} bytes from {name} → {}", path.display()),
                     ),
+                    Err(err) if crate::gui::is_cancel(&err) => {
+                        // Don't leave a truncated dump that looks real.
+                        let _ = std::fs::remove_file(&path);
+                        this.set_op_result(false, "Read cancelled; partial dump removed".into())
+                    }
                     Err(err) => this.set_op_result(false, format!("Read failed: {err}")),
                 }
                 cx.notify();
@@ -475,6 +505,9 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.prefs.spi_speed_khz;
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -517,6 +550,7 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
+                this.release_hw(cx);
                 match outcome {
                     Ok(name) => {
                         this.set_op_result(true, format!("Erased {name} — chip is now blank"))
@@ -544,6 +578,9 @@ impl AppView {
         self.op_result = None;
         cx.notify();
         let speed = self.prefs.spi_speed_khz;
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -568,6 +605,7 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
+                this.release_hw(cx);
                 match outcome {
                     Ok(regs) => {
                         this.status_regs = Some(regs);
@@ -592,6 +630,9 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.prefs.spi_speed_khz;
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -634,11 +675,15 @@ impl AppView {
                 .await;
 
             weak.update(cx, |this, cx| {
+                this.release_hw(cx);
                 match outcome {
                     Ok((name, size)) => this.set_op_result(
                         true,
                         format!("{name} is blank — all {size} bytes are 0xFF"),
                     ),
+                    Err(err) if crate::gui::is_cancel(&err) => {
+                        this.set_op_result(false, "Blank check cancelled".into())
+                    }
                     Err(err) => this.set_op_result(false, format!("Blank check failed: {err}")),
                 }
                 cx.notify();

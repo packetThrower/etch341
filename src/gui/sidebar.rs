@@ -8,7 +8,7 @@ use gpui_kit::component::button::{Button, ButtonGroup, ButtonVariants as _};
 use gpui_kit::component::list::ListItem;
 use gpui_kit::component::separator::Separator;
 use gpui_kit::component::stepper::{Stepper, StepperItem};
-use gpui_kit::component::{Sizable as _, Size};
+use gpui_kit::component::{Disableable as _, Sizable as _, Size};
 
 /// SPI workflow steps, in order. The slice position is the Stepper
 /// step index. Blank check / Status / Security / Hex are tools, not
@@ -70,11 +70,14 @@ pub fn render(selected: Pane, bus: Bus, cx: &mut Context<AppView>) -> impl IntoE
 fn bus_toggle(bus: Bus, cx: &mut Context<AppView>) -> impl IntoElement {
     const BUSES: [(Bus, &str); 2] = [(Bus::Spi, "SPI"), (Bus::I2c, "I²C")];
     let weak = cx.entity().downgrade();
+    let busy = super::hw_busy(cx);
     ButtonGroup::new("bus-toggle")
         .small()
         .w_full()
         .children(BUSES.iter().map(|&(target, label)| {
-            let b = Button::new(label).label(label).flex_1();
+            // Locked while an op holds the CH341A: the workflow below
+            // would swap to the other bus mid-operation.
+            let b = Button::new(label).label(label).flex_1().disabled(busy);
             if target == bus { b.primary() } else { b }
         }))
         .on_click(move |clicked, _, cx| {

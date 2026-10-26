@@ -9,6 +9,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ### Added
 
+- **Cancel a running operation**: reads, verifies, blank checks and SPI
+  writes get a Cancel button beside the header's progress readout. They
+  stop at the next chunk or page boundary; a cancelled read removes its
+  partial dump, a cancelled write leaves the chip partly erased or
+  written. SPI
+  chip erase can't be cancelled (the chip finishes it on its own).
 - **Save the activity log**: a Save button in the log's corner (inline
   and popped out) writes it to a text file, defaulting to a timestamped
   name in the Read save location. Saved files use UTC unless the new
@@ -40,6 +46,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ### Fixed
 
+- **One chip operation at a time**: nothing stopped you from starting a
+  second operation (say, Detect or Erase) while a read was still
+  running, and both would open the CH341A at once. The operation
+  buttons and the SPI / I²C toggle are now disabled until the current
+  operation finishes, and menu items and shortcuts are refused with a
+  log line.
 - **Header tracks the CH341A**: it showed "no CH341A" until an SPI
   Detect ran, even with the programmer plugged in, and never updated
   in I²C mode. It now checks USB every second (plug / unplug updates

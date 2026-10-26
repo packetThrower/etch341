@@ -181,6 +181,24 @@ impl gpui::AssetSource for AppAssets {
     }
 }
 
+/// True while a hardware op holds the CH341A. Each op opens the
+/// programmer itself, so two at once could interleave USB traffic (or
+/// start an erase mid-read); `AppView::claim_hw` refuses a second one,
+/// and the op buttons + bus toggle render disabled meanwhile. A global
+/// (not an AppView field) so button helpers can read it mid-render.
+pub struct HwBusy(pub bool);
+impl gpui::Global for HwBusy {}
+
+/// Whether an op's error string is a user cancel (`Error::Cancelled`,
+/// possibly behind a "read: " style prefix).
+pub fn is_cancel(err: &str) -> bool {
+    err.ends_with("cancelled")
+}
+
+pub fn hw_busy(cx: &App) -> bool {
+    cx.global::<HwBusy>().0
+}
+
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let app = gpui_kit::application().with_assets(AppAssets);
     app.run(|cx: &mut App| {
@@ -195,6 +213,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         // just pin the mode because there's no light variant to
         // switch into.
         Theme::change(ThemeMode::Dark, None, cx);
+        cx.set_global(HwBusy(false));
 
         // Standard hex-editor shortcuts. GPUI treats `cmd-` and
         // `ctrl-` as distinct chords — `cmd-` only fires for the
@@ -559,6 +578,9 @@ pub struct SharedProgress {
     pub total: AtomicU64,
     pub label: Mutex<String>,
     pub active: AtomicBool,
+    /// Set by the header's Cancel button; read by `GuiSink::cancelled`
+    /// and reset when the next op claims the programmer.
+    pub cancel: AtomicBool,
 }
 
 /// `ProgressSink` impl that writes into a `SharedProgress`. The
@@ -584,6 +606,9 @@ impl ProgressSink for GuiSink {
     }
     fn update(&mut self, current: u64) {
         self.shared.current.store(current, Ordering::Relaxed);
+    }
+    fn cancelled(&self) -> bool {
+        self.shared.cancel.load(Ordering::Relaxed)
     }
     fn finish(&mut self) {
         self.shared.active.store(false, Ordering::Relaxed);
@@ -915,6 +940,30 @@ impl AppView {
     /// Wipe the activity log. Bound to the log pane's clear button.
     /// Not undoable on purpose — the log is a running narrative,
     /// not a document. Cheap to re-fill: just run an op.
+    /// Claim the CH341A for a hardware op. Returns false (and logs)
+    /// if another op still holds it; the op's completion handler
+    /// releases it with `release_hw`.
+    // ponytail: a panic in the background op leaves the claim held until
+    // restart; add a drop guard if ops ever start panicking.
+    pub(super) fn claim_hw(&mut self, cx: &mut Context<Self>) -> bool {
+        if hw_busy(cx) {
+            self.push_log("Busy: wait for the current operation to finish".into());
+            cx.notify();
+            return false;
+        }
+        self.progress.cancel.store(false, Ordering::Relaxed);
+        cx.set_global(HwBusy(true));
+        cx.notify(); // grey out the op buttons right away
+        true
+    }
+
+    /// Also clears the header's progress readout: an op that ends on
+    /// an error (or a cancel) never reaches its sink's `finish()`.
+    pub(super) fn release_hw(&self, cx: &mut Context<Self>) {
+        self.progress.active.store(false, Ordering::Relaxed);
+        cx.set_global(HwBusy(false));
+    }
+
     pub fn clear_log(&mut self, cx: &mut Context<Self>) {
         self.log_lines.clear();
         cx.notify();
@@ -1482,7 +1531,7 @@ impl Render for AppView {
                             .min_w(px(0.0))
                             .flex()
                             .flex_col()
-                            .child(header::render(&self.connection, &self.progress))
+                            .child(header::render(&self.connection, &self.progress, cx))
                             .child({
                                 // Settings is a configuration pane, not an
                                 // op — there's no progress / pass / fail

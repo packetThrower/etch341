@@ -1,12 +1,34 @@
-use super::{Connection, SharedProgress, theme};
-use gpui::{IntoElement, ParentElement, Styled, div, px};
+use super::{AppView, Connection, SharedProgress, theme};
+use gpui::{
+    ClickEvent, Context, IntoElement, ParentElement, Styled, div, prelude::FluentBuilder as _, px,
+};
+use gpui_kit::component::Sizable as _;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
+
+/// Ops that stop cleanly at a chunk / page boundary. SPI erase is one
+/// chip-erase command the chip finishes on its own, and the I²C
+/// write/erase go out in a single call, so those get no Cancel.
+const CANCELLABLE: &[&str] = &[
+    "read",
+    "verify",
+    "blank",
+    "write",
+    "i2c-read",
+    "i2c-vfy",
+    "i2c-blank",
+];
 
 /// Height of the header strip. The sidebar's bus-toggle row uses the
 /// same height so the toggle lines up with the connection status.
 pub const HEIGHT: f32 = 52.0;
 
-pub fn render(conn: &Connection, progress: &SharedProgress) -> impl IntoElement {
+pub fn render(
+    conn: &Connection,
+    progress: &Arc<SharedProgress>,
+    cx: &mut Context<AppView>,
+) -> impl IntoElement {
     let (dot, label) = match conn {
         Connection::Disconnected => (theme::caution_red(), "no CH341A".to_string()),
         Connection::Present => (theme::success_green(), "CH341A".to_string()),
@@ -20,6 +42,7 @@ pub fn render(conn: &Connection, progress: &SharedProgress) -> impl IntoElement 
     // Right-hand activity tag: "idle" when nothing's running, otherwise
     // "<label> 27% (140 KB / 512 KB)" updated by the polling task.
     let active = progress.active.load(Ordering::Relaxed);
+    let cancellable = CANCELLABLE.contains(&progress.label.lock().unwrap().as_str());
     let activity = if active {
         let current = progress.current.load(Ordering::Relaxed);
         let total = progress.total.load(Ordering::Relaxed);
@@ -66,6 +89,34 @@ pub fn render(conn: &Connection, progress: &SharedProgress) -> impl IntoElement 
         .child(div().text_color(theme::text_primary()).child(label))
         .child(div().flex_1())
         .child(activity_div)
+        .when(active && cancellable, |row| {
+            row.child(cancel_button(progress, cx))
+        })
+}
+
+/// Ghost "Cancel" beside the progress pill. The op stops at its next
+/// chunk / erase-block / page boundary; a write is left partly done
+/// (erased, or partly programmed), hence the tooltip.
+fn cancel_button(progress: &Arc<SharedProgress>, cx: &mut Context<AppView>) -> impl IntoElement {
+    let progress = progress.clone();
+    let tip = if *progress.label.lock().unwrap() == "write" {
+        "Stops after the current erase block or page — the chip is left partly erased / written"
+    } else {
+        "Stops after the current chunk"
+    };
+    Button::new("cancel-op")
+        .label("Cancel")
+        .ghost()
+        .small()
+        .tooltip(tip)
+        .on_click(
+            cx.listener(move |this: &mut AppView, _: &ClickEvent, _, cx| {
+                if !progress.cancel.swap(true, Ordering::Relaxed) {
+                    this.push_log("Cancelling…".into());
+                    cx.notify();
+                }
+            }),
+        )
 }
 
 fn fmt_bytes(n: u64) -> String {

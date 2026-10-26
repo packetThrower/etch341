@@ -22,6 +22,9 @@ impl AppView {
         self.push_log("→ i2c scan (0x08..0x77)".into());
         cx.notify();
         let speed = self.i2c_speed();
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -32,6 +35,7 @@ impl AppView {
                 })
                 .await;
             weak.update(cx, |this, cx| {
+                this.release_hw(cx);
                 match outcome {
                     Ok(hits) => {
                         if hits.is_empty() {
@@ -80,6 +84,9 @@ impl AppView {
         let path_for_task = path.clone();
         let progress = self.progress.clone();
         let speed = self.i2c_speed();
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -103,6 +110,7 @@ impl AppView {
                 })
                 .await;
             weak.update(cx, |this, cx| {
+                this.release_hw(cx);
                 match outcome {
                     Ok((name, size)) => {
                         this.note_i2c_chip(&name);
@@ -110,6 +118,11 @@ impl AppView {
                             true,
                             format!("Read {size} bytes from {name} → {}", path.display()),
                         )
+                    }
+                    Err(err) if crate::gui::is_cancel(&err) => {
+                        // Don't leave a truncated dump that looks real.
+                        let _ = std::fs::remove_file(&path);
+                        this.set_op_result(false, "Read cancelled; partial dump removed".into())
                     }
                     Err(err) => this.set_op_result(false, format!("Read failed: {err}")),
                 }
@@ -218,6 +231,9 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.i2c_speed();
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -247,6 +263,7 @@ impl AppView {
                 })
                 .await;
             weak.update(cx, |this, cx| {
+                this.release_hw(cx);
                 match outcome {
                     Ok((name, n, 0)) => {
                         this.note_i2c_chip(&name);
@@ -259,6 +276,10 @@ impl AppView {
                             format!("Wrote {n} bytes to {name} but verify found {m} mismatch(es)"),
                         )
                     }
+                    Err(err) if crate::gui::is_cancel(&err) => this.set_op_result(
+                        false,
+                        "Write finished; its verify pass was cancelled".into(),
+                    ),
                     Err(err) => this.set_op_result(false, format!("Write failed: {err}")),
                 }
                 cx.notify();
@@ -283,6 +304,9 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.i2c_speed();
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -305,6 +329,7 @@ impl AppView {
                 })
                 .await;
             weak.update(cx, |this, cx| {
+                this.release_hw(cx);
                 match outcome {
                     Ok((name, _chip, offs, file)) if offs.is_empty() => {
                         this.note_i2c_chip(&name);
@@ -320,6 +345,9 @@ impl AppView {
                             offsets: offs,
                         });
                         this.set_op_result(false, format!("{m} of {n} bytes differ ({name})"));
+                    }
+                    Err(err) if crate::gui::is_cancel(&err) => {
+                        this.set_op_result(false, "Verify cancelled".into())
                     }
                     Err(err) => this.set_op_result(false, format!("Verify failed: {err}")),
                 }
@@ -362,6 +390,9 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.i2c_speed();
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -377,6 +408,7 @@ impl AppView {
                 })
                 .await;
             weak.update(cx, |this, cx| {
+                this.release_hw(cx);
                 match outcome {
                     Ok((name, size)) => {
                         this.note_i2c_chip(&name);
@@ -404,6 +436,9 @@ impl AppView {
 
         let progress = self.progress.clone();
         let speed = self.i2c_speed();
+        if !self.claim_hw(cx) {
+            return;
+        }
         cx.spawn(async move |weak, cx| {
             let outcome = cx
                 .background_executor()
@@ -419,6 +454,7 @@ impl AppView {
                 })
                 .await;
             weak.update(cx, |this, cx| {
+                this.release_hw(cx);
                 match outcome {
                     Ok((name, size)) => {
                         this.note_i2c_chip(&name);
@@ -426,6 +462,9 @@ impl AppView {
                             true,
                             format!("{name} is blank — all 0xFF ({size} bytes)"),
                         )
+                    }
+                    Err(err) if crate::gui::is_cancel(&err) => {
+                        this.set_op_result(false, "Blank check cancelled".into())
                     }
                     Err(err) => this.set_op_result(false, format!("Blank check: {err}")),
                 }
