@@ -9,6 +9,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ### Added
 
+- **Ctrl-C in the CLI stops safely**: the first press stops the operation
+  at its next chunk / page boundary (deleting a partial read dump, or
+  saying a write is left partly done) and exits with status 130; a second
+  press quits immediately. Opening the CH341A now also clears leftover USB
+  state from a process killed mid-transfer, which used to make every
+  later command time out until the programmer was replugged.
 - **Settings for options the CLI already had**: Verify after write
   (`--no-verify`), I²C clock speed (`--speed`, 20 / 100 / 400 kHz; the
   GUI was fixed at 100 kHz) and I²C address pin straps (`--straps`), all

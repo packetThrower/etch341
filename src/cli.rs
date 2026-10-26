@@ -426,6 +426,53 @@ impl IndicatifSink {
     }
 }
 
+/// Set by the first Ctrl-C; `IndicatifSink::cancelled` reports it, so
+/// the op stops at its next chunk / erase-block / page boundary.
+static CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Install the Ctrl-C handler for CLI ops. First press: request a stop
+/// at the next safe point. Second press: exit immediately (130).
+pub fn install_ctrlc() {
+    let _ = ctrlc::set_handler(|| {
+        use std::sync::atomic::Ordering;
+        if CANCEL.swap(true, Ordering::SeqCst) {
+            eprintln!("\nForce quit.");
+            std::process::exit(130);
+        }
+        eprintln!(
+            "\nStopping after the current chunk (a full-chip erase runs to completion)… \
+             press Ctrl-C again to force quit."
+        );
+    });
+}
+
+/// Whether the user pressed Ctrl-C during this run.
+pub fn cancel_requested() -> bool {
+    CANCEL.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Map a Ctrl-C stop to a clear message, leaving other errors alone.
+/// `what` says what state the cancelled op leaves behind.
+fn on_cancel<T>(r: crate::error::Result<T>, what: &str) -> Result<T, Box<dyn std::error::Error>> {
+    match r {
+        Err(crate::error::Error::Cancelled) => Err(format!("cancelled: {what}").into()),
+        r => Ok(r?),
+    }
+}
+
+/// Run a read that streams to `path`; on Ctrl-C delete the partial dump
+/// so it can't be mistaken for a full one (stdout output just stops).
+fn cancellable_read(
+    path: &std::path::Path,
+    r: crate::error::Result<()>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if matches!(r, Err(crate::error::Error::Cancelled)) && path != std::path::Path::new("-") {
+        let _ = std::fs::remove_file(path);
+        return Err(format!("cancelled: partial dump {} removed", path.display()).into());
+    }
+    on_cancel(r, "")
+}
+
 impl crate::ops::ProgressSink for IndicatifSink {
     fn start(&mut self, total: u64) {
         self.pb.set_length(total);
@@ -436,6 +483,13 @@ impl crate::ops::ProgressSink for IndicatifSink {
     }
     fn finish(&mut self) {
         self.pb.finish_and_clear();
+    }
+    fn cancelled(&self) -> bool {
+        if cancel_requested() {
+            self.pb.abandon();
+            return true;
+        }
+        false
     }
 }
 
@@ -572,8 +626,10 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
             let chip_bytes = chip.size_kb.saturating_mul(1024);
             let len = args.length.unwrap_or(chip_bytes.saturating_sub(args.start));
             let mut sink = IndicatifSink::new("read   ");
-            ops::read(&mut ch, &chip, args.start, len, &args.output, &mut sink)?;
-            Ok(())
+            cancellable_read(
+                &args.output,
+                ops::read(&mut ch, &chip, args.start, len, &args.output, &mut sink),
+            )
         }
 
         Command::Write(args) => {
@@ -598,16 +654,18 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
             ch.set_clock(speed)?;
             let chip = ops::resolve_chip(&mut ch, global.chip.as_deref())?;
             let mut sink = IndicatifSink::new("write  ");
-            ops::write(
-                &mut ch,
-                &chip,
-                &data,
-                args.start,
-                !args.no_erase,
-                !args.no_verify,
-                &mut sink,
-            )?;
-            Ok(())
+            on_cancel(
+                ops::write(
+                    &mut ch,
+                    &chip,
+                    &data,
+                    args.start,
+                    !args.no_erase,
+                    !args.no_verify,
+                    &mut sink,
+                ),
+                "chip left partly erased / written; re-run the write to finish",
+            )
         }
 
         Command::Erase(args) => {
@@ -640,7 +698,10 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 None => ops::erase_chip(&mut ch, &chip, &mut sink)?,
                 Some(s) => {
                     let (start, len) = parse_range(s)?;
-                    ops::erase_range(&mut ch, &chip, start, len, &mut sink)?;
+                    on_cancel(
+                        ops::erase_range(&mut ch, &chip, start, len, &mut sink),
+                        "range partly erased",
+                    )?;
                 }
             }
             Ok(())
@@ -695,7 +756,10 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
                 )
                 .into());
             }
-            let mismatches = ops::verify(&mut ch, &chip, &data, args.start, &mut sink)?;
+            let mismatches = on_cancel(
+                ops::verify(&mut ch, &chip, &data, args.start, &mut sink),
+                "verify stopped early",
+            )?;
             if mismatches > 0 {
                 return Err(format!("verify failed: {} byte(s) differ", mismatches).into());
             }
@@ -715,8 +779,10 @@ pub fn dispatch(global: GlobalOpts, cmd: Command) -> Result<(), Box<dyn std::err
             ch.set_clock(speed)?;
             let chip = ops::resolve_chip(&mut ch, global.chip.as_deref())?;
             let mut sink = IndicatifSink::new("blank  ");
-            ops::blank_check(&mut ch, &chip, &mut sink)?;
-            Ok(())
+            on_cancel(
+                ops::blank_check(&mut ch, &chip, &mut sink),
+                "blank check stopped early",
+            )
         }
 
         Command::I2c { action } => dispatch_i2c(global, action),
@@ -1332,16 +1398,18 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
                 .length
                 .unwrap_or(chip.size_bytes.saturating_sub(args.start));
             let mut sink = IndicatifSink::new("i2c-rd ");
-            i2c_ops::read(
-                &mut ch,
-                &chip,
-                args.start,
-                len,
-                args.straps as u8,
+            cancellable_read(
                 &args.output,
-                &mut sink,
-            )?;
-            Ok(())
+                i2c_ops::read(
+                    &mut ch,
+                    &chip,
+                    args.start,
+                    len,
+                    args.straps as u8,
+                    &args.output,
+                    &mut sink,
+                ),
+            )
         }
 
         I2cAction::Write(args) => {
@@ -1373,13 +1441,16 @@ fn dispatch_i2c(global: GlobalOpts, action: I2cAction) -> Result<(), Box<dyn std
             )?;
             if !args.no_verify {
                 let mut vs = IndicatifSink::new("i2c-vfy");
-                let mismatches = i2c_ops::verify(
-                    &mut ch,
-                    &chip,
-                    &data,
-                    args.start,
-                    args.straps as u8,
-                    &mut vs,
+                let mismatches = on_cancel(
+                    i2c_ops::verify(
+                        &mut ch,
+                        &chip,
+                        &data,
+                        args.start,
+                        args.straps as u8,
+                        &mut vs,
+                    ),
+                    "write finished; its verify pass was stopped",
                 )?;
                 if mismatches > 0 {
                     return Err(format!("verify failed: {} byte(s) differ", mismatches).into());

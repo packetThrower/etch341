@@ -20,6 +20,25 @@ These apply to every subcommand that touches hardware:
 | `-v, --verbose` | Log every SPI or I²C transaction to stderr. Invaluable for debugging in-circuit issues; every `-> OUT` line should be followed by a sensible `<- IN`. |
 | `-n, --dry-run` | Validate everything possible offline (chip name, range, input file readable) and print a `[dry-run]` summary of what *would* happen, without opening the CH341A. Hardware-touching commands only — offline commands (`chips`, `strings`, `search`) ignore the flag. |
 
+## Interrupting with Ctrl-C
+
+Press **Ctrl-C** once and the running operation stops after the chunk,
+erase block or page that's in flight, so the bus is left idle, and
+`etch341` exits with status 130:
+
+- **read** (SPI and I²C) deletes its partial dump so a truncated file
+  can't pass for a full one. With `-o -` the stream just stops.
+- **write** reports that the chip is left partly erased or written; re-run
+  it to finish. For I²C the data goes out in one call, so Ctrl-C stops the
+  verify pass after it.
+- **verify**, **blank-check** and a ranged **erase** stop early.
+- A full-chip **erase** can't be stopped: the chip finishes it on its
+  own, and `etch341` waits for it.
+
+Press Ctrl-C a second time to quit immediately. If that interrupts a USB
+transfer, the next command clears the leftover state when it opens the
+CH341A.
+
 ## SPI flash commands
 
 ```sh

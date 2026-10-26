@@ -75,7 +75,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // (no subsystem distinction) and on Windows debug
             // builds (already console-subsystem).
             attach_parent_console();
-            cli::dispatch(args.global, cmd)
+            cli::install_ctrlc();
+            let result = cli::dispatch(args.global, cmd);
+            if let Err(e) = &result
+                && cli::cancel_requested()
+            {
+                // 128 + SIGINT, the shell convention for "interrupted".
+                eprintln!("{e}");
+                std::process::exit(130);
+            }
+            result
         }
         None => run_default(),
     }

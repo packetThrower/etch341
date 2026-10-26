@@ -160,6 +160,20 @@ impl Ch341 {
             other => Error::Usb(other),
         })?;
 
+        // A previous process killed mid-transfer (second Ctrl-C, crash)
+        // can leave a stalled endpoint or unread data in the IN pipe,
+        // which makes every later command time out. Clear halts and
+        // drain whatever is pending so each open starts in sync.
+        let _ = handle.clear_halt(EP_OUT);
+        let _ = handle.clear_halt(EP_IN);
+        let mut scratch = [0u8; 64];
+        for _ in 0..16 {
+            match handle.read_bulk(EP_IN, &mut scratch, Duration::from_millis(20)) {
+                Ok(n) if n > 0 => continue,
+                _ => break,
+            }
+        }
+
         Ok(Self { handle, verbose })
     }
 
