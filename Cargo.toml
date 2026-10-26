@@ -71,6 +71,10 @@ semver = { version = "1", optional = true }
 # that even a CLI-only binary linking it has negligible cost.
 rfd = "0.17"
 
+# CLI Ctrl-C handling: first press stops the op at its next safe point
+# (same path as the GUI's Cancel), a second press force-quits.
+ctrlc = "3"
+
 # GUI stack — feature-gated. GPUI Kit: gpui (crates.io `gpui-pre`
 # snapshot), its platform backends (Linux wayland + x11, macOS
 # runtime_shaders), gpui-component and the Lucide icon assets behind one
