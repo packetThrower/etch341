@@ -19,6 +19,39 @@ impl AppView {
         cx.notify();
     }
 
+    /// Settings → Programmer → I²C clock speed.
+    pub fn set_i2c_speed(&mut self, khz: u32, cx: &mut Context<Self>) {
+        self.prefs.i2c_speed_khz = khz;
+        self.save_pref(format!("I²C clock set to {khz} kHz"), cx);
+    }
+
+    /// Settings → Programmer → Verify after write.
+    pub fn set_verify_after_write(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.prefs.verify_after_write = on;
+        self.save_pref(
+            format!("Verify after write: {}", if on { "on" } else { "off" }),
+            cx,
+        );
+    }
+
+    /// Settings → Programmer → I²C address straps (A2..A0 as a 0–7 value).
+    pub fn set_i2c_straps(&mut self, straps: u8, cx: &mut Context<Self>) {
+        self.prefs.i2c_straps = straps & 0b111;
+        self.save_pref(
+            format!("I²C address straps set to {}", self.prefs.i2c_straps),
+            cx,
+        );
+    }
+
+    /// Save prefs and log `what`, noting a save failure.
+    fn save_pref(&mut self, what: String, cx: &mut Context<Self>) {
+        match self.prefs.save() {
+            Ok(()) => self.push_log(format!("{what} (saved)")),
+            Err(e) => self.push_log(format!("{what} (save failed: {e})")),
+        }
+        cx.notify();
+    }
+
     /// Settings → Appearance accent swatch. Updates our palette
     /// global + the gpui-component theme primary, persists the
     /// choice, and re-renders. The pop-out log window picks it up

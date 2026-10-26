@@ -50,6 +50,14 @@ pub struct Prefs {
     /// UTC. Independent of `timestamp_local` (on-screen display), so a
     /// file can stay UTC while the screen shows local, or vice versa.
     pub log_file_local: bool,
+    /// I²C clock in kHz for every GUI I²C op (CLI: `--speed`). 24Cxx
+    /// parts are spec'd to 400 kHz, so 750 isn't offered.
+    pub i2c_speed_khz: u32,
+    /// Read back and compare after a write (CLI: `--no-verify` turns
+    /// it off). On by default.
+    pub verify_after_write: bool,
+    /// 24Cxx A0/A1/A2 address-pin straps, 0–7 (CLI: `--straps`).
+    pub i2c_straps: u8,
     /// Accent color as a `0xRRGGBB` value, chosen from the Settings
     /// → Appearance swatches. Drives both etch341's own accent and
     /// the embedded gpui-component widgets' primary color.
@@ -98,6 +106,9 @@ impl Default for Prefs {
             strings_font_size: HEX_FONT_DEFAULT,
             timestamp_local: false,
             log_file_local: false,
+            i2c_speed_khz: 100,
+            verify_after_write: true,
+            i2c_straps: 0,
             // Apple "blue"; mirrors gui::theme::DEFAULT_ACCENT_HEX
             // (kept in sync by hand — prefs is the non-GUI layer and
             // can't reach the feature-gated theme module).
