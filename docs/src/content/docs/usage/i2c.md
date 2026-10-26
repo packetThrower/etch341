@@ -4,15 +4,16 @@ description: Scanning, reading, writing, and verifying 24Cxx I²C EEPROMs with e
 editUrl: https://github.com/packetThrower/etch341/edit/main/docs/src/content/docs/usage/i2c.md
 ---
 
-:::caution
-The I²C path is hardware-validated on a **24C02**: scan, read,
-write, erase, verify, and blank-check all round-trip byte-exact
-against real silicon (tested at 100 kHz and 20 kHz). Still
-**mock-only**, pending silicon: the 2-byte-address parts (24C32 and
-up) and the bit-stuffed 24C04 / 08 / 16 sub-families — the protocol
-for those is implemented and unit-tested but not yet confirmed on a
-chip. If something's off on one of those, please open an issue with
-the verbose-mode (`-v i2c scan`) output and we'll get it sorted.
+:::note
+The I²C path is hardware-validated on one chip from each addressing
+scheme — a **24C02** (1-byte address), a **24C08** (bit-stuffed: the
+high address bits ride in the device address) and a **24C64** (2-byte
+address). Scan, read, write, erase, verify and blank-check all
+round-trip byte-exact against real silicon (24C02 at 20 and 100 kHz,
+24C08 at 100 kHz, 24C64 at 20, 100 and 400 kHz). The
+other sizes (24C04 / 16, 24C32 / 128 / 256 / 512) share those code
+paths but haven't each been run on a chip; if one misbehaves, please
+open an issue with the verbose-mode (`-v`) output.
 :::
 
 :::tip[Also in the GUI]

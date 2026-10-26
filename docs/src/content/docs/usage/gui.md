@@ -171,6 +171,8 @@ because the destructive variants are the rare cases).
 
 ## Hex
 
+![The Hex viewer showing a firmware file in hex and ASCII, with bytes colour-coded by category](/etch341/screenshots/hex.png)
+
 The Hex pane has its own internal toggle between **Hex view**
 (per-byte hex + ASCII columns, virtualised so it scrolls 32 MB
 files smoothly) and **Strings view** (extracted printable ASCII
@@ -303,11 +305,11 @@ follows you across panes. The panes mirror the SPI side:
   sector-erase); also arm-then-confirm.
 - **Blank check** — confirms every byte reads back as `0xFF`.
 
-I²C runs at 100 kHz (the bus caps at 400 kHz — see the
+I²C runs at 100 kHz by default; pick 20 or 400 kHz in Settings →
+Programmer → I²C EEPROM (the bus caps at 400 kHz — see the
 [I²C page](/etch341/usage/i2c/#clock-speed)). The protocol is
-silicon-validated on a 24C02; the 2-byte-address parts (24C32+) and
-the bit-stuffed 24C04 / 08 / 16 are mock-tested but not yet confirmed
-on a chip. Full reference: [Usage → I²C](/etch341/usage/i2c/).
+silicon-validated on a 24C02, a 24C08 and a 24C64 — one chip from each
+addressing scheme. Full reference: [Usage → I²C](/etch341/usage/i2c/).
 
 ## Settings
 
