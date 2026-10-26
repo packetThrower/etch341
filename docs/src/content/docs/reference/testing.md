@@ -97,11 +97,12 @@ the mock so far:
 
 | Path | Mock-tested | Silicon-tested |
 |---|---|---|
-| SPI detect + read + erase + write + verify (3-byte) | ✅ | ✅ (MX25U4033E on GTX 1060) |
+| SPI detect + read + erase + write + verify (3-byte) | ✅ | ✅ (MX25U4033E on GTX 1060; MX25L12835F) |
 | SPI 4-byte addressing (>16 MB chips) | ✅ | ❌ |
 | I²C read + write + erase + verify + blank-check (1-byte addr) | ✅ | ✅ (AT24C02, 100 + 20 kHz) |
-| I²C 2-byte addressing (24C32+) | ✅ | ❌ |
-| 24C04/08/16 bit-stuffing on the wire | ✅ | ❌ |
+| I²C 2-byte addressing (24C32+) | ✅ | ✅ (24C64, 20 / 100 / 400 kHz) |
+| 24C04/08/16 bit-stuffing on the wire | ✅ | ✅ (24C08, 100 kHz) |
+| I²C address-pin straps (`--straps`) | ✅ | ✅ (24C64: strap 1 moves the bus address) |
 
 That AT24C02 pass shook out two real bugs the mock transport can't
 model — see the [I²C silicon validation

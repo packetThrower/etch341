@@ -73,15 +73,16 @@ match) to the original VBIOS.
 | Intel Flash Descriptor / region map | ✅ (`ifd`) | ✅ (BIOS explorer strip) |
 | Offline dump inspection (strings / search / diff) | ✅ | ✅ (Hex viewer) |
 
-> \* **Silicon-validated on a 24C02** (1-byte address, no
-> bit-stuffing): scan / read / write / verify / blank-check / erase
-> all round-trip byte-exact, tested at 100 kHz and 20 kHz. Still
-> mock-only pending a chip: the 2-byte-address parts (24C32+) and the
-> bit-stuffed 24C04 / 08 / 16. I²C defaults to 100 kHz and refuses
-> anything above 400 kHz — over-clocking bricked a part during
-> bring-up.
+> \* **Silicon-validated on all three addressing schemes**: a 24C02
+> (1-byte address), a 24C08 (bit-stuffed: high address bits in the
+> device address) and a 24C64 (2-byte address). Read / write / verify /
+> blank-check / erase round-trip byte-exact (24C02 at 20 and 100 kHz,
+> 24C08 at 100 kHz, 24C64 at 20, 100 and 400 kHz).
+> The other sizes share one of those code paths but haven't each been
+> run on a chip. I²C defaults to 100 kHz and refuses anything above
+> 400 kHz — over-clocking bricked a part during bring-up.
 
-103 unit tests covering the SPI / I²C protocols (including the SFDP
+104 unit tests covering the SPI / I²C protocols (including the SFDP
 parser and the OTP / security-register ops), the high-level ops, the
 inspect/search primitives, the UEFI firmware parsers (firmware-volume
 walk, IFR/HII decode, NVRAM stores) and the Intel Flash Descriptor
@@ -94,29 +95,33 @@ Hardware-touching tests are gated behind `--features hardware`.
   (GP106 PG410). Full erase → write → verify cycle returns the chip
   to a byte-identical state (matching SHA-256 across pre- and
   post-cycle reads).
+- **Macronix MX25L12835F** (3.3V, 128 Mbit). Repeated full reads
+  (CLI and GUI) match byte-for-byte; a full erase → write → verify
+  restore returns the original image with a matching SHA-256.
 - **CH341A V1.7** mini programmer with on-board ZIF socket + SOIC-8
   clip. The V1.7 has a 1.8V mode that older V1.3 boards lack — required
   for the U-series Macronix chips and most modern GPU VBIOS.
+- **I²C / 24Cxx EEPROMs.** Confirmed end-to-end on one part from each
+  addressing scheme: an **AT24C02** (1-byte address), a **24C08**
+  (bit-stuffed — the high address bits ride in the device address)
+  and a **24C64** (2-byte address). `read` / `write` / `erase` /
+  `verify` / `blank-check` all round-trip byte-exact (24C02 at 20 and
+  100 kHz, 24C08 at 100 kHz, 24C64 at 20, 100 and 400 kHz), and
+  non-zero `--straps` move the chip's bus address as expected. The
+  24C02 bring-up shook out two real bugs (writes always timed out
+  polling an ACK the CH341 never exposes; multi-byte reads weren't
+  NACK-terminated and corrupted past ~30 bytes) — both fixed.
+  The 24C04 / 16 and 24C32 / 128 / 256 / 512 share those code paths
+  but haven't each been run on a chip. `scan` can't see a *blank*
+  EEPROM — the CH341 doesn't expose the ACK bit, so an all-`0xFF` chip
+  is indistinguishable from an empty bus; address it directly with
+  `--chip`.
 
 Other chips in `chips/chips.toml` are entered from datasheets but
 haven't been individually exercised against silicon. If you run a
 JEDEC `detect` on a chip and the response decodes correctly to a
 named entry, the rest of the operations are very likely to work
 (they're chip-agnostic at the protocol level).
-
-### Partially hardware-validated
-
-- **I²C / 24Cxx EEPROMs.** Confirmed end-to-end against a real
-  **AT24C02**: `read` / `write` / `erase` / `verify` / `blank-check`
-  all round-trip byte-exact, at both 100 kHz and 20 kHz. Getting
-  there shook out two real bugs (writes always timed out polling an
-  ACK the CH341 never exposes; multi-byte reads weren't NACK-
-  terminated and corrupted past ~30 bytes) — both fixed. Still
-  **mock-only**, pending silicon: the 2-byte-address parts (24C32 and
-  up) and the bit-stuffed 24C04 / 08 / 16 sub-families. `scan` can't
-  see a *blank* EEPROM — the CH341 doesn't expose the ACK bit, so an
-  all-`0xFF` chip is indistinguishable from an empty bus; address it
-  directly with `--chip`.
 
 ## Install
 
@@ -233,14 +238,11 @@ etch341 otp read                     # dump the security / OTP registers
 
 I²C EEPROMs (24Cxx family) use the nested `i2c` subcommand.
 
-> ✅ **The I²C path is silicon-validated on a 24C02** (1-byte
-> address): scan / read / write / verify / blank-check / erase are
-> byte-exact at 100 kHz and 20 kHz. One gotcha — `i2c scan` can't see
-> a *blank* EEPROM: the CH341 never exposes the I²C ACK bit, so an
-> all-`0xFF` chip reads like an empty bus; address it directly with
-> `-c`. The 2-byte-address parts (24C32+) and the bit-stuffed
-> 24C04 / 08 / 16 are implemented and mock-tested but not yet
-> confirmed on silicon.
+> ✅ **The I²C path is silicon-validated** on a 24C02 (1-byte
+> address), a 24C08 (bit-stuffed) and a 24C64 (2-byte address): scan /
+> read / write / verify / blank-check / erase are byte-exact. One gotcha — `i2c scan` can't see a *blank* EEPROM: the
+> CH341 never exposes the I²C ACK bit, so an all-`0xFF` chip reads like
+> an empty bus; address it directly with `-c`.
 
 Unlike SPI NOR there's no JEDEC ID register, so the chip must be
 selected explicitly with `-c`:

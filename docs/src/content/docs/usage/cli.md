@@ -121,11 +121,11 @@ chip is wired non-default. The 24C04 / 24C08 / 24C16 use
 bit-stuffing in the slave address byte for their high memory bits;
 this is handled automatically.
 
-:::caution
-The I²C path is silicon-validated on a 24C02 (read / write / erase /
-verify / blank-check all byte-exact). The 2-byte-address parts
-(24C32+) and the bit-stuffed 24C04 / 08 / 16 are still mock-only. See
-the [I²C workflow](/etch341/usage/i2c/) page for the details.
+:::note
+The I²C path is silicon-validated on a 24C02 (1-byte address), a 24C08
+(bit-stuffed) and a 24C64 (2-byte address): read / write / erase /
+verify / blank-check all byte-exact. See the
+[I²C workflow](/etch341/usage/i2c/) page for the details.
 :::
 
 ## Offline / file-inspection commands
