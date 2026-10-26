@@ -75,6 +75,8 @@ progress (when one is running):
 
 ## One operation at a time
 
+![A 16 MB read in progress: the header shows its progress and a Cancel button, and the operation buttons and SPI / I²C toggle are greyed out](/etch341/screenshots/read-progress.png)
+
 While a read, write, erase or other chip operation is running, the
 operation buttons and the SPI / I²C toggle are greyed out, and menu items
 or shortcuts that would start another one log "Busy: wait for the
@@ -119,6 +121,8 @@ host controller is actively pulling the line low. See
 [Wiring + voltage](/etch341/usage/wiring/) for the recovery paths.
 
 ### Chip database browser
+
+![The chip database browser: one sortable table of every bundled SPI flash and I²C EEPROM, with a vendor filter and search](/etch341/screenshots/chipdb.png)
 
 The **"Browse chip database"** button opens the full catalogue in its
 own window — every bundled SPI flash and I²C EEPROM chip, with a
@@ -212,6 +216,8 @@ visible, and the sizes also have controls in Settings → Appearance.
 
 ## BIOS explorer
 
+![The BIOS explorer with an Insyde image loaded: the menu-page tree on the left, Setup settings on the right](/etch341/screenshots/bios.png)
+
 The **BIOS explorer** pane reads a UEFI BIOS dump and reconstructs the
 firmware Setup menu — the same view as the CLI's
 [`bios settings`](/etch341/usage/cli/#firmware-inspection-uefi--ifd),
@@ -275,6 +281,8 @@ never sets the one-time lock bits.
 
 ## I²C EEPROMs
 
+![The I²C Write pane after writing and verifying an 8 KB file to a 24C64; the header shows the chip](/etch341/screenshots/i2c-write.png)
+
 The **SPI / I²C** toggle at the top of the sidebar switches the whole
 tool set to the 24Cxx EEPROM workflow. I²C has no JEDEC autodetect, so
 in place of a Detect step every I²C pane starts with a **chip
@@ -302,6 +310,8 @@ the bit-stuffed 24C04 / 08 / 16 are mock-tested but not yet confirmed
 on a chip. Full reference: [Usage → I²C](/etch341/usage/i2c/).
 
 ## Settings
+
+![Settings → Programmer: SPI clock, verify after write, I²C clock and address straps, and the read save location](/etch341/screenshots/settings.png)
 
 The pane is configuration-only — the activity log is hidden while
 Settings is the active pane so the body has room to breathe. It has
