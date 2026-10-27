@@ -249,8 +249,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             KeyBinding::new("cmd-g", FindNextAction, None),
             KeyBinding::new("cmd-shift-g", FindPrevAction, None),
             KeyBinding::new("cmd-c", CopyHexSelection, None),
-            KeyBinding::new("cmd-=", HexZoomIn, None),
+            // `+` first: the menu shows the last-bound key, and `=`
+            // is the one users actually press.
             KeyBinding::new("cmd-+", HexZoomIn, None),
+            KeyBinding::new("cmd-=", HexZoomIn, None),
             KeyBinding::new("cmd--", HexZoomOut, None),
             KeyBinding::new("cmd-0", HexZoomReset, None),
         ]);
@@ -261,8 +263,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             KeyBinding::new("ctrl-g", FindNextAction, None),
             KeyBinding::new("ctrl-shift-g", FindPrevAction, None),
             KeyBinding::new("ctrl-c", CopyHexSelection, None),
-            KeyBinding::new("ctrl-=", HexZoomIn, None),
+            // `+` first: the menu shows the last-bound key, and `=`
+            // is the one users actually press.
             KeyBinding::new("ctrl-+", HexZoomIn, None),
+            KeyBinding::new("ctrl-=", HexZoomIn, None),
             KeyBinding::new("ctrl--", HexZoomOut, None),
             KeyBinding::new("ctrl-0", HexZoomReset, None),
         ]);
@@ -905,6 +909,9 @@ impl AppView {
                 this.note_i2c_chip(&name);
                 this.i2c_write_armed = false;
                 this.i2c_erase_armed = false;
+                // A result (e.g. "file too big for 24C08") was about
+                // the previous chip.
+                this.op_result = None;
                 cx.notify();
             }
         });
