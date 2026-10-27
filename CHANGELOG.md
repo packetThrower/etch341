@@ -40,6 +40,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
   empty settings table.
 - **Activity-log lines wrap before the log's toolbar buttons**
   instead of running underneath them.
+- **I²C chip picker keeps everything in step**: choosing a different
+  chip updates the header immediately and disarms a pending write or
+  erase. Arming a write refuses a file larger than the chosen chip,
+  and the armed log line names the file, its size and the chip.
 
 ## [0.8.0-beta.1] — 2026-10-25
 

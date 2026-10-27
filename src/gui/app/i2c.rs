@@ -214,11 +214,29 @@ impl AppView {
         if self.i2c_write_armed {
             self.i2c_write_armed = false;
             self.start_i2c_write(cx);
-        } else {
-            self.i2c_write_armed = true;
-            self.push_log("⚠ i2c write armed: click again to confirm".into());
-            cx.notify();
+            return;
         }
+        // Refuse to arm a file that can't fit, and name what the
+        // confirming click will do.
+        let (Some(path), Some(name)) = (self.i2c_write_path.clone(), self.i2c_chip_name(cx)) else {
+            return;
+        };
+        let file_len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        let chip_size = crate::i2c_ops::resolve_chip(&name).map_or(0, |c| c.size_bytes as u64);
+        if file_len > chip_size {
+            self.set_op_result(
+                false,
+                format!("File is {file_len} bytes but {name} only holds {chip_size}"),
+            );
+            cx.notify();
+            return;
+        }
+        self.i2c_write_armed = true;
+        self.push_log(format!(
+            "⚠ i2c write armed: {} ({file_len} bytes) → {name}; click again to confirm",
+            path.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        cx.notify();
     }
 
     fn start_i2c_write(&mut self, cx: &mut Context<Self>) {

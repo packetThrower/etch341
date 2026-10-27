@@ -889,6 +889,25 @@ impl AppView {
                 this.select_bios_form(target, cx);
             }
         });
+        // Picking a different I²C chip updates the header straight away
+        // and disarms a pending write/erase, so the header, the pane and
+        // the armed op never disagree about which chip is targeted.
+        let i2c_chip_sub = cx.observe(&i2c_chip_select, |this: &mut Self, select, cx| {
+            let Some(name) = select.read(cx).selected_value().map(|v| v.to_string()) else {
+                return;
+            };
+            let changed = match &this.connection {
+                Connection::Ready { chip_name, .. } => *chip_name != name,
+                Connection::Present => true,
+                Connection::Disconnected | Connection::NoChip => false,
+            };
+            if changed {
+                this.note_i2c_chip(&name);
+                this.i2c_write_armed = false;
+                this.i2c_erase_armed = false;
+                cx.notify();
+            }
+        });
         Self::spawn_presence_poller(cx);
         Self {
             selected: Pane::Detect,
@@ -954,7 +973,7 @@ impl AppView {
             bios_search_term: String::new(),
             bios_search_state,
             i2c_chip_select,
-            _subscriptions: vec![sub, bios_sub, nav_sub],
+            _subscriptions: vec![sub, bios_sub, nav_sub, i2c_chip_sub],
             progress: Arc::new(SharedProgress::default()),
             prefs: Prefs::load(),
             focus_handle: cx.focus_handle(),
