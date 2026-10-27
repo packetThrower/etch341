@@ -12,6 +12,34 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 - **Hex viewer zoom is easier to find**: the pane's description now
   mentions Cmd/Ctrl + / − / 0, and the GUI docs gain a Keyboard
   shortcuts section covering every shortcut.
+- **View menu has Zoom In / Zoom Out / Actual Size** for the hex
+  viewer.
+- **File pickers open in the read save location** until you've
+  picked a file somewhere else.
+- **A short window can scroll the sidebar** to reach every tool;
+  Settings stays pinned at the bottom.
+
+### Fixed
+
+- **Status registers on Macronix chips**: SR1 is decoded with
+  Macronix's layout (BP0–3, QE, SRWD) and the configuration register
+  replaces SR3. A set QE bit no longer triggers a false
+  "block-protect bits set" warning. etch341 also no longer sends
+  `0x35` to Macronix parts, where it switches the chip into QPI mode.
+- **Security registers refuse Macronix chips**: they use a different
+  OTP scheme, so the pane hides its read/erase/write controls and
+  the CLI `otp` commands stop with an error.
+- **A failed or cancelled read deletes the partial dump** instead of
+  leaving a truncated file with a normal dump name (SPI and I²C,
+  GUI and CLI).
+- **Clearer USB errors**: a CH341A that's plugged in but has no
+  driver (Windows without WinUSB) or no udev rule now says so
+  instead of "device not found", and unplugging mid-operation
+  reports "CH341A disconnected" instead of "Pipe error".
+- **BIOS explorer explains a non-UEFI image** instead of showing an
+  empty settings table.
+- **Activity-log lines wrap before the log's toolbar buttons**
+  instead of running underneath them.
 
 ## [0.8.0-beta.1] — 2026-10-25
 

@@ -25,16 +25,7 @@ impl AppView {
                 .spawn(async move {
                     let mut ch = Programmer::open(false).map_err(|e| format!("open: {e}"))?;
                     ch.set_clock(speed).map_err(|e| format!("set clock: {e}"))?;
-                    let detect = ops::run_detect(&mut ch).map_err(|e| format!("detect: {e}"))?;
-                    match detect.diagnosis {
-                        Diagnosis::MisoStuckLow => {
-                            return Err("MISO stuck low (target board contention)".into());
-                        }
-                        Diagnosis::MisoFloatsHigh => {
-                            return Err("MISO floats high (no chip / HOLD# grounded)".into());
-                        }
-                        _ => {}
-                    }
+                    ops::ensure_chip_present(&mut ch).map_err(|e| format!("{e}"))?;
                     ops::read_otp_registers(&mut ch).map_err(|e| format!("{e}"))
                 })
                 .await;

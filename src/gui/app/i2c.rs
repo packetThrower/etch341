@@ -120,11 +120,13 @@ impl AppView {
                             format!("Read {size} bytes from {name} → {}", path.display()),
                         )
                     }
+                    // `ops::read` deletes the truncated dump on any failure.
                     Err(err) if crate::gui::is_cancel(&err) => {
-                        // Don't leave a truncated dump that looks real.
-                        let _ = std::fs::remove_file(&path);
                         this.set_op_result(false, "Read cancelled; partial dump removed".into())
                     }
+                    // Only the "read:" stage creates the file.
+                    Err(err) if err.starts_with("read:") => this
+                        .set_op_result(false, format!("Read failed: {err}; partial dump removed")),
                     Err(err) => this.set_op_result(false, format!("Read failed: {err}")),
                 }
                 cx.notify();

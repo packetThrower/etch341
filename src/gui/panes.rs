@@ -160,6 +160,9 @@ pub fn render(
             inputs.otp_write_path,
             inputs.otp_erase_armed,
             inputs.otp_write_armed,
+            inputs
+                .detect_result
+                .is_some_and(|d| d.jedec.starts_with("C2")),
             inputs.op_result,
             cx,
         )

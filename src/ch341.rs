@@ -81,8 +81,8 @@ pub struct Ch341 {
 
 /// Whether a CH341A is plugged in. Enumerates USB devices only —
 /// never opens or claims one — so it's safe to call while an op holds
-/// the device. GUI-only (the header's presence poller).
-#[cfg(feature = "gui")]
+/// the device. Used by the GUI's presence poller and to tell "no
+/// driver" and "unplugged mid-transfer" apart from other USB errors.
 pub fn is_present() -> bool {
     let Ok(devices) = rusb::devices() else {
         return false;
@@ -91,6 +91,16 @@ pub fn is_present() -> bool {
         d.device_descriptor()
             .is_ok_and(|dd| dd.vendor_id() == VID && dd.product_id() == PID)
     })
+}
+
+/// A pulled cable surfaces as Pipe / NoDevice / Io depending on the
+/// OS; report it as a disconnect when the device is gone.
+fn transfer_err(e: rusb::Error) -> Error {
+    if is_present() {
+        Error::Usb(e)
+    } else {
+        Error::Disconnected
+    }
 }
 
 impl Ch341 {
@@ -111,7 +121,15 @@ impl Ch341 {
         let ctx = Context::new()?;
         let handle = ctx
             .open_device_with_vid_pid(VID, PID)
-            .ok_or(Error::DeviceNotFound)?;
+            // Enumerated but not openable = no WinUSB driver (Windows)
+            // or no udev rule (Linux), not "unplugged".
+            .ok_or_else(|| {
+                if is_present() {
+                    Error::PermissionDenied
+                } else {
+                    Error::DeviceNotFound
+                }
+            })?;
 
         // On Linux the kernel `ch341` driver auto-binds to the
         // CH341A on plug-in (presenting it as /dev/ttyUSB*); for
@@ -224,7 +242,10 @@ impl Ch341 {
         if self.verbose {
             eprintln!("  -> OUT  [{:>2}]: {}", buf.len(), hex::encode(buf));
         }
-        let n = self.handle.write_bulk(EP_OUT, buf, USB_TIMEOUT)?;
+        let n = self
+            .handle
+            .write_bulk(EP_OUT, buf, USB_TIMEOUT)
+            .map_err(transfer_err)?;
         if n != buf.len() {
             return Err(Error::Usb(rusb::Error::Io));
         }
@@ -232,7 +253,10 @@ impl Ch341 {
     }
 
     fn bulk_in(&self, buf: &mut [u8]) -> Result<()> {
-        let n = self.handle.read_bulk(EP_IN, buf, USB_TIMEOUT)?;
+        let n = self
+            .handle
+            .read_bulk(EP_IN, buf, USB_TIMEOUT)
+            .map_err(transfer_err)?;
         if self.verbose {
             eprintln!("  <- IN   [{:>2}]: {}", n, hex::encode(&buf[..n]));
         }

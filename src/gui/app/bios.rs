@@ -18,7 +18,7 @@ impl AppView {
     /// decompresses sections, so it runs in a background task off the
     /// UI thread; only the finished `Vec<Setting>` is handed back.
     pub fn pick_bios_file(&mut self, cx: &mut Context<Self>) {
-        let start_dir = self.prefs.last_hex_dir.clone();
+        let start_dir = self.prefs.dialog_dir();
         cx.spawn(async move |weak, cx| {
             let mut dialog = rfd::AsyncFileDialog::new()
                 .add_filter("BIOS images", &["bin", "rom", "fd"])
@@ -135,7 +135,7 @@ impl AppView {
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "(loaded image)".into());
-        let start_dir = self.prefs.last_hex_dir.clone();
+        let start_dir = self.prefs.dialog_dir();
         cx.spawn(async move |weak, cx| {
             let mut dialog = rfd::AsyncFileDialog::new()
                 .add_filter("BIOS images", &["bin", "rom", "fd"])
@@ -198,7 +198,7 @@ impl AppView {
             .and_then(|p| p.file_stem())
             .map(|s| format!("{}-settings.json", s.to_string_lossy()))
             .unwrap_or_else(|| "bios-settings.json".to_string());
-        let start_dir = self.prefs.last_hex_dir.clone();
+        let start_dir = self.prefs.dialog_dir();
         cx.spawn(async move |weak, cx| {
             let mut dialog = rfd::AsyncFileDialog::new().set_file_name(default_name);
             if let Some(dir) = start_dir {

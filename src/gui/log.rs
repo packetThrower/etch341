@@ -206,7 +206,10 @@ fn surface(
                         .flex()
                         .flex_col()
                         .gap_1()
-                        .px_5()
+                        .pl_5()
+                        // Clear the floating chips so long lines wrap
+                        // before running underneath them.
+                        .pr(px(112.0))
                         .py_3()
                         .font_family(theme::MONO_FONT)
                         .text_size(px(12.0))
