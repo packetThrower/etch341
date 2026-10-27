@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
+#
+# Installer manifest template. Fill in:
+#
+#   ${VERSION}              SemVer, no leading `v` (e.g. `0.8.0`)
+#   ${RELEASE_DATE}         ISO date the GitHub Release was cut
+#   ${SHA256_AMD64_MSI}     `Get-FileHash -Algorithm SHA256` of the amd64 .msi
+#   ${PRODUCT_CODE_AMD64}   '{GUID}' from the amd64 .msi (wingetcreate auto-detects)
+#
+# x64 only, like the other packetThrower apps: the winget validator's
+# GPU-less arm64 sandbox crashes GPUI apps. The arm64 .msi, NSIS
+# setup .exe and portable .zip stay on the Releases page.
+# MSI (not NSIS) because it writes the uninstall key under HKLM with a
+# ProductCode, which the validator's executable discovery relies on.
+
+PackageIdentifier: packetThrower.etch341
+PackageVersion: ${VERSION}
+ReleaseDate: ${RELEASE_DATE}
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+Installers:
+  - Architecture: x64
+    InstallerType: wix
+    InstallerUrl: https://github.com/packetThrower/etch341/releases/download/v${VERSION}/etch341-${VERSION}-amd64-windows.msi
+    InstallerSha256: ${SHA256_AMD64_MSI}
+    ProductCode: '${PRODUCT_CODE_AMD64}'
+    Scope: machine
+    InstallerSwitches:
+      Silent: /quiet /norestart
+      SilentWithProgress: /passive /norestart
+ManifestType: installer
+ManifestVersion: 1.12.0

@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.12.0.schema.json
+#
+# Version manifest template. Substitute `${VERSION}` for the stable
+# SemVer (e.g. `0.8.0`) when preparing
+# `manifests/p/packetThrower/etch341/<version>/` by hand; on the CI
+# path winget-releaser renders it.
+
+PackageIdentifier: packetThrower.etch341
+PackageVersion: ${VERSION}
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.12.0

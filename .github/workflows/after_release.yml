@@ -1,0 +1,156 @@
+name: After Release
+
+# Fires after release.yml completes on a tag push. Separate workflow
+# from release.yml so the release job stays focused on building + uploading
+# artifacts; post-release publishing — currently the winget submission, more
+# in the future — lives here.
+#
+# `workflow_run`, NOT `release: published`: release.yml publishes the
+# Release with the default GITHUB_TOKEN, and GitHub suppresses events
+# created by that token from triggering other workflows (recursion
+# guard) — a `release` trigger here never fires (Zorite learned this:
+# every submission through its v0.8.0 was a manual dispatch). `workflow_run` events are
+# exempt from that suppression. For a tag-push run, the tag name
+# arrives as `workflow_run.head_branch`.
+#
+# The workflow_dispatch trigger lets us manually re-run a winget submission
+# if the auto-triggered run flakes (rare but documented in the
+# winget-pkgs validator history).
+on:
+  workflow_run:
+    workflows: [Release]
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: >-
+          Stable tag to submit (e.g. `v0.13.0`, no leading "v" optional —
+          the winget-releaser action accepts both). Lets us re-fire the
+          submission if the release-event-triggered run didn't catch
+          (race condition during a slow Release publish, transient GitHub
+          API failure during the action's fork-PR step, etc.).
+        required: true
+        type: string
+
+# Per-job permissions ceiling. The publish job only reads this repo; the
+# upstream PR against microsoft/winget-pkgs is opened via the WINGET_TOKEN
+# PAT (under the maintainer's account), not the workflow's GITHUB_TOKEN.
+permissions:
+  contents: read
+
+jobs:
+  publish_winget:
+    name: Submit to winget-pkgs
+    runs-on: windows-latest
+    # Guard against forks accidentally running the publish path. The
+    # WINGET_TOKEN secret won't be set on a fork anyway, but failing fast
+    # with a clean skip is friendlier than a mid-action 401.
+    #
+    # On the workflow_run path: only after a SUCCESSFUL Release run, and
+    # only for tag-push runs (head_branch = the tag, e.g. `v0.8.0`) —
+    # release.yml's other trigger paths carry a plain branch name here.
+    #
+    # Skip on pre-releases (tag contains `-`) — the manifest schema's
+    # `ProductVersion` field rejects alphanumeric segments (`-beta.N`),
+    # MSI builds are skipped for pre-release tags by release.yml's
+    # existing `contains('-')` gate anyway, and winget itself has no
+    # pre-release channel. Stable only.
+    if: >-
+      github.repository_owner == 'packetThrower' &&
+      (
+        (
+          github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success' &&
+          startsWith(github.event.workflow_run.head_branch, 'v') &&
+          !contains(github.event.workflow_run.head_branch, '-')
+        ) ||
+        (github.event_name == 'workflow_dispatch' && !contains(inputs.tag_name, '-'))
+      )
+    steps:
+      # Pre-step before the action runs: sync the maintainer's fork of
+      # microsoft/winget-pkgs against upstream master. The winget-releaser
+      # action opens the PR from a branch on that fork and runs its own
+      # `komac sync-fork` first, which fails on a fork that can't be
+      # brought current. The /merge-upstream endpoint fast-forwards the
+      # fork GitHub-side and returns success when it's already current, so
+      # any error here is real — and it's the one the action would hit
+      # next, reported less clearly. Fail with the reason instead.
+      #
+      # The usual one (Zorite v0.11.0, v0.12.0): upstream keeps changing its own
+      # `.github/workflows/`, and GitHub refuses to write workflow files
+      # into the fork with a token lacking the `workflow` scope (422). The
+      # fix is on the token, not here: give WINGET_TOKEN the `workflow`
+      # scope (classic PAT), or "Workflows: Read and write" on the fork
+      # (fine-grained). Until then, `gh repo sync packetThrower/winget-pkgs`
+      # from a machine logged in with that scope, then re-run this
+      # workflow with `gh workflow run after_release.yml -f tag_name=…`.
+      - name: Sync fork against upstream
+        shell: pwsh
+        run: |
+          $headers = @{
+            "Authorization" = "Bearer $env:WINGET_TOKEN"
+            "Accept" = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          $body = @{ branch = "master" } | ConvertTo-Json
+          $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY_OWNER/winget-pkgs/merge-upstream"
+          try {
+            $res = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body -ContentType "application/json"
+            Write-Host "winget-pkgs fork: $($res.message)"
+          } catch {
+            $detail = "$_"
+            # The API's message quotes the scope name with a backtick, which
+            # the error text may carry raw or as the JSON escape \u0060.
+            if ($detail -match "without .{1,6}workflow.{1,6} scope") {
+              Write-Host "::error title=WINGET_TOKEN needs the workflow scope::Upstream winget-pkgs changed its workflow files, and GitHub won't sync them into the fork with this token. Add the 'workflow' scope to WINGET_TOKEN (fine-grained: Workflows read/write on the fork), or run 'gh repo sync $env:GITHUB_REPOSITORY_OWNER/winget-pkgs' locally and re-run this workflow."
+            } else {
+              Write-Host "::error title=winget-pkgs fork sync failed::$detail"
+            }
+            exit 1
+          }
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+
+      # Open the winget-pkgs PR. SHA-pinned for the same supply-chain
+      # reason ci.yml pins its third-party actions: a mutable tag could
+      # be repointed at malicious code by a token compromise on the
+      # action's repo. `# v2` is what Dependabot reads + bumps on a real
+      # release.
+      #
+      # `identifier`: the PackageIdentifier our manifest declares
+      # (`packaging/windows/winget/packetThrower.etch341.installer.yaml.template`).
+      # `release-tag`: the tag that triggered the Release run on the
+      # auto-fire path (workflow_run.head_branch carries the tag for
+      # tag-push runs), the dispatch input on the manual path.
+      # `max-versions-to-keep`: bounds the per-version directories in
+      # `microsoft/winget-pkgs/manifests/p/packetThrower/etch341/` so
+      # the tree doesn't accumulate every historical version. 5 gives
+      # users 4-5 releases of "downgrade target" surface before old
+      # versions roll off.
+      # `installers-regex`: narrow the asset glob to MSIs only. The
+      # action's default regex (`.(exe|msi|msix|appx)(bundle){0,1}$`)
+      # also matches the NSIS `*-setup.exe` installers in our Release
+      # artifacts, which the winget manifest doesn't declare. Feeding
+      # both NSIS and MSI URLs to komac produced four `--urls` entries
+      # against two declared architectures, and the resulting PR
+      # creation step failed with "failed to create pull request"
+      # (the malformed manifest evidently doesn't validate on komac's
+      # pre-submission check). MSI-only matches what the manifest
+      # template declares (`InstallerType: wix`).
+      #
+      # x64-only (the amd64 MSI, not arm64): winget's arm64 validator
+      # cannot validate GPUI apps — its sandbox has no usable
+      # desktop/DWM, so the launch test exits non-zero
+      # (Validation-Executable-Error) and the PR won't auto-merge. We
+      # therefore submit only the x64 MSI; arm64 Windows users get it via
+      # emulation (winget falls back to x64) or the native build on the
+      # Releases page / Scoop. Same x64-only stance as packetThrower.Baudrun and Zorite.
+      - name: Open winget-pkgs PR
+        uses: vedantmgoyal9/winget-releaser@b7370d4d152efdce803a26cc6ca9eee58cb2ad54 # v2
+        with:
+          identifier: packetThrower.etch341
+          release-tag: ${{ github.event.workflow_run.head_branch || inputs.tag_name }}
+          max-versions-to-keep: 5
+          installers-regex: '-amd64-windows\.msi$'
+          token: ${{ secrets.WINGET_TOKEN }}
