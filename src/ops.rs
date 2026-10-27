@@ -210,7 +210,7 @@ pub fn status(verbose: bool) -> Result<()> {
         Diagnosis::UnknownChip => println!("Chip     : (JEDEC ID not in DB; reading SR anyway)"),
     }
     println!();
-    let regs = spi::read_all_status(&mut ch)?;
+    let regs = spi::read_all_status(&mut ch, detect.jedec_id[0] == 0xC2)?;
     print_status(&regs);
     Ok(())
 }
@@ -220,55 +220,26 @@ pub fn status(verbose: bool) -> Result<()> {
 /// without going through stdout. (The print itself stays here so
 /// the CLI dispatcher doesn't need to know about the layout.)
 fn print_status(regs: &spi::StatusRegisters) {
-    println!("SR1 : 0x{:02X}  (0b{:08b})", regs.sr1, regs.sr1);
-    println!(
-        "        WIP={} WEL={} BP={} TB={} SEC/BP3={} SRP0={}",
-        bit(regs.wip()),
-        bit(regs.wel()),
-        regs.bp(),
-        bit(regs.tb()),
-        bit(regs.sec_or_bp3()),
-        bit(regs.srp0()),
-    );
-    if regs.sr2_present() {
-        println!("SR2 : 0x{:02X}  (0b{:08b})", regs.sr2, regs.sr2);
-        println!(
-            "        SRP1={} QE={} LB={} CMP={} SUS={}",
-            bit(regs.srp1()),
-            bit(regs.qe()),
-            regs.lb(),
-            bit(regs.cmp()),
-            bit(regs.sus()),
-        );
-    } else {
-        println!("SR2 : 0xFF    (chip didn't respond, likely doesn't implement SR2)");
+    for r in regs.views() {
+        if r.present {
+            println!("{:<4}: 0x{:02X}  (0b{:08b})", r.name, r.value, r.value);
+            let bits: Vec<String> = r.bits.iter().map(|(n, v)| format!("{n}={v}")).collect();
+            println!("        {}", bits.join(" "));
+        } else {
+            println!(
+                "{:<4}: 0xFF    (chip didn't respond, likely doesn't implement {})",
+                r.name, r.name
+            );
+        }
     }
-    if regs.sr3_present() {
-        println!("SR3 : 0x{:02X}  (0b{:08b})", regs.sr3, regs.sr3);
-        println!(
-            "        ADP={} WPS={} DRV={} HOLD/RST={}",
-            bit(regs.adp()),
-            bit(regs.wps()),
-            regs.drv(),
-            bit(regs.hold_rst()),
-        );
-    } else {
-        println!("SR3 : 0xFF    (chip didn't respond, likely doesn't implement SR3)");
-    }
-    // Two common gotchas worth surfacing without forcing the user
-    // to know the bit semantics: a non-zero BP mask silently fails
-    // writes, and writes to the SR itself need SRP0/SRP1 to permit
-    // it. Anything else is left to the decoded view above.
-    if regs.bp() != 0 || regs.sec_or_bp3() {
+    // The common gotcha worth surfacing without forcing the user to
+    // know the bit semantics: a non-zero BP mask silently fails writes.
+    if regs.bp() != 0 {
         println!();
         println!("note   : SR1 has block-protect bits set: writes and erases to the protected");
-        println!("         range will silently fail. Clear BP[2:0] (and SEC/BP3 if set) via");
-        println!("         WRSR before programming.");
+        println!("         range will silently fail. Clear the BP bits via WRSR before");
+        println!("         programming.");
     }
-}
-
-fn bit(b: bool) -> char {
-    if b { '1' } else { '0' }
 }
 
 /// Read the chip's SFDP table, parse the JEDEC Basic Flash
@@ -430,12 +401,26 @@ pub fn read_otp_registers(spi: &mut dyn SpiTransport) -> Result<Vec<OtpRegister>
     Ok(out)
 }
 
-/// Bail with a clear error if no chip is driving MISO. Run before a
+/// Macronix keeps its secured OTP behind ENSO/EXSO (0xB1/0xC1), not
+/// the 0x48/0x42/0x44 register opcodes, so the OTP ops refuse it.
+pub const MACRONIX_OTP: &str =
+    "Macronix chips use a different security-OTP scheme (ENSO/EXSO); not supported";
+
+pub fn is_macronix(detect: &DetectResult) -> bool {
+    detect.jedec_id[0] == 0xC2
+}
+
+/// Bail with a clear error if no chip is driving MISO, or if it's a
+/// Macronix part the security-register opcodes don't apply to. Run before a
 /// destructive OTP op so "no chip / board contention" surfaces as a
 /// message instead of a confusing verify failure after a write that
 /// never reached silicon.
 pub fn ensure_chip_present(spi: &mut dyn SpiTransport) -> Result<()> {
-    match run_detect(spi)?.diagnosis {
+    let detect = run_detect(spi)?;
+    if is_macronix(&detect) {
+        return Err(Error::Otp(MACRONIX_OTP.into()));
+    }
+    match detect.diagnosis {
         Diagnosis::MisoStuckLow => Err(Error::Otp(
             "MISO stuck low (board contention); lift pin 8 (VCC) or remove the chip".into(),
         )),
@@ -540,6 +525,9 @@ pub fn otp(verbose: bool) -> Result<()> {
         Diagnosis::UnknownChip => {
             println!("Chip     : (JEDEC ID not in DB; reading security registers anyway)")
         }
+    }
+    if is_macronix(&detect) {
+        return Err(Error::Otp(MACRONIX_OTP.into()));
     }
     println!();
     println!("Security registers (Winbond/GigaDevice 0x48 convention, 3 x 256 B):");
@@ -648,6 +636,14 @@ pub fn synthesize_from_sfdp(spi: &mut dyn SpiTransport, jedec: &str) -> Result<O
     }))
 }
 
+/// Delete a dump file whose read failed or was cancelled, so a
+/// truncated file with a normal dump name can't pass for a good one.
+pub(crate) fn remove_if_failed(output: &Path, result: &Result<()>) {
+    if result.is_err() {
+        let _ = std::fs::remove_file(output);
+    }
+}
+
 pub fn read(
     spi: &mut dyn SpiTransport,
     chip: &Chip,
@@ -682,16 +678,25 @@ pub fn read(
 
     let mut addr = start;
     let end = start + len;
-    while addr < end {
-        let n = std::cmp::min(READ_CHUNK, end - addr);
-        let data = spi::read_data(spi, addressing, addr, n as usize)?;
-        out.write_all(&data)?;
-        hasher.update(&data);
-        addr += n;
-        tick(progress, (addr - start) as u64)?;
+    let streamed = (|| {
+        while addr < end {
+            let n = std::cmp::min(READ_CHUNK, end - addr);
+            let data = spi::read_data(spi, addressing, addr, n as usize)?;
+            out.write_all(&data)?;
+            hasher.update(&data);
+            addr += n;
+            tick(progress, (addr - start) as u64)?;
+        }
+        out.flush()?;
+        Ok(())
+    })();
+    // Close before removing: Windows can't delete an open file.
+    drop(out);
+    if !stdout_mode {
+        remove_if_failed(output, &streamed);
     }
+    streamed?;
     progress.finish();
-    out.flush()?;
     if !stdout_mode {
         // To stderr (`eprintln!`) so the dump file can be redirected
         // (`etch341 read -o foo.bin > log.txt`) without losing the
@@ -994,7 +999,8 @@ mod tests {
         let err = read(&mut mock, &fake_chip(1), 0, 16, &tmp, &mut CancelSink).unwrap_err();
         assert!(matches!(err, Error::Cancelled));
         mock.assert_drained();
-        let _ = std::fs::remove_file(&tmp);
+        // The truncated dump is deleted, not left looking like a good one.
+        assert!(!tmp.exists());
     }
 
     /// Security-register read step: 0x48 + 3-byte addr + dummy, then

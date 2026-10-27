@@ -11,7 +11,7 @@ pub(super) fn status_pane(
 ) -> impl IntoElement {
     let mut col = op_pane(
         "Status registers",
-        "Reads SR1 / SR2 / SR3 and decodes the standard bits. Useful \
+        "Reads the status registers and decodes the standard bits. Useful \
          for diagnosing writes that silently fail (block-protect set) \
          or quad-mode issues (QE clear).",
     );
@@ -23,7 +23,7 @@ pub(super) fn status_pane(
     ));
     col = col.children(result_block(result));
     if let Some(r) = regs {
-        // Group the three register blocks inside a single card so
+        // Group the register blocks inside a single card so
         // "decoded result" is visually distinct from the pane's
         // heading + body + button stack above. Each SR block keeps
         // its own header (SR1 / SR2 / SR3) inside the card. The
@@ -31,53 +31,18 @@ pub(super) fn status_pane(
         // three registers to the clipboard for paste-into-issue
         // / share-with-a-coworker workflows.
         let copy_text = format_status_for_copy(&r);
-        col = col.child(
-            card_with_copy(copy_text, "copy-status", cx)
-                .child(status_register_block(
-                    "SR1",
-                    r.sr1,
-                    true,
-                    &[
-                        ("WIP", r.wip().to_string()),
-                        ("WEL", r.wel().to_string()),
-                        ("BP", r.bp().to_string()),
-                        ("TB", r.tb().to_string()),
-                        ("SEC/BP3", r.sec_or_bp3().to_string()),
-                        ("SRP0", r.srp0().to_string()),
-                    ],
-                ))
-                .child(status_register_block(
-                    "SR2",
-                    r.sr2,
-                    r.sr2_present(),
-                    &[
-                        ("SRP1", r.srp1().to_string()),
-                        ("QE", r.qe().to_string()),
-                        ("LB", r.lb().to_string()),
-                        ("CMP", r.cmp().to_string()),
-                        ("SUS", r.sus().to_string()),
-                    ],
-                ))
-                .child(status_register_block(
-                    "SR3",
-                    r.sr3,
-                    r.sr3_present(),
-                    &[
-                        ("ADP", r.adp().to_string()),
-                        ("WPS", r.wps().to_string()),
-                        ("DRV", r.drv().to_string()),
-                        ("HOLD/RST", r.hold_rst().to_string()),
-                    ],
-                )),
-        );
+        let mut card = card_with_copy(copy_text, "copy-status", cx);
+        for v in r.views() {
+            card = card.child(status_register_block(v.name, v.value, v.present, &v.bits));
+        }
+        col = col.child(card);
         // Same gotcha-surfacing note the CLI prints — most common
         // reason a user is on this pane is "writes silently failing"
         // due to BP bits, so call it out directly.
-        if r.bp() != 0 || r.sec_or_bp3() {
+        if r.bp() != 0 {
             col = col.child(armed_warning(
                 "SR1 has block-protect bits set: writes and erases to the protected range \
-                 will silently fail. Clear BP[2:0] (and SEC/BP3 if set) via WRSR before \
-                 programming.",
+                 will silently fail. Clear the BP bits via WRSR before programming.",
             ));
         }
     }
@@ -89,42 +54,18 @@ pub(super) fn status_pane(
 /// so the GUI Copy button doesn't need to round-trip through
 /// `ops::print_status` (which writes to stdout).
 pub(super) fn format_status_for_copy(r: &crate::spi::StatusRegisters) -> String {
-    let bit = |b: bool| if b { '1' } else { '0' };
     let mut s = String::new();
-    s.push_str(&format!("SR1 : 0x{:02X}  (0b{:08b})\n", r.sr1, r.sr1));
-    s.push_str(&format!(
-        "        WIP={} WEL={} BP={} TB={} SEC/BP3={} SRP0={}\n",
-        bit(r.wip()),
-        bit(r.wel()),
-        r.bp(),
-        bit(r.tb()),
-        bit(r.sec_or_bp3()),
-        bit(r.srp0()),
-    ));
-    if r.sr2_present() {
-        s.push_str(&format!("SR2 : 0x{:02X}  (0b{:08b})\n", r.sr2, r.sr2));
-        s.push_str(&format!(
-            "        SRP1={} QE={} LB={} CMP={} SUS={}\n",
-            bit(r.srp1()),
-            bit(r.qe()),
-            r.lb(),
-            bit(r.cmp()),
-            bit(r.sus()),
-        ));
-    } else {
-        s.push_str("SR2 : 0xFF    (chip didn't respond)\n");
-    }
-    if r.sr3_present() {
-        s.push_str(&format!("SR3 : 0x{:02X}  (0b{:08b})\n", r.sr3, r.sr3));
-        s.push_str(&format!(
-            "        ADP={} WPS={} DRV={} HOLD/RST={}\n",
-            bit(r.adp()),
-            bit(r.wps()),
-            r.drv(),
-            bit(r.hold_rst()),
-        ));
-    } else {
-        s.push_str("SR3 : 0xFF    (chip didn't respond)\n");
+    for v in r.views() {
+        if v.present {
+            s.push_str(&format!(
+                "{:<4}: 0x{:02X}  (0b{:08b})\n",
+                v.name, v.value, v.value
+            ));
+            let bits: Vec<String> = v.bits.iter().map(|(n, b)| format!("{n}={b}")).collect();
+            s.push_str(&format!("        {}\n", bits.join(" ")));
+        } else {
+            s.push_str(&format!("{:<4}: 0xFF    (chip didn't respond)\n", v.name));
+        }
     }
     s
 }
@@ -193,12 +134,14 @@ pub(super) fn status_register_block(
 /// `otp erase` / `otp write`: read dumps the three registers as a
 /// copyable hexdump card; erase / write target one register behind
 /// the same two-stage arm/confirm the Erase and Write panes use.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn otp_pane(
     regs: Option<&[crate::ops::OtpRegister]>,
     target_register: u8,
     write_path: Option<&Path>,
     erase_armed: bool,
     write_armed: bool,
+    macronix: bool,
     result: Option<&(bool, String)>,
     cx: &mut Context<AppView>,
 ) -> impl IntoElement {
@@ -211,6 +154,17 @@ pub(super) fn otp_pane(
          clears bits, so erase first for a clean write. Macronix \
          parts use a different opcode and aren't covered.",
     );
+    // The ops refuse Macronix too (`ops::ensure_chip_present`); hiding
+    // the controls keeps a user from arming an erase that can't apply.
+    if macronix {
+        return col.child(
+            Alert::info(
+                "otp-macronix",
+                "The detected chip is Macronix, so these controls are unavailable.",
+            )
+            .max_w(px(680.0)),
+        );
+    }
     col = col.child(action_button_for(
         "Read security registers",
         "read-otp",

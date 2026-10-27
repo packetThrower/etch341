@@ -14,8 +14,8 @@
 //! Open, About) are handled on the root view in `AppView::render`.
 
 use super::{
-    About, Bus, CopyHexSelection, FindNextAction, FindPrevAction, FocusFind, Identify, Navigate,
-    OpenBios, Pane, Quit, SetBus,
+    About, Bus, CopyHexSelection, FindNextAction, FindPrevAction, FocusFind, HexZoomIn, HexZoomOut,
+    HexZoomReset, Identify, Navigate, OpenBios, Pane, Quit, SetBus,
 };
 use gpui::{App, KeyBinding, Menu, MenuItem};
 use gpui_kit::component::GlobalState;
@@ -92,6 +92,10 @@ fn build_menus(bus: Bus) -> Vec<Menu> {
                 MenuItem::separator(),
                 MenuItem::action("Hex Viewer", Navigate(Pane::Hex)),
                 MenuItem::action("BIOS Explorer", Navigate(Pane::Bios)),
+                MenuItem::separator(),
+                MenuItem::action("Zoom In", HexZoomIn),
+                MenuItem::action("Zoom Out", HexZoomOut),
+                MenuItem::action("Actual Size", HexZoomReset),
             ],
             disabled: false,
         },

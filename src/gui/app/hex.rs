@@ -368,7 +368,7 @@ impl AppView {
     /// and gpui panics with "RefCell already borrowed". Running on a
     /// foreground async task lets the click-handler borrow drop first.
     pub fn pick_hex_file(&mut self, cx: &mut Context<Self>) {
-        let start_dir = self.prefs.last_hex_dir.clone();
+        let start_dir = self.prefs.dialog_dir();
         cx.spawn(async move |weak, cx| {
             let mut dialog = rfd::AsyncFileDialog::new()
                 .add_filter("Flash dumps", &["bin", "rom"])

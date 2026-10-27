@@ -1,7 +1,7 @@
 use super::{AppView, Bus, Pane, theme};
 use gpui::{
-    ClickEvent, Context, IntoElement, ParentElement, Styled as _, div, prelude::FluentBuilder as _,
-    px,
+    ClickEvent, Context, InteractiveElement as _, IntoElement, ParentElement,
+    StatefulInteractiveElement as _, Styled as _, div, prelude::FluentBuilder as _, px,
 };
 use gpui_kit::component::badge::Badge;
 use gpui_kit::component::button::{Button, ButtonGroup, ButtonVariants as _};
@@ -50,11 +50,19 @@ pub fn render(selected: Pane, bus: Bus, cx: &mut Context<AppView>) -> impl IntoE
                 .items_center()
                 .child(bus_toggle(bus, cx)),
         )
-        .child(match bus {
-            Bus::Spi => spi_workflow(selected, cx).into_any_element(),
-            Bus::I2c => i2c_workflow(selected, cx).into_any_element(),
-        })
-        .child(div().flex_1())
+        // Scrolls when the window is too short for every step and
+        // tool; Settings stays pinned below.
+        .child(
+            div()
+                .id("sidebar-workflow")
+                .flex_1()
+                .min_h(px(0.0))
+                .overflow_y_scroll()
+                .child(match bus {
+                    Bus::Spi => spi_workflow(selected, cx).into_any_element(),
+                    Bus::I2c => i2c_workflow(selected, cx).into_any_element(),
+                }),
+        )
         .child(item(
             Pane::Settings,
             "⚙ Settings",

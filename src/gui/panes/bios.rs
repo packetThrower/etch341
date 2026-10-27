@@ -81,6 +81,15 @@ pub(super) fn bios_pane(
         // Nothing loaded yet — the file row above is the whole pane.
         return col;
     };
+    if settings.is_empty() && bios_ifd.is_none() {
+        // Parsed fine but found no Setup forms: not a UEFI image (a
+        // router bootloader, a VBIOS, …). Say so rather than show an
+        // empty table.
+        return col.child(body(
+            "No UEFI Setup settings found in this image. It doesn't look \
+             like a UEFI BIOS (no firmware volumes with Setup forms).",
+        ));
+    }
 
     // Search overrides navigation (matches across every form); otherwise
     // the selected form scopes the list, and with neither we show all.

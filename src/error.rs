@@ -15,7 +15,7 @@ pub enum Error {
     DeviceNotFound,
 
     #[error(
-        "Permission denied opening CH341A.\n  \
+        "Found the CH341A (USB 1a86:5512) but couldn't open it: no access or no driver.\n  \
          Linux: sudo cp platform/udev/99-ch341a.rules /etc/udev/rules.d/ && sudo udevadm control --reload\n  \
          Windows: run Zadig and bind WinUSB to the CH341A device."
     )]
@@ -35,6 +35,9 @@ pub enum Error {
 
     #[error("USB error: {0}")]
     Usb(#[from] rusb::Error),
+
+    #[error("CH341A disconnected during the operation")]
+    Disconnected,
 
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),

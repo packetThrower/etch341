@@ -119,6 +119,14 @@ impl Default for Prefs {
 }
 
 impl Prefs {
+    /// Where file dialogs open: the last picked folder, else the read
+    /// save location (where dumps land), else the OS default.
+    pub fn dialog_dir(&self) -> Option<PathBuf> {
+        self.last_hex_dir
+            .clone()
+            .or_else(|| self.read_output_dir.clone())
+    }
+
     /// Per-OS prefs file location:
     ///   - Linux:   `$HOME/.config/etch341/prefs.toml` (XDG-ish)
     ///   - macOS:   `$HOME/.config/etch341/prefs.toml` (same; many

@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 pub mod opcode {
     pub const JEDEC_ID: u8 = 0x9F;
     pub const READ_STATUS: u8 = 0x05;
-    /// Read Status Register 2 (W25Q-family + most modern Macronix /
-    /// GigaDevice parts). Older / simpler chips (24C, SST25VF, some
+    /// Read Status Register 2 (W25Q-family + GigaDevice; NOT Macronix,
+    /// where 0x35 is EQIO / enter-QPI). Older / simpler chips (24C, SST25VF, some
     /// EN25 sizes) don't implement this — they NACK or echo back
     /// `0xFF`/`0x00`. Caller should treat suspicious-looking values
     /// as "not present" rather than as legit register state.
@@ -117,104 +117,111 @@ pub mod sr1 {
     pub const WEL: u8 = 0b0000_0010;
 }
 
-/// Raw SR1/SR2/SR3 register bytes read from the chip, plus the
-/// canonical W25Q-family decoded bit names. Other vendors mostly
-/// follow this layout for SR1; SR2/SR3 vary more — the decode is
-/// best-effort and shouldn't be used to drive writes on chips
-/// outside the W25Q / MX25L / GD25Q families without checking the
-/// datasheet first.
+/// Raw status-register bytes read from the chip. The decode follows
+/// the W25Q family (also GigaDevice) unless `macronix` is set:
+/// Macronix puts BP3 at SR1 bit 5 and QE at bit 6, has no SR2 (its
+/// `0x35` is EQIO, enter-QPI, so we never send it), and `0x15` reads
+/// its configuration register rather than an SR3. Best-effort for
+/// other vendors; check the datasheet before acting on it.
 #[derive(Debug, Clone, Copy)]
 pub struct StatusRegisters {
     pub sr1: u8,
     pub sr2: u8,
+    /// W25Q SR3, or the configuration register on Macronix.
     pub sr3: u8,
+    pub macronix: bool,
+}
+
+/// One decoded register for display: name, raw byte, whether the chip
+/// answered (`0xFF` = MISO high-z, i.e. not implemented), and the
+/// decoded `NAME=value` fields.
+pub struct RegisterView {
+    pub name: &'static str,
+    pub value: u8,
+    pub present: bool,
+    pub bits: Vec<(&'static str, String)>,
 }
 
 impl StatusRegisters {
-    // ---- SR1 ----
-    pub fn wip(self) -> bool {
-        self.sr1 & 0b0000_0001 != 0
-    }
-    pub fn wel(self) -> bool {
-        self.sr1 & 0b0000_0010 != 0
-    }
-    /// Block-Protect bits (BP0..BP2). Together with TB and SR1.bit6
-    /// (varies BP3/SEC by family) they decode to a protected
-    /// region. We surface the raw value; printing converts to
-    /// dot/bar style for readability.
+    /// Block-protect bits: BP0..BP3 (SR1 bits 2-5) on Macronix,
+    /// BP0..BP2 (bits 2-4) on W25Q. Non-zero means some range is
+    /// write-protected and program/erase there silently fails.
     pub fn bp(self) -> u8 {
-        (self.sr1 >> 2) & 0b0000_0111
-    }
-    /// Top/Bottom protect. When set, the BP bits protect from the
-    /// bottom of the chip up; when clear, from the top down.
-    pub fn tb(self) -> bool {
-        self.sr1 & 0b0010_0000 != 0
-    }
-    /// Bit 6 of SR1. On W25Q this is SEC (4 KB sector vs 64 KB
-    /// block protect granularity); on MX25L it's BP3 (extending
-    /// the block-protect mask one bit). Caller decides which name
-    /// to print based on chip family.
-    pub fn sec_or_bp3(self) -> bool {
-        self.sr1 & 0b0100_0000 != 0
-    }
-    /// Status Register Protect 0 — pairs with SR2.SRP1 to gate
-    /// whether SR can be written via WRSR.
-    pub fn srp0(self) -> bool {
-        self.sr1 & 0b1000_0000 != 0
+        let mask = if self.macronix { 0x0F } else { 0x07 };
+        (self.sr1 >> 2) & mask
     }
 
-    // ---- SR2 ----
-    pub fn srp1(self) -> bool {
-        self.sr2 & 0b0000_0001 != 0
-    }
-    /// Quad Enable. Must be set for chips wired in QSPI mode; some
-    /// devices NACK the read-quad opcodes if it's clear.
-    pub fn qe(self) -> bool {
-        self.sr2 & 0b0000_0010 != 0
-    }
-    /// Security-register lock bits LB1..LB3. Setting one bit
-    /// one-time-programs that security page closed.
-    pub fn lb(self) -> u8 {
-        (self.sr2 >> 3) & 0b0000_0111
-    }
-    /// Complement Protect — inverts the BP protect range
-    /// (protected region becomes unprotected and vice versa).
-    pub fn cmp(self) -> bool {
-        self.sr2 & 0b0100_0000 != 0
-    }
-    /// Erase / Program Suspend status.
-    pub fn sus(self) -> bool {
-        self.sr2 & 0b1000_0000 != 0
-    }
-
-    // ---- SR3 ----
-    /// 4-byte-address mode at power-up.
-    pub fn adp(self) -> bool {
-        self.sr3 & 0b0000_0010 != 0
-    }
-    /// Write Protect Selection: 0 = CMP/SEC/TB/BP (standard);
-    /// 1 = individual block / sector lock (WPS-style).
-    pub fn wps(self) -> bool {
-        self.sr3 & 0b0000_0100 != 0
-    }
-    /// Output driver strength (DRV1:DRV0). 0=100%, 1=75%, 2=50%, 3=25%.
-    pub fn drv(self) -> u8 {
-        (self.sr3 >> 5) & 0b0000_0011
-    }
-    /// Pin-7 mode: 0 = /HOLD enabled; 1 = /RESET enabled.
-    pub fn hold_rst(self) -> bool {
-        self.sr3 & 0b1000_0000 != 0
-    }
-
-    /// `true` when the byte is `0xFF` — every read returned all-ones
-    /// which on SPI means MISO was high-z (no device drove it) or
-    /// the chip NACKed by tri-stating. Useful for hiding garbage
-    /// decode of SR2/SR3 on chips that don't implement those.
-    pub fn sr2_present(self) -> bool {
-        self.sr2 != 0xFF
-    }
-    pub fn sr3_present(self) -> bool {
-        self.sr3 != 0xFF
+    /// The registers this chip family has, decoded. Shared by the CLI
+    /// `sr` printout, the GUI Status pane and its Copy text.
+    pub fn views(self) -> Vec<RegisterView> {
+        let b = |byte: u8, bit: u8| ((byte >> bit) & 1).to_string();
+        let sr1 = self.sr1;
+        let sr3 = self.sr3;
+        if self.macronix {
+            return vec![
+                RegisterView {
+                    name: "SR1",
+                    value: sr1,
+                    present: true,
+                    bits: vec![
+                        ("WIP", b(sr1, 0)),
+                        ("WEL", b(sr1, 1)),
+                        ("BP", self.bp().to_string()),
+                        ("QE", b(sr1, 6)),
+                        ("SRWD", b(sr1, 7)),
+                    ],
+                },
+                RegisterView {
+                    name: "CR",
+                    value: sr3,
+                    present: sr3 != 0xFF,
+                    bits: vec![
+                        ("ODS", (sr3 & 0x07).to_string()),
+                        ("TB", b(sr3, 3)),
+                        ("DC", (sr3 >> 6).to_string()),
+                    ],
+                },
+            ];
+        }
+        let sr2 = self.sr2;
+        vec![
+            RegisterView {
+                name: "SR1",
+                value: sr1,
+                present: true,
+                bits: vec![
+                    ("WIP", b(sr1, 0)),
+                    ("WEL", b(sr1, 1)),
+                    ("BP", self.bp().to_string()),
+                    ("TB", b(sr1, 5)),
+                    ("SEC", b(sr1, 6)),
+                    ("SRP0", b(sr1, 7)),
+                ],
+            },
+            RegisterView {
+                name: "SR2",
+                value: sr2,
+                present: sr2 != 0xFF,
+                bits: vec![
+                    ("SRP1", b(sr2, 0)),
+                    ("QE", b(sr2, 1)),
+                    ("LB", ((sr2 >> 3) & 0x07).to_string()),
+                    ("CMP", b(sr2, 6)),
+                    ("SUS", b(sr2, 7)),
+                ],
+            },
+            RegisterView {
+                name: "SR3",
+                value: sr3,
+                present: sr3 != 0xFF,
+                bits: vec![
+                    ("ADP", b(sr3, 1)),
+                    ("WPS", b(sr3, 2)),
+                    ("DRV", ((sr3 >> 5) & 0x03).to_string()),
+                    ("HOLD/RST", b(sr3, 7)),
+                ],
+            },
+        ]
     }
 }
 
@@ -293,16 +300,17 @@ pub fn read_security_register(
     Ok(rx)
 }
 
-/// Read all three status registers in a single op. SR2/SR3 reads
-/// against a chip that doesn't implement them return `0xFF` (MISO
-/// pulled high while the chip ignores the opcode); `StatusRegisters`
-/// surfaces that via `sr2_present`/`sr3_present` so the caller can
-/// skip the decode for that register.
-pub fn read_all_status(spi: &mut dyn SpiTransport) -> Result<StatusRegisters> {
+/// Read the status registers in a single op. Registers a chip doesn't
+/// implement read back `0xFF` (MISO pulled high while the chip ignores
+/// the opcode); `RegisterView::present` hides their decode. On
+/// Macronix (`0xC2`) SR2 is skipped: `0x35` there enters QPI mode,
+/// after which the chip stops answering plain SPI until power-cycled.
+pub fn read_all_status(spi: &mut dyn SpiTransport, macronix: bool) -> Result<StatusRegisters> {
     Ok(StatusRegisters {
         sr1: read_status(spi)?,
-        sr2: read_status_2(spi)?,
+        sr2: if macronix { 0xFF } else { read_status_2(spi)? },
         sr3: read_status_3(spi)?,
+        macronix,
     })
 }
 
@@ -506,6 +514,23 @@ mod tests {
         let mut mock = MockSpi::new([(vec![0x9F, 0x00, 0x00, 0x00], vec![0xFF, 0xEF, 0x40, 0x18])]);
         assert_eq!(jedec_read(&mut mock).unwrap(), [0xEF, 0x40, 0x18]);
         mock.assert_drained();
+    }
+
+    #[test]
+    fn macronix_status_skips_0x35_and_decodes_qe() {
+        // MX25L12835F with QE set: SR1 0x40 is not block protection.
+        let mut mock = MockSpi::new([
+            (vec![0x05, 0x00], vec![0xFF, 0x40]),
+            (vec![0x15, 0x00], vec![0xFF, 0x07]),
+        ]);
+        let regs = read_all_status(&mut mock, true).unwrap();
+        mock.assert_drained();
+        assert_eq!(regs.bp(), 0);
+        let views = regs.views();
+        assert_eq!(views[0].bits[3], ("QE", "1".to_string()));
+        assert_eq!(views[1].name, "CR");
+        // BP3 is SR1 bit 5 on Macronix.
+        assert_eq!(StatusRegisters { sr1: 0x20, ..regs }.bp(), 0b1000);
     }
 
     #[test]

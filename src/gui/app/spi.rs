@@ -466,11 +466,15 @@ impl AppView {
                         true,
                         format!("Read {size} bytes from {name} → {}", path.display()),
                     ),
+                    // `ops::read` deletes the truncated dump on any failure.
                     Err(err) if crate::gui::is_cancel(&err) => {
-                        // Don't leave a truncated dump that looks real.
-                        let _ = std::fs::remove_file(&path);
                         this.set_op_result(false, "Read cancelled; partial dump removed".into())
                     }
+                    // Only the "read:" stage creates the file.
+                    Err(err) if err.starts_with("read:") => this.set_op_result(
+                        false,
+                        format!("Read failed: {err}; partial dump removed"),
+                    ),
                     Err(err) => this.set_op_result(false, format!("Read failed: {err}")),
                 }
                 cx.notify();
@@ -602,7 +606,8 @@ impl AppView {
                         }
                         _ => {}
                     }
-                    crate::spi::read_all_status(&mut ch).map_err(|e| format!("{e}"))
+                    crate::spi::read_all_status(&mut ch, detect.jedec_id[0] == 0xC2)
+                        .map_err(|e| format!("{e}"))
                 })
                 .await;
 
@@ -611,10 +616,12 @@ impl AppView {
                 match outcome {
                     Ok(regs) => {
                         this.status_regs = Some(regs);
-                        this.push_log(format!(
-                            "Status OK: SR1=0x{:02X} SR2=0x{:02X} SR3=0x{:02X}",
-                            regs.sr1, regs.sr2, regs.sr3
-                        ));
+                        let summary: Vec<String> = regs
+                            .views()
+                            .iter()
+                            .map(|v| format!("{}=0x{:02X}", v.name, v.value))
+                            .collect();
+                        this.push_log(format!("Status OK: {}", summary.join(" ")));
                     }
                     Err(err) => this.set_op_result(false, format!("Status read failed: {err}")),
                 }

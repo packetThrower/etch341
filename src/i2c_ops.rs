@@ -53,14 +53,21 @@ pub fn read(
     progress.start(len as u64);
 
     let mut addr = mem_addr;
-    while addr < end {
-        let n = std::cmp::min(READ_CHUNK_BYTES, end - addr);
-        let data = i2c::read(bus, chip, addr, n, pin_straps)?;
-        out.write_all(&data)?;
-        hasher.update(&data);
-        addr += n;
-        crate::ops::tick(progress, (addr - mem_addr) as u64)?;
-    }
+    let streamed = (|| {
+        while addr < end {
+            let n = std::cmp::min(READ_CHUNK_BYTES, end - addr);
+            let data = i2c::read(bus, chip, addr, n, pin_straps)?;
+            out.write_all(&data)?;
+            hasher.update(&data);
+            addr += n;
+            crate::ops::tick(progress, (addr - mem_addr) as u64)?;
+        }
+        Ok(())
+    })();
+    // Close before removing: Windows can't delete an open file.
+    drop(out);
+    crate::ops::remove_if_failed(output, &streamed);
+    streamed?;
     progress.finish();
     println!("Read OK  : {} bytes → {}", len, output.display());
     println!("SHA-256  : {}", hex::encode(hasher.finalize()));

@@ -203,10 +203,14 @@ fn surface(
                 .overflow_y_scroll()
                 .child(
                     div()
+                        .w_full()
                         .flex()
                         .flex_col()
                         .gap_1()
-                        .px_5()
+                        .pl_5()
+                        // Clear the floating chips so long lines wrap
+                        // before running underneath them.
+                        .pr(px(112.0))
                         .py_3()
                         .font_family(theme::MONO_FONT)
                         .text_size(px(12.0))
@@ -235,7 +239,13 @@ fn log_row(line: &LogLine, local_tz: bool) -> impl IntoElement {
         .child(
             // Wrap long log lines (file paths, error messages) instead
             // of letting them run off the right edge.
-            div().flex_1().whitespace_normal().child(line.text.clone()),
+            // `min_w(0)` lets the flex child shrink below its text's
+            // width so it wraps instead of overflowing.
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .whitespace_normal()
+                .child(line.text.clone()),
         )
 }
 
