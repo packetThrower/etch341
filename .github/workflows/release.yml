@@ -717,11 +717,6 @@ jobs:
               echo
             fi
 
-            echo "> ℹ️ **Platform support.**"
-            echo ">"
-            echo "> macOS (arm64 + amd64) is the primary dev target and exercised against real CH341A hardware on every release."
-            echo "> Windows + Linux are built but tested against hardware less often. Issues on any platform are welcome at <https://github.com/${GITHUB_REPOSITORY}/issues>."
-            echo
             if [ -n "$HIGHLIGHTS" ]; then
               echo "## Highlights"
               echo
