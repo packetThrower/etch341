@@ -31,7 +31,7 @@ hardware = []
 # and a slightly bigger binary (~80 KB).
 rusb = { version = "0.9", features = ["vendored"] }
 clap = { version = "4", features = ["derive"] }
-thiserror = "1"
+thiserror = "2"
 indicatif = "0.18"
 toml = "1.1"
 serde = { version = "1", features = ["derive"] }
