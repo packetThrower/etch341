@@ -7,6 +7,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-10-29
+
+Fixes etch341 not starting on a clean Windows install.
+
 ### Fixed
 
 - **etch341 starts on a clean Windows install.** The exe needed the Visual
@@ -780,7 +784,9 @@ Initial release.
   VBIOS chip — full erase → write → verify cycle, byte-identical
   SHA-256 match.
 
-[Unreleased]: https://github.com/packetThrower/etch341/compare/v0.8.0-beta.1...HEAD
+[Unreleased]: https://github.com/packetThrower/etch341/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/packetThrower/etch341/compare/v0.8.0...v0.8.1
+[0.8.0]: https://github.com/packetThrower/etch341/compare/v0.7.0...v0.8.0
 [0.8.0-beta.1]: https://github.com/packetThrower/etch341/compare/v0.7.0...v0.8.0-beta.1
 [0.7.0]: https://github.com/packetThrower/etch341/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/packetThrower/etch341/compare/v0.6.0-beta.1...v0.6.0
