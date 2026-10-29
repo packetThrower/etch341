@@ -7,6 +7,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+### Fixed
+
+- **etch341 starts on a clean Windows install.** The exe needed the Visual
+  C++ Redistributable (`VCRUNTIME140.dll`), so on machines without it
+  Windows refused to start it. The C runtime is now built in, as in
+  zorite, Baudrun and PortFinder.
+
 ## [0.8.0] — 2026-10-26
 
 etch341 moves to [GPUI Kit](https://gpui-kit.com): a rebuilt Settings
