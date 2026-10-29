@@ -1,0 +1,13 @@
+# Static-link the MSVC C runtime into etch341.exe on Windows builds.
+#
+# Without this the exe imports VCRUNTIME140.dll (the Visual C++
+# Redistributable), which a freshly imaged Windows machine doesn't have.
+# The winget validator's sandbox is one, so the first etch341 submission
+# (microsoft/winget-pkgs#464376) failed with Validation-Executable-Error:
+# the exe couldn't load. Users on a clean install would hit the same
+# "VCRUNTIME140.dll was not found" dialog. Same fix as zorite, Baudrun and
+# PortFinder; costs ~200 KB.
+#
+# The msvc guard leaves MinGW builds alone.
+[target.'cfg(all(target_os = "windows", target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]
