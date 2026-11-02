@@ -534,7 +534,7 @@ dependencies = [
  "num-traits",
  "pastey",
  "rayon",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "v_frame",
  "y4m",
 ]
@@ -1676,7 +1676,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.1",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "time",
  "toml 1.1.3+spec-1.1.0",
  "ureq",
@@ -2203,7 +2203,7 @@ dependencies = [
  "hashbrown 0.16.1",
  "log",
  "presser",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "windows 0.62.2",
 ]
 
@@ -2412,7 +2412,7 @@ dependencies = [
  "spin 0.10.1",
  "strum",
  "taffy",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "ttf-parser",
  "url",
  "usvg 0.46.0",
@@ -2460,7 +2460,7 @@ dependencies = [
  "parking_lot",
  "pathfinder_geometry",
  "smallvec",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "zed-font-kit",
 ]
 
@@ -4005,7 +4005,7 @@ dependencies = [
  "once_cell",
  "rustc-hash 1.1.0",
  "spirv",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "unicode-ident",
 ]
 
@@ -4749,14 +4749,13 @@ dependencies = [
 
 [[package]]
 name = "patina"
-version = "24.0.0"
+version = "24.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad69bb4bce5c28275b0a3b3e6856db2492a99415ab3a6cb71522162387bba3fc"
+checksum = "a8fe20650c67de94ffb98e92679c5a0f6279c62aeec31a20927914d6a400d015"
 dependencies = [
  "bitvec",
  "cfg-if",
  "compile-time",
- "crc32fast",
  "fallible-streaming-iterator",
  "log",
  "num-traits",
@@ -4773,9 +4772,9 @@ dependencies = [
 
 [[package]]
 name = "patina_macro"
-version = "24.0.0"
+version = "24.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4beddf4185b559f4fa36c94316a0ba882518260386317743c64a12a82c1cb22"
+checksum = "69c8c5f65c15b67ee3d9607218644bf559c03370e8556056842d021c75d08535"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5161,7 +5160,7 @@ dependencies = [
  "rustc-hash 2.1.2",
  "rustls",
  "socket2",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "web-time",
@@ -5183,7 +5182,7 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "slab",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "tinyvec",
  "tracing",
  "web-time",
@@ -5363,7 +5362,7 @@ dependencies = [
  "rand 0.9.4",
  "rand_chacha 0.9.0",
  "simd_helpers",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "v_frame",
  "wasm-bindgen",
 ]
@@ -5460,7 +5459,7 @@ checksum = "a4e608c6638b9c18977b00b475ac1f28d14e84b27d8d42f70e0bf1e3dec127ac"
 dependencies = [
  "getrandom 0.2.17",
  "libredox",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -6564,7 +6563,7 @@ version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f37a6c354fd28fc9e322ed9bd47e3959576dad28c9d58ea1cf888cce1c7ccb36"
 dependencies = [
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "windows 0.62.2",
  "windows-version",
 ]
@@ -6619,11 +6618,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.18"
+version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4288b5bcbc7920c07a1149a35cf9590a2aa808e0bc1eafaade0b80947865fbc4"
+checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
 dependencies = [
- "thiserror-impl 2.0.18",
+ "thiserror-impl 2.0.21",
 ]
 
 [[package]]
@@ -6639,13 +6638,13 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.18"
+version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebc4ee7f67670e9b64d05fa4253e753e016c6c95ff35b89b7941d6b856dec1d5"
+checksum = "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 3.0.9",
 ]
 
 [[package]]
@@ -7614,7 +7613,7 @@ dependencies = [
  "raw-window-handle",
  "rustc-hash 1.1.0",
  "smallvec",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "wgpu-core-deps-apple",
  "wgpu-core-deps-emscripten",
  "wgpu-core-deps-wasm",
@@ -7703,7 +7702,7 @@ dependencies = [
  "raw-window-metal",
  "renderdoc-sys",
  "smallvec",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "wasm-bindgen",
  "wayland-sys",
  "web-sys",
@@ -7831,7 +7830,7 @@ checksum = "3a4df73e95feddb9ec1a7e9c2ca6323b8c97d5eeeff78d28f1eccdf19c882b24"
 dependencies = [
  "parking_lot",
  "rayon",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "windows 0.61.3",
  "windows-future 0.2.1",
 ]
