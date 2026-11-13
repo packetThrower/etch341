@@ -10,7 +10,7 @@ editUrl: https://github.com/packetThrower/etch341/edit/main/docs/src/content/doc
 |---|---|---|
 | **macOS** | 11 (Big Sur) | arm64 (Apple Silicon), amd64 (Intel) |
 | **Windows** | 10 21H2 (x64) / 11 (arm64) | amd64 (x64), arm64 |
-| **Linux** | Ubuntu 22.04, Debian 12, Fedora 40; Arch &amp; openSUSE Tumbleweed (rolling) | amd64, arm64 |
+| **Linux** | Ubuntu 24.04, Debian 13, Fedora 40; Arch &amp; openSUSE Tumbleweed (rolling) | amd64, arm64 |
 
 The minima track GPUI's supported configurations and the CRT runtime
 the prebuilt binaries link against. Older systems may work if you
