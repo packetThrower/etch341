@@ -22,6 +22,7 @@ ignore = [
     { id = "RUSTSEC-2026-0206", reason = "rustybuzz unmaintained. Transitive via usvg -> gpui (SVG rendering) — same RazrFalcon-maintained family as ttf-parser above, same fix horizon: clears when upstream moves usvg's text shaping off rustybuzz (harfrust is the successor); revisit at each gpui pull." },
     { id = "RUSTSEC-2026-0194", reason = "quick-xml quadratic duplicate-attribute check (DoS-class). Build-time only: wayland-scanner's proc-macro codegen (Linux gpui build dep) parses the bundled Wayland protocol XML; no runtime input reaches it. Clears when the Linux build chain moves to quick-xml >= 0.41; revisit at each gpui pull." },
     { id = "RUSTSEC-2026-0195", reason = "quick-xml unbounded NsReader namespace allocation (DoS-class). Same build-time-only wayland-scanner path as RUSTSEC-2026-0194, same fix horizon." },
+    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained (no patched version; jiff and time are the suggested successors). Transitive via gpui-pre, gpui-pre-scheduler, gpui-base and gpui-component (GPUI Kit). Clears when upstream moves off chrono; revisit at each gpui pull." },
 ]
 
 [licenses]
