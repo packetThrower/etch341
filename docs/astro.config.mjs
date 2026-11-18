@@ -13,12 +13,8 @@ export default defineConfig({
 			title: 'etch341',
 			description:
 				'Cross-platform CLI + GUI flash programmer for the CH341A USB SPI/I²C interface. Read, erase, write, and verify SPI NOR + I²C EEPROM chips.',
-			logo: {
-				src: './src/assets/icon.svg',
-				replacesTitle: false,
-			},
 			favicon: '/favicon.svg',
-			customCss: ['./src/styles/theme.css'],
+			customCss: ['@packetthrower/site-theme/styles/starlight.css'],
 
 			// Site-wide head additions for discoverability:
 			//
@@ -59,27 +55,25 @@ export default defineConfig({
 				},
 			],
 			components: {
-				Hero: './src/components/Hero.astro',
-				// Wraps Starlight's default SocialIcons to add a "Docs"
-				// quick-access pill linking to /install/ — the most
-				// common entry point for visitors landing on a deep
-				// page who want to start over.
-				SocialIcons: './src/components/SocialIcons.astro',
+				// Shared packetThrower header: global bar (Apps menu, search,
+				// theme, GitHub) + etch341's app bar. The landing page at
+				// /etch341/ is src/pages/index.astro, outside Starlight.
+				Header: '@packetthrower/site-theme/components/StarlightHeader.astro',
 			},
-			social: [
-				{
-					icon: 'github',
-					label: 'GitHub',
-					href: 'https://github.com/packetThrower/etch341',
-				},
-			],
 			editLink: {
 				baseUrl: 'https://github.com/packetThrower/etch341/edit/main/docs/',
 			},
 			sidebar: [
-				{ label: 'Install', slug: 'install' },
+				// Same groups, in the same order, on every packetThrower docs site.
 				{
-					label: 'Usage',
+					label: 'Get started',
+					items: [
+						{ label: 'Install', slug: 'install' },
+						{ label: 'Requirements', slug: 'reference/requirements' },
+					],
+				},
+				{
+					label: 'Guides',
 					items: [
 						{ label: 'GUI tour', slug: 'usage/gui' },
 						{ label: 'CLI reference', slug: 'usage/cli' },
@@ -91,12 +85,21 @@ export default defineConfig({
 				{
 					label: 'Reference',
 					items: [
-						{ label: 'Requirements', slug: 'reference/requirements' },
 						{ label: 'Chip database', slug: 'reference/chips' },
 						{ label: 'Testing', slug: 'reference/testing' },
 					],
 				},
-				{ label: 'Changelog', slug: 'changelog' },
+				{
+					label: 'Project',
+					items: [
+						{ label: 'Changelog', slug: 'changelog' },
+						{
+							label: 'Issues',
+							link: 'https://github.com/packetThrower/etch341/issues',
+							attrs: { target: '_blank', rel: 'noopener' },
+						},
+					],
+				},
 			],
 			lastUpdated: true,
 		}),

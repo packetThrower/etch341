@@ -1,0 +1,198 @@
+---
+// Landing page at /etch341/ (replaces the Starlight splash index.mdx).
+// Layout + components come from the shared @packetthrower/site-theme.
+import Layout from '@packetthrower/site-theme/components/Layout.astro';
+import InstallTabs from '@packetthrower/site-theme/components/InstallTabs.astro';
+import { latestRelease } from '@packetthrower/site-theme';
+
+const v = latestRelease()?.version ?? 'latest';
+const description =
+	'Cross-platform CLI + GUI flash programmer for the CH341A USB SPI/I²C interface. Read, erase, write, and verify SPI NOR and I²C EEPROM chips from macOS, Windows, and Linux.';
+
+// JSON-LD SoftwareApplication schema for rich results on the homepage.
+const jsonLd = {
+	'@context': 'https://schema.org',
+	'@type': 'SoftwareApplication',
+	name: 'etch341',
+	applicationCategory: 'DeveloperApplication',
+	applicationSubCategory: 'Flash programmer',
+	operatingSystem: 'macOS, Windows, Linux',
+	description: 'Cross-platform CLI + GUI flash programmer for the CH341A USB SPI/I²C interface.',
+	url: 'https://packetthrower.github.io/etch341/',
+	downloadUrl: 'https://github.com/packetThrower/etch341/releases/latest',
+	license: 'https://github.com/packetThrower/etch341/blob/main/LICENSE',
+	image: 'https://packetthrower.github.io/etch341/og-image.png',
+	author: { '@type': 'Person', name: 'Will Lehnertz', url: 'https://github.com/packetThrower' },
+	offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+	softwareHelp: { '@type': 'CreativeWork', url: 'https://packetthrower.github.io/etch341/install/' },
+};
+
+const shots = [
+	['chipdb', 'chip database'],
+	['hex', 'hex viewer'],
+	['bios', 'bios explorer'],
+	['i2c-write', 'i²c write · 24C64'],
+	['read-progress', 'read in progress'],
+	['settings', 'settings · programmer'],
+];
+---
+
+<Layout title="etch341 — a flash programmer for the CH341A" description={description} app="etch341" ogImage="https://packetthrower.github.io/etch341/og-image.png">
+	<Fragment slot="head">
+		<script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+	</Fragment>
+
+	<section class="pt-hero">
+		<div class="pt-wrap pt-hero-grid">
+			<div>
+				<a class="pt-pill" href="/etch341/changelog/"><span class="pt-ver">v{v}</span> What's new in this release →</a>
+				<h1>A flash programmer <em>for the CH341A.</em></h1>
+				<p class="pt-lede">
+					Read, erase, write and verify SPI NOR flash and I²C EEPROM chips from one cross-platform binary that's both a
+					CLI and a GUI. The chip is auto-detected by JEDEC ID against a database of 116 SPI NOR parts.
+				</p>
+				<div class="pt-actions">
+					<a class="pt-btn pt-btn-primary" href="#install"><span>Download for <span data-pt-os>your OS</span></span></a>
+					<a class="pt-btn" href="/etch341/usage/gui/">Read the docs</a>
+				</div>
+				<div class="pt-chips" style="margin-top:16px">
+					<span class="pt-chip">macOS 11+</span><span class="pt-chip">Windows 10 21H2+</span><span class="pt-chip">Ubuntu 24.04+</span><span class="pt-chip">GPL-3.0+</span>
+				</div>
+			</div>
+			<div class="pt-shot">
+				<img src="/etch341/etch341.png" alt="etch341 GUI showing the Detect pane with a chip identified, the workflow sidebar, and the activity log" width="2624" height="1984" />
+			</div>
+		</div>
+	</section>
+
+	<section class="pt-section">
+		<div class="pt-wrap">
+			<div class="pt-head"><div><div class="pt-eyebrow">What it does</div><h2>Back up, flash and check a chip on the bench.</h2></div></div>
+			<div class="pt-features">
+				<div class="pt-feature">
+					<div class="pt-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="1" /><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" /></svg></div>
+					<h3>SPI NOR flash</h3>
+					<p>Read, erase, write and verify chips up to 32 MB+ on both 3.3V and 1.8V parts, with 4-byte addressing above 16 MB.</p>
+				</div>
+				<div class="pt-feature">
+					<div class="pt-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 17h16" /><circle cx="8" cy="7" r="2" /><circle cx="16" cy="17" r="2" /></svg></div>
+					<h3>I²C EEPROM</h3>
+					<p>Scan the bus, then read, write and verify 24Cxx EEPROMs from the 24C01 (128 B) to the 24C512 (64 KB). Bit-stuffed 24C04 / 08 / 16 handled.</p>
+				</div>
+				<div class="pt-feature">
+					<div class="pt-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6" /><path d="m20 20-4.5-4.5" /></svg></div>
+					<h3>Firmware inspection</h3>
+					<p>Browse a UEFI BIOS dump's Setup options and decode the Intel Flash Descriptor's region map and lock state. Read-only, offline.</p>
+				</div>
+				<div class="pt-feature">
+					<div class="pt-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 8 4 4-4 4M12 16h7" /></svg></div>
+					<h3>CLI + GUI</h3>
+					<p>Double-click for the desktop window; give it a subcommand and it's a CLI. Hex viewer, chip-database browser, status and security registers in both.</p>
+				</div>
+			</div>
+		</div>
+	</section>
+
+	<section class="pt-section pt-band">
+		<div class="pt-wrap pt-split">
+			<div>
+				<div class="pt-eyebrow">SPI workflow</div>
+				<h2>Detect, back up, then <code>verify</code>.</h2>
+				<p>Never write to a chip you haven't backed up. Every read prints the dump's SHA-256, and <code>write</code> runs erase → program → verify by default.</p>
+				<ul class="pt-checks">
+					<li><code>-n</code> / <code>--dry-run</code> checks the chip, range and file without opening the CH341A</li>
+					<li><code>read -o -</code> streams the chip to stdout for <code>sha256sum</code> or <code>diff</code></li>
+					<li>Ctrl-C stops after the block in flight and leaves the bus idle</li>
+				</ul>
+				<div class="pt-actions">
+					<a class="pt-btn" href="/etch341/usage/spi/">SPI flash workflow</a>
+					<a class="pt-btn" href="/etch341/usage/cli/">CLI reference</a>
+				</div>
+			</div>
+			<div class="pt-term" aria-label="Example etch341 session: detect, read and verify a W25Q128JV">
+				<div class="pt-term-bar"><i></i><i></i><i></i><span>etch341 · CH341A · 750 kHz · W25Q128JV</span></div>
+				<pre><span class="t-p">$</span> etch341 detect
+JEDEC ID : <span class="t-ip">0xEF4018</span>
+Chip     : <span class="t-if">W25Q128JV</span>
+Size     : 16384 KB (65536 pages of 256 B, 4096 sectors of 4096 B)
+Notes    : Winbond 128 Mbit — common BIOS flash
+<span class="t-p">$</span> etch341 read -o bios.bin
+<span class="t-ok">Read OK</span>  : 16777216 bytes → bios.bin
+SHA-256  : <span class="t-dim">‹64 hex digits — keep it›</span>
+<span class="t-p">$</span> etch341 verify -i bios.bin
+<span class="t-ok">Verify OK</span>: 16777216 bytes match
+<span class="t-p">$</span> <span class="t-p">▌</span></pre>
+			</div>
+		</div>
+	</section>
+
+	<section class="pt-section">
+		<div class="pt-wrap">
+			<div class="pt-head">
+				<div>
+					<div class="pt-eyebrow">GUI</div>
+					<h2>Every operation, one window.</h2>
+					<p>Detect, read, erase, write and verify panes, plus a hex viewer, a BIOS explorer and a searchable chip database.</p>
+				</div>
+				<a class="pt-link" href="/etch341/usage/gui/">GUI tour →</a>
+			</div>
+			<div class="pt-gallery">
+				{shots.map(([file, caption]) => (
+					<figure><img src={`/etch341/screenshots/${file}.png`} alt={`etch341 ${caption}`} loading="lazy" /><figcaption>{caption}</figcaption></figure>
+				))}
+			</div>
+		</div>
+	</section>
+
+	<section id="install" class="pt-section pt-band">
+		<div class="pt-wrap pt-split">
+			<div>
+				<div class="pt-eyebrow">Install</div>
+				<h2>Stable or alpha, side by side.</h2>
+				<p>
+					Package managers keep etch341 updated and skip first-launch security prompts. The alpha channel installs as a
+					separate app, so you can test upcoming changes against your chips.
+				</p>
+				<div class="pt-channels">
+					<div class="pt-channel"><h3>Stable <span class="pt-ver">{v}</span></h3><span>Homebrew · Scoop · Linux packages</span></div>
+					<div class="pt-channel"><h3>Alpha <span class="pt-ver">pre-release</span></h3><span><code>etch341@alpha</code> · <code>etch341-prerelease</code></span></div>
+				</div>
+			</div>
+			<InstallTabs
+				id="etch341"
+				panels={[
+					{ os: 'mac', cmds: ['brew tap packetThrower/tap', 'brew trust packetThrower/tap', 'brew install --cask etch341'], note: 'Or download the <code>.dmg</code> for Apple silicon or Intel from the release page. No driver setup needed.' },
+					{
+						os: 'win',
+						cmds: ['scoop bucket add packetThrower https://github.com/packetThrower/scoop-bucket', 'scoop install etch341'],
+						note: 'Bind the CH341A to WinUSB once with Zadig first. Setup <code>.exe</code> and <code>.msi</code> for x64 and arm64 on the release page.',
+					},
+					{
+						os: 'linux',
+						cmds: [`sudo apt install ./etch341-${v}-amd64-linux.deb`, `sudo dnf install ./etch341-${v}-1.x86_64.rpm`],
+						note: 'AppImage and Arch <code>.pkg.tar.zst</code> too, for amd64 and arm64. The packages install the udev rule; with the AppImage, copy <code>99-ch341a.rules</code> to <code>/etc/udev/rules.d/</code> yourself.',
+					},
+				]}
+			>
+				<p class="pt-note" style="margin-top:14px">
+					<a href="https://github.com/packetThrower/etch341/releases/latest">Release downloads</a> ·
+					<a href="/etch341/install/">Full install guide, Zadig steps and building from source →</a>
+				</p>
+			</InstallTabs>
+		</div>
+	</section>
+
+	<section class="pt-section">
+		<div class="pt-wrap">
+			<div class="pt-head"><div><div class="pt-eyebrow">Docs</div><h2>Start here</h2></div><a class="pt-link" href="/etch341/install/">All docs →</a></div>
+			<div class="pt-cards">
+				<a class="pt-lcard" href="/etch341/install/"><div class="pt-eyebrow">Get started</div><h3>Install</h3><p>Homebrew, Scoop and Linux packages, plus the one-time Windows driver bind.</p></a>
+				<a class="pt-lcard" href="/etch341/usage/wiring/"><div class="pt-eyebrow">Guide</div><h3>Wiring + voltage</h3><p>Clip orientation, 3.3V vs 1.8V, and in-circuit programming caveats.</p></a>
+				<a class="pt-lcard" href="/etch341/usage/spi/"><div class="pt-eyebrow">Guide</div><h3>SPI flash workflow</h3><p>Detect, back up, erase, write and verify a chip, and what to do when it fails.</p></a>
+				<a class="pt-lcard" href="/etch341/usage/i2c/"><div class="pt-eyebrow">Guide</div><h3>I²C EEPROM workflow</h3><p>Scan the bus, then read and write 24Cxx EEPROMs.</p></a>
+				<a class="pt-lcard" href="/etch341/usage/gui/"><div class="pt-eyebrow">Guide</div><h3>GUI tour</h3><p>Every pane, the hex viewer's Find bar and the BIOS explorer.</p></a>
+				<a class="pt-lcard" href="/etch341/reference/chips/"><div class="pt-eyebrow">Reference</div><h3>Chip database</h3><p>Every SPI NOR part and I²C EEPROM family, and how to add one.</p></a>
+			</div>
+		</div>
+	</section>
+</Layout>
