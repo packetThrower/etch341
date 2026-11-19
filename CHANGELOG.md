@@ -7,6 +7,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 
 ## [Unreleased]
 
+### Changed
+
+- **Moved to GPUI Kit 0.10.0** (gpui-pre 0.3.12), in step with the other
+  packetThrower apps.
+
 ## [0.8.1] — 2026-10-29
 
 Fixes etch341 not starting on a clean Windows install.
